@@ -199,9 +199,12 @@ export function buildF1Car(config, livery) {
   for (const s of [-1, 1]) add(plate([[F + 1.16, 0.05], [F + 0.5, 0.05], [F + 0.45, 0.33], [F + 0.68, 0.34], [F + 1.06, 0.16], [F + 1.16, 0.12]], 0.015), M.accent).position.z = s * 0.985;
 
   // Rear wing: main plane + DRS flap, endplates, swan-neck pylons, beam wing, rain light.
+  // The flap (second element) is returned so the DRS state can open it (flatten it).
+  let drsFlap = null;
   for (const [chord, x, y, deg, span, mat] of [[0.32, R - 0.39, 0.72, 10, 1.0, M.carbon], [0.20, R - 0.61, 0.82, 35, 1.0, M.accent],
     [0.18, R - 0.39, 0.36, 8, 0.84, M.carbon], [0.14, R - 0.54, 0.42, 22, 0.84, M.carbon]]) {
     const m = add(wingElement(chord, span), mat); m.rotation.z = -deg * Math.PI / 180; m.position.set(x, y, 0);
+    drsFlap ??= mat === M.accent ? m : null;
   }
   for (const s of [-1, 1]) {
     add(plate([[R - 0.34, 0.40], [R - 0.36, 0.95], [R - 0.80, 0.95], [R - 0.82, 0.68], [R - 0.62, 0.40]], 0.014), M.paint).position.z = s * 0.505;
@@ -245,5 +248,5 @@ export function buildF1Car(config, livery) {
   const pivots = new Set(wheels.map(w => w.pivot));
   car.children.filter(o => !pivots.has(o)).forEach(o => body.add(o));
   car.add(body);
-  return { group: car, body, wheels, driver: [helmet, visor] };
+  return { group: car, body, wheels, driver: [helmet, visor], drsFlap };
 }

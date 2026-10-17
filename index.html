@@ -18,7 +18,7 @@
 <div class="section stats"><div><div class="label">Longitudinal</div><div class="number" id="long">0.00 g</div></div><div><div class="label">Lateral</div><div class="number" id="lat">0.00 g</div></div><div><div class="label">Downforce</div><div class="number" id="aero">0.0 kN</div></div><div><div class="label">Distance</div><div class="number" id="distance">0 m</div></div><div><div class="label">Sim time</div><div class="number" id="time">0.0 s</div></div><div><div class="label">Steering</div><div class="number" id="steer">0.0°</div></div><div><div class="label">Roll / pitch</div><div class="number" id="attitude">0.00° / 0.00°</div></div><div><div class="label">Aero squat</div><div class="number" id="heave">0 mm</div></div><div><div class="label">Ride F / R</div><div class="number" id="ride">40 / 80 mm</div></div><div><div class="label">Aero balance</div><div class="number" id="balance">40.0% F</div></div><div><div class="label">ERS store</div><div class="number" id="ers">4.00 MJ</div></div><div><div class="label">ERS deployed / lap</div><div class="number" id="ers-lap">0.00 / 4.0 MJ</div></div></div><div class="section"><p class="note" style="margin-top:0">ERS: the MGU-K adds up to 120 kW on the throttle above 100 km/h, at most 4 MJ a lap from a 4 MJ store; braking harvests up to 120 kW (2 MJ a lap) and the MGU-H recharges the store from the exhaust. Illustrative values.</p></div>
 <div class="section"><div class="label">Driver input · <span id="input-source">autopilot</span></div><div class="stats" style="margin-top:10px"><div><div class="label">Throttle</div><meter id="in-throttle" min="0" max="1" value="0" style="width:100%;accent-color:#6fffc3" aria-label="Throttle command"></meter></div><div><div class="label">Brake</div><meter id="in-brake" min="0" max="1" value="0" style="width:100%;accent-color:#ff8e86" aria-label="Brake command"></meter></div></div><p class="note">Keyboard pedals ramp in ~0.17 s and release in 0.1 s; keyboard steering moves toward lock at 3/s and returns at 5/s. Gamepad (standard layout): triggers are analog pedals, left stick steers with a deadzone and progressive curve. Steering authority falls with speed for both.</p></div>
 <div class="section"><div class="label">Tire force / peak grip</div><div class="wheels" id="wheels"></div><p class="note">FL / FR / RL / RR · normal load in kN.<br>Bars: force / peak capacity, not remaining grip. SLIDE: combined demand beyond the illustrative force peak; force falls toward 75% of peak. Slip: signed longitudinal slip; + is wheelspin when moving forward. LOCK: stopped wheel above 1 m/s. α: force-producing (relaxed) / kinematic slip angle; the carcass catches up over 0.45 m of travel. Temp: tread / carcass °C · thermal grip (blue cold, green near the 100 °C optimum, red hot); sliding heats the tread, airflow cools it. Wear: tread used · wear grip; sliding energy wears the tread (faster above the optimum), grip fades then falls off a cliff past 75% wear (amber above 37.5%, red above 75%); reset (R) fits new tires. No ABS or traction control.</p></div>
-<div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>Q</kbd> Reverse · <kbd>E</kbd> Forward (hold while stopped, braking, off throttle; then use W / RT to drive)<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview<br><kbd>C</kbd> Cockpit / chase camera<br><kbd>P</kbd> Autopilot on / off<br><kbd>M</kbd> Sound on / off<br><kbd>O</kbd> Opponents on / off (restarts)<br><kbd>B</kbd> Pit request: box for Soft → Medium → Hard → cancel. On autopilot the car pits at the next entry; driving, take the pit lane on the inside of the main straight (80 km/h limiter, +5 s for speeding) and stop on your box (first, green)<br>Start: hold still on the five red lights, go when they go out (moving early: +5 s)<br>Race: 10 laps (<kbd>?laps=N</kbd> in the URL); penalties are added at the flag; every finisher must have run two compounds (one stop) or is disqualified. Start tyre: <kbd>?tyre=soft|medium|hard</kbd>. Each car starts with the fuel for the race distance (no refuelling); it burns off, so the car gets lighter<br>Gamepad: RT throttle · LT brake · left stick steer</div>
+<div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>Q</kbd> Reverse · <kbd>E</kbd> Forward (hold while stopped, braking, off throttle; then use W / RT to drive)<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>F</kbd> DRS (hold; gamepad RB). Races: from lap 3, in a DRS zone after being within 1 s of the car ahead at its detection point; braking closes it. Open, it cuts drag 12% and downforce 10% (rear only; illustrative)<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview<br><kbd>C</kbd> Cockpit / chase camera<br><kbd>P</kbd> Autopilot on / off<br><kbd>M</kbd> Sound on / off<br><kbd>O</kbd> Opponents on / off (restarts)<br><kbd>B</kbd> Pit request: box for Soft → Medium → Hard → cancel. On autopilot the car pits at the next entry; driving, take the pit lane on the inside of the main straight (80 km/h limiter, +5 s for speeding) and stop on your box (first, green)<br>Start: hold still on the five red lights, go when they go out (moving early: +5 s)<br>Race: 10 laps (<kbd>?laps=N</kbd> in the URL); penalties are added at the flag; every finisher must have run two compounds (one stop) or is disqualified. Start tyre: <kbd>?tyre=soft|medium|hard</kbd>. Each car starts with the fuel for the race distance (no refuelling); it burns off, so the car gets lighter<br>Gamepad: RT throttle · LT brake · left stick steer</div>
 <p class="note">Illustrative, uncalibrated dynamics. Body roll, pitch and aero squat are damped spring modes for display; wheel loads are still quasi-static. Surface grip (assumed): kerb 90%, runoff 70%, grass 35%. Walls are rigid: the body footprint rebounds with 25% restitution and scrubs with friction 0.5; no damage model. Tires start at 70 °C (blanket temperature) and have a two-node thermal model and tread wear; no pressure or camber yet. Compounds (assumed): soft +1.5% grip and 2× wear, hard −1.5% grip and 0.55× wear relative to the medium; a pit stop fits a new set at blanket temperature after a 2.1–3.2 s service. Sound is synthesized from engine rpm, throttle, turbo spool, tire sliding power and speed (V6 firing frequency; no recorded samples). This is a handling testbed, not a validated F1 simulator.</p>
 </aside></main>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
@@ -66,6 +66,7 @@ function toggleSound() {
 window.addEventListener('pointerdown', startAudio);
 // First connected gamepad that reports the W3C standard layout.
 const gamepad = () => [...(navigator.getGamepads?.() ?? [])].map(p => readGamepad(p)).find(Boolean) ?? null;
+const gamepadButton = i => [...(navigator.getGamepads?.() ?? [])].find(p => p?.connected && p.mapping === 'standard')?.buttons[i]?.pressed;
 function toggleAutopilot() {
   autopilot = !autopilot; keys.clear(); driver.reset();
   $('autopilot').textContent = `Autopilot: ${autopilot ? 'on' : 'off'}`;
@@ -118,7 +119,7 @@ function cyclePitRequest() { sim.requestPit(PIT_CYCLE[(PIT_CYCLE.indexOf(sim.ent
 const TYRE_COLOR = { soft: '#ff3b30', medium: '#ffd60a', hard: '#f2f2f2' };
 const tyreBadge = c => `<span class="tyre" style="border-color:${TYRE_COLOR[c]};color:${TYRE_COLOR[c]}" title="${c}">${c[0].toUpperCase()}</span>`;
 const title = c => c[0].toUpperCase() + c.slice(1);
-const drivingKeys = ['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyQ','KeyE'];
+const drivingKeys = ['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyQ','KeyE','KeyF'];
 window.addEventListener('keydown', e => {
   if (e.target.closest('button,input,select,textarea')) return;
   if ([...drivingKeys,'Space','KeyR','KeyV','KeyP','KeyC','KeyM','KeyO','KeyB'].includes(e.code)) e.preventDefault();
@@ -174,6 +175,11 @@ const rivals = DEFAULT_GRID.map(spec => {
   scene.add(m.group); return { model: m, wheelAngle: [0, 0, 0, 0] };
 });
 const hex = n => `#${n.toString(16).padStart(6, '0')}`;
+// DRS state of an entry for the HUD: open, available in this zone, the last
+// detection gap, or when it is enabled (races only; not in a time trial).
+const drsNote = e => !sim.drsZones?.length || sim.finish.flag ? '' : e.car.drs > 0.5 ? ' · <strong style="color:#6fffc3">DRS OPEN</strong>'
+  : e.drsAllowed ? ` · <strong style="color:#6fffc3">DRS${autopilot ? '' : ' · hold F'}</strong>` : !sim.drsEnabled ? ` · DRS from lap ${sim.options.drsEnableLaps + 1}`
+  : e.drsGap !== null && Number.isFinite(e.drsGap) ? ` · DRS gap ${e.drsGap.toFixed(2)} s` : ' · DRS';
 // Pose a car model from its physics state: ground-plane position and heading,
 // sprung-body roll/pitch/heave, wheel spin and front-wheel steer.
 function poseCar(m, c, angles, dt) {
@@ -185,6 +191,8 @@ function poseCar(m, c, angles, dt) {
     w.spin.rotation.z = -angles[i];
     if (w.front) w.pivot.rotation.y = c.steer;
   });
+  // DRS: the flap swings from 35° to 5° of incidence as it opens.
+  m.drsFlap.rotation.z = -(35 - 30 * (c.drs ?? 0)) * Math.PI / 180;
 }
 function resize() {
   const bounds = canvas.getBoundingClientRect();
@@ -299,14 +307,14 @@ function render(dt = 0) {
     const standings = sim.standings(), me = standings.find(s => s.player);
     $('race-label').textContent = 'Race order · interval to leader';
     $('race-pos').textContent = `P${me.position} / ${standings.length} · Lap ${Math.min(me.lap, finish.laps)}/${finish.laps}`;
-    $('standings').innerHTML = standings.map(s => `<li class="${s.player ? 'you' : ''}"><span>${s.position}</span>${swatch(s)}${s.name}<b>${s.position === 1 ? `Lap ${Math.min(s.lap, finish.laps)}` : `+${s.gap.toFixed(3)}`}${s.penalty ? ` · +${s.penalty}s pen` : ''}${s.pit ? ' · PIT' : ''}${s.retired ? ' · OUT' : ''}${tyreBadge(s.compound)}</b></li>`).join('');
+    $('standings').innerHTML = standings.map(s => `<li class="${s.player ? 'you' : ''}"><span>${s.position}</span>${swatch(s)}${s.name}<b>${s.position === 1 ? `Lap ${Math.min(s.lap, finish.laps)}` : `+${s.gap.toFixed(3)}`}${s.penalty ? ` · +${s.penalty}s pen` : ''}${s.pit ? ' · PIT' : ''}${s.retired ? ' · OUT' : ''}${s.drs === 'open' ? ' · DRS' : ''}${tyreBadge(s.compound)}</b></li>`).join('');
   } else $('race-pos').textContent = '';
   const contact = c.contact && c.contact.speed > 1 && c.time - c.contact.time < 1.5 ? c.contact : null;
   const surface = track.surface(c.x, c.y), impact = c.impact && c.impact.speed > 2 && c.time - c.impact.time < 1.5 ? c.impact : null;
   const start = sim.start, me = sim.entries[0];
   // Tyres and pit stop: compound, most worn tire, request, stop in progress.
   const worn = Math.max(...c.tireWear);
-  $('pit-info').innerHTML = `${tyreBadge(c.compound)}${title(c.compound)} · ${(worn * 100).toFixed(1)}% worn${me.stops.length ? ` · ${me.stops.length} stop${me.stops.length > 1 ? 's' : ''}` : ''}${me.pitRequest ? ` · Box: ${title(me.pitRequest)}` : ''}${c.fuel != null ? ` · Fuel ${c.fuel.toFixed(1)} kg` : ''}`;
+  $('pit-info').innerHTML = `${tyreBadge(c.compound)}${title(c.compound)} · ${(worn * 100).toFixed(1)}% worn${me.stops.length ? ` · ${me.stops.length} stop${me.stops.length > 1 ? 's' : ''}` : ''}${me.pitRequest ? ` · Box: ${title(me.pitRequest)}` : ''}${c.fuel != null ? ` · Fuel ${c.fuel.toFixed(1)} kg` : ''}${drsNote(me)}`;
   const lane = sim.inPitLane(c), service = me.pit?.phase === 'service' ? me.pit : null;
   const pitNote = c.fuel === 0 ? 'Out of fuel · engine starved' : service ? `Pit stop · fitting ${title(service.compound)} · ${Math.max(0, sim.time - service.begin).toFixed(1)} s`
     : lane ? `Pit lane · ${Math.round(sim.pit.speedLimit * 3.6)} km/h limiter${me.pitVisit?.speeding ? ` · speeding +${sim.options.pitSpeedingPenalty} s` : !me.pitVisit?.served && me.pit?.phase !== 'out' ? ' · stop in your box (green)' : ''}`
@@ -330,6 +338,8 @@ function frame(now) {
       left: has('KeyA', 'ArrowLeft'), right: has('KeyD', 'ArrowRight'),
     }, gamepad(), sim.car.telemetry.speed);
     if (command) command.reverse = has('KeyQ') && !has('KeyE') ? true : has('KeyE') && !has('KeyQ') ? false : undefined;
+    // DRS: hold F (or gamepad RB); the race opens the flap only where it is allowed.
+    if (command) command.drs = has('KeyF') || !!gamepadButton(5);
     // Taking over from manual reverse: stop before selecting forward. Never
     // send a forward-path autopilot's throttle through a reverse gearbox.
     const forwardRecovery = autopilot && sim.car.gear < 0;
@@ -356,7 +366,7 @@ reset(); resize(); requestAnimationFrame(frame);
 window.f1Lab = {
   snapshot: () => ({ car: structuredClone(sim.car), timing: structuredClone(timer.state), paused, overview, cockpit, keys: [...keys], command: { ...command }, inputSource: autopilot ? 'autopilot' : driver.source }),
   track: () => ({ key: circuitKey, name: circuitKey ? track.name : 'Stadium test track', length: track.length, surface: track.surface(sim.car.x, sim.car.y), offset: track.offset(sim.car.x, sim.car.y), progress: track.progress(sim.car.x, sim.car.y) }),
-  race: () => ({ opponents, finish: sim.finish, classification: sim.classification(), standings: opponents ? sim.standings() : [], cars: sim.entries.map(e => ({ name: e.name, x: e.car.x, y: e.car.y, speed: e.car.telemetry.speed, lane: e.lane, compound: e.car.compound, pit: e.pit?.phase ?? null, pitRequest: e.pitRequest, stops: structuredClone(e.stops), compounds: [...e.compounds], penalty: e.penalty, wake: e.car.wake.strength ?? 0, contact: e.car.contact ?? null, ...(m => ({ visible: m.group.visible, drawn: [m.group.position.x, -m.group.position.z] }))(e.player ? model : rivals[e.index - 1].model) })) }),
+  race: () => ({ opponents, finish: sim.finish, classification: sim.classification(), standings: opponents ? sim.standings() : [], cars: sim.entries.map(e => ({ name: e.name, x: e.car.x, y: e.car.y, speed: e.car.telemetry.speed, lane: e.lane, compound: e.car.compound, pit: e.pit?.phase ?? null, pitRequest: e.pitRequest, stops: structuredClone(e.stops), compounds: [...e.compounds], penalty: e.penalty, wake: e.car.wake.strength ?? 0, contact: e.car.contact ?? null, drs: e.car.drs, drsAllowed: !!e.drsAllowed, drsGap: e.drsGap, ...(m => ({ visible: m.group.visible, drawn: [m.group.position.x, -m.group.position.z], flap: m.drsFlap.rotation.z }))(e.player ? model : rivals[e.index - 1].model) })) }),
   start: () => (m => ({ ...sim.start, jumpStart: m.jumpStart, penalty: m.penalty, reaction: m.reaction, shown: !$('lights').hidden, litShown: $('lights').querySelectorAll('.on').length, status: $('status').textContent }))(sim.entries[0]),
   sound: () => ({ on: soundOn, state: audioCtx?.state ?? null, params: soundParams && { ...soundParams } }),
   // 3D render state: draw stats, the car's on-screen position and the pixel there.

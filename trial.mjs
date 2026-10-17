@@ -3,8 +3,10 @@
 // createRace (car, entries[0], advance, start, finish, standings...) so the
 // browser front end drives either. The car starts `runUp` metres before the
 // start/finish line on the racing line, so lap 1 begins with a flying start.
+// DRS is free to use in the circuit's DRS zones, as in practice and qualifying.
 import { Simulation, createCar, fitTires, newErsLap, tireTempGrip, tireWearGrip, TIRE_COMPOUNDS, FIXED_DT } from './physics.mjs';
 import { createCircuitAutopilot } from './autopilot.mjs';
+import { findDrsZones, inDrsZone } from './race.mjs';
 
 export function createTimeTrial(track, { tyre = 'medium', runUp = 150, car: carSpec } = {}) {
   const car = createCar(carSpec);
@@ -19,11 +21,12 @@ export function createTimeTrial(track, { tyre = 'medium', runUp = 150, car: carS
   const tyreGrip = () => TIRE_COMPOUNDS[car.compound].grip
     * Math.min(...car.tireTemp.map(x => x.surface > car.config.tireOptimalTemp ? tireTempGrip(car.config, x) : 1))
     * tireWearGrip(car.config, Math.max(...car.tireWear));
+  const drsZones = findDrsZones(track);
   let accumulator = 0, last = track.progress(car.x, car.y);
   const entry = { name: 'You', player: true, index: 0, car, command: null, stops: [], compounds: [tyre], pit: null, pitVisit: null, pitRequest: null,
-    jumpStart: false, reaction: null, penalty: 0, lane: 0 };
+    jumpStart: false, reaction: null, penalty: 0, lane: 0, drsAllowed: false, drsGap: null };
   return {
-    car, entries: [entry], drive, time: 0, pit: null, options: {},
+    car, entries: [entry], drive, time: 0, pit: null, options: {}, drsZones, drsEnabled: true,
     start: { enabled: false, phase: 'race', lit: 0, lightsOut: 0, sinceLightsOut: Infinity },
     finish: { laps: 0, flag: false, flagTime: null, done: false },
     // input: the player's command, or null to let the circuit autopilot drive
@@ -33,7 +36,10 @@ export function createTimeTrial(track, { tyre = 'medium', runUp = 150, car: carS
       accumulator += Math.min(elapsed, 0.25);
       let steps = 0;
       while (accumulator + 1e-12 >= FIXED_DT) {
-        entry.command = input ?? drive(car, { grip: tyreGrip() });
+        // The autopilot opens DRS throughout a zone; the player's request counts only in one.
+        entry.drsAllowed = drsZones.some(z => inDrsZone(track, z, track.progress(car.x, car.y)));
+        const command = input ?? { ...drive(car, { grip: tyreGrip() }), drs: true };
+        entry.command = { ...command, drs: entry.drsAllowed && command.drs === true };
         sim.advance(FIXED_DT, entry.command, surfaceAt, barrierAt);
         const p = track.progress(car.x, car.y);
         if (last - p > track.length / 2) newErsLap(car);

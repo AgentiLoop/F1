@@ -42,6 +42,15 @@ export const RACE_DEFAULTS = Object.freeze({
   // On a real circuit the burn is fuelPerKm kg per km of lap length instead.
   fuelPerLap: 0.38, fuelPerKm: 0.32, fuelMargin: 0.03, fuelReserve: 1,
   pitDecel: 14, boxDecel: 5, stopTimeMin: 2.1, stopTimeMax: 3.2, boxWindow: 3, pitSpeedingPenalty: 5, pitWear: 0.6, pitGap: 8, pitHeadway: 1.2, queueDistance: 200,
+  // DRS (after the 2011-25 sporting rules; zone placement illustrative): a car
+  // within drsGap s of the car ahead at a zone's detection point may open its
+  // flap in that zone, once the leader has completed drsEnableLaps laps and
+  // until the chequered flag. Zones open drsZoneDelay m after a corner exit and
+  // close at the next corner, detection drsDetection m before the opening; on a
+  // circuit the drsZones longest straights of at least drsMinStraight m get one,
+  // a straight being where the racing line curves no tighter than drsCurvature
+  // (1/m; looser than cornerCurvature so a zone runs on to the braking zone).
+  drsGap: 1, drsEnableLaps: 2, drsZoneDelay: 60, drsDetection: 150, drsZones: 2, drsMinStraight: 450, drsCurvature: 1 / 200,
 });
 
 // Smooth 0..1 blend of s across [a, b] (cosine, zero lateral rate at both ends).
@@ -138,6 +147,37 @@ export function resolveCarContact(a, b, o = RACE_DEFAULTS) {
   return -vn;
 }
 
+// Where a circuit's racing line counts as a corner: distance (m) to the next
+// corner and since the last one per line sample, where the line curves
+// tighter than cornerCurvature (within 6 m).
+function circuitBends(track, o) {
+  const k = track.samples.lineCurvature, n = k.length, step = track.length / n, w = Math.round(6 / step);
+  const curvy = Array.from(k, (_, i) => { for (let j = -w; j <= w; j++) if (Math.abs(k[(i + j + n) % n]) > o.cornerCurvature) return true; return false; });
+  const to = new Float64Array(n), since = new Float64Array(n);
+  let d = Infinity; for (let r = 2 * n - 1; r >= 0; r--) { const i = r % n; d = curvy[i] ? 0 : d + step; to[i] = d; }
+  d = Infinity; for (let r = 0; r < 2 * n; r++) { const i = r % n; d = curvy[i] ? 0 : d + step; since[i] = d; }
+  return { to, since, step, n };
+}
+
+// DRS zones { detection, start, end } (lap progress, m) in lap order: the
+// stadium's two straights, or a circuit's drsZones longest runs of the racing
+// line between corners of at least drsMinStraight m (see RACE_DEFAULTS).
+export function findDrsZones(track, options = {}) {
+  const o = { ...RACE_DEFAULTS, ...options }, length = track.length, ahead = d => ((d % length) + length) % length;
+  let straights;
+  if (track.kind === 'circuit') {
+    const b = circuitBends(track, { cornerCurvature: o.drsCurvature });
+    straights = b.to.every(d => d === Infinity) ? [] : Array.from(b.to, (d, i) => d > 0 && b.to[(i - 1 + b.n) % b.n] === 0 ? [i * b.step, i * b.step + d] : null)
+      .filter(r => r && r[1] - r[0] >= o.drsMinStraight).sort((x, y) => (y[1] - y[0]) - (x[1] - x[0])).slice(0, o.drsZones);
+  } else {
+    const straight = 2 * track.halfStraight, arc = Math.PI * track.radius;
+    straights = [[0, straight], [straight + arc, 2 * straight + arc]];
+  }
+  return straights.map(([a, z]) => ({ detection: ahead(a + o.drsZoneDelay - o.drsDetection), start: ahead(a + o.drsZoneDelay), end: ahead(z) }))
+    .sort((x, y) => x.start - y.start);
+}
+export const inDrsZone = (track, z, p) => { const L = track.length, a = d => ((d % L) + L) % L; return a(p - z.start) <= a(z.end - z.start); };
+
 // track: createStadiumTrack(); grid: opponent specs (the player is entry 0 on
 // pole, on the centreline at x = 0; opponents line up 8 m apart behind,
 // alternating either side of the centreline). start: false races from t = 0;
@@ -150,7 +190,7 @@ export function resolveCarContact(a, b, o = RACE_DEFAULTS) {
 // when their tread wear passes pitWear (or the player requests a stop).
 // fuel: in a race with a distance every car carries the fuel for it (unless
 // its car spec sets fuelLoad); the burn-off makes the cars lighter lap by lap.
-export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false, laps = 0, compoundRule = false, fuel = true } = {}) {
+export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false, laps = 0, compoundRule = false, fuel = true, drs = true } = {}) {
   const o = { ...RACE_DEFAULTS, ...options };
   const rand = random(start?.seed ?? (Math.random() * 2 ** 32));
   const lightsOn = start ? 5 * o.lightInterval : 0;
@@ -181,7 +221,9 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       reactionTime: o.reactionMin + rand() * (o.reactionMax - o.reactionMin), reaction: null, jumpStart: false, penalty: 0, finish: null,
       // Pit stops: own box, compounds used, completed stops, the stop in
       // progress (phase in/service/out), this pit-lane visit, player request.
-      tyres, box: pit ? pit.boxStart + pit.boxSpacing * i : null, compounds: [tyres[0]], stops: [], pit: null, pitVisit: null, pitRequest: null, drive };
+      tyres, box: pit ? pit.boxStart + pit.boxSpacing * i : null, compounds: [tyres[0]], stops: [], pit: null, pitVisit: null, pitRequest: null, drive,
+      // DRS: zones this car may open its flap in, its latest detection gap (s).
+      drsArmed: new Set(), drsGap: null };
   });
   // Planned stop lap under the compound rule: 35-65% race distance.
   for (const e of entries) e.stopLap = rule ? clamp(Math.round(laps * (0.35 + 0.3 * rand())), 1, laps - 1) : null;
@@ -194,14 +236,15 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
   // Distance (m) to the next corner and since the last one: the stadium's
   // hairpins, or where a circuit's racing line curves tighter than
   // cornerCurvature (within 6 m).
-  const bends = circuit && (() => {
-    const k = track.samples.lineCurvature, n = k.length, step = length / n, w = Math.round(6 / step);
-    const curvy = Array.from(k, (_, i) => { for (let j = -w; j <= w; j++) if (Math.abs(k[(i + j + n) % n]) > o.cornerCurvature) return true; return false; });
-    const to = new Float64Array(n), since = new Float64Array(n);
-    let d = Infinity; for (let r = 2 * n - 1; r >= 0; r--) { const i = r % n; d = curvy[i] ? 0 : d + step; to[i] = d; }
-    d = Infinity; for (let r = 0; r < 2 * n; r++) { const i = r % n; d = curvy[i] ? 0 : d + step; since[i] = d; }
-    return { to, since, step, n };
-  })();
+  const bends = circuit && circuitBends(track, o);
+  // DRS zones in lap order; last: the latest detection time of a car in the
+  // race (not pitting, retired or finished).
+  const drsZones = !drs ? [] : findDrsZones(track, o).map(z => ({ ...z, last: -Infinity }));
+  // Fraction of the last step at which covered distance passed lap point `point` (null if it did not).
+  const crossing = (before, after, point) => Math.floor((after - point) / length) > Math.floor((before - point) / length)
+    ? (after - (Math.floor((after - point) / length) * length + point)) / (after - before) : null;
+  const drsEnabled = () => flagTime === null && time >= lightsOut && Math.max(...entries.map(e => e.covered)) >= o.drsEnableLaps * length;
+  const drsAllowed = e => !e.finish && !e.pit && !e.retired && drsEnabled() && [...e.drsArmed].some(z => inDrsZone(track, z, track.progress(e.car.x, e.car.y)));
   function corners(car) {
     const s = track.progress(car.x, car.y);
     if (bends) { const i = Math.floor(s / bends.step) % bends.n; return { toCorner: bends.to[i], fromCorner: bends.since[i] }; }
@@ -459,6 +502,10 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
         : time < lightsOut + (start ? e.reactionTime : 0) ? hold : recoveryCommand(e, barrierAt) ?? aiCommand(i);
       // Pit limiter: no drive above the speed limit in the pit lane.
       if (command.throttle > 0 && pit && e.car.telemetry.speed > pit.speedLimit && inPitLane(e.car)) command = { ...command, throttle: 0 };
+      // DRS: the AI (and the player's autopilot) opens it wherever allowed;
+      // the player's own request (input.drs) is ignored where it is not.
+      e.drsAllowed = drsAllowed(e);
+      command = { ...command, drs: e.drsAllowed && (!e.manual || command.drs === true) };
       return (e.command = command);
     });
     entries.forEach((e, i) => step(e.car, commands[i], FIXED_DT, surfaceAt, barrierAt));
@@ -483,6 +530,16 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
           e.finish = { laps: Math.round(line / length), time: t - lightsOut };
         }
       }
+      // DRS detection (gap to whichever car crossed last) and zone ends.
+      for (const z of drsZones) {
+        if (crossing(before, e.covered, z.end) !== null) e.drsArmed.delete(z);
+        const f = crossing(before, e.covered, z.detection);
+        if (f === null || e.pit || e.retired || e.finish) continue;
+        const t = time - FIXED_DT * f;
+        e.drsGap = t - z.last;
+        if (drsEnabled() && e.drsGap <= o.drsGap) e.drsArmed.add(z); else e.drsArmed.delete(z);
+        z.last = t;
+      }
       updatePit(e);
       e.stuck = !e.player && !e.pit && !e.recovery && !e.finish && !e.retired && time > lightsOut + 2 && e.car.telemetry.speed < 1 ? (e.stuck ?? 0) + FIXED_DT : 0;
       if (e.stuck > o.retireAfter) e.retired = { time: time - lightsOut, lap: Math.max(0, Math.floor(e.covered / length)) + 1 };
@@ -495,7 +552,8 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
   }
 
   return {
-    entries, options: o, aiCommand, pit, compoundRule: rule, inPitLane: car => inPitLane(car),
+    entries, options: o, aiCommand, pit, compoundRule: rule, drsZones,
+    get drsEnabled() { return drsEnabled(); }, inPitLane: car => inPitLane(car),
     // Player's pit request: the compound to fit at the next stop (null cancels).
     // On autopilot the car boxes at the next pit entry; driving, stop in the box.
     requestPit(compound) { if (pit) entries[0].pitRequest = compound === null || TIRE_COMPOUNDS[compound] ? compound : entries[0].pitRequest; },
@@ -520,7 +578,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     standings() {
       return [...entries].sort((a, b) => b.covered - a.covered).map((e, k) => ({
         position: k + 1, name: e.name, player: !!e.player, index: e.index, penalty: e.penalty, jumpStart: e.jumpStart, reaction: e.reaction,
-        compound: e.car.compound, stops: e.stops.length, pit: e.pit?.phase ?? null, fuel: e.car.fuel, retired: !!e.retired,
+        compound: e.car.compound, stops: e.stops.length, drs: e.car.drs > 0.5 ? 'open' : e.drsAllowed ? 'available' : null, pit: e.pit?.phase ?? null, fuel: e.car.fuel, retired: !!e.retired,
         lap: Math.max(0, Math.floor(e.covered / length)) + 1, covered: e.covered,
         gap: k === 0 || e.milestone === undefined ? 0 : e.milestoneTime - (passTimes.get(e.milestone) ?? e.milestoneTime),
       }));

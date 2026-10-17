@@ -67,6 +67,12 @@ export const DEFAULT_CAR = Object.freeze({
   // also keeps it out of first-gear wheelspin). ers: false = no ERS.
   ers: true, ersPower: 120000, ersMaxTorque: 200, ersCapacity: 4e6, ersStartCharge: 1,
   ersDeployPerLap: 4e6, ersHarvestPerLap: 2e6, ersHeatShare: 0.06, ersMinSpeed: 100 / 3.6, ersSpeedBlend: 5,
+  // DRS (illustrative, after the 2011-25 rules): input.drs true opens the
+  // rear-wing flap at drsRate of full travel per second; braking (> drsBrake)
+  // or no request closes it at the same rate. Fully open it sheds drsDragLoss of
+  // the drag and drsDownforceLoss of the downforce, all of it from the rear
+  // (the balance moves forward). Where it may open is up to race.mjs.
+  drsDragLoss: 0.12, drsDownforceLoss: 0.1, drsRate: 4, drsBrake: 0.05,
 });
 // Dry compounds (illustrative): peak-grip multiplier and wear-rate multiplier
 // relative to the medium. Softer rubber grips more and wears faster.
@@ -90,6 +96,8 @@ export function createCar(overrides = {}) {
     gear: 1, shiftTimer: 0, impact: null,
     // Aero multipliers from running in another car's wake (set by race.mjs).
     wake: { drag: 1, downforce: 1 },
+    // DRS flap position (0 closed, 1 open).
+    drs: 0,
     // roll > 0: left side up; pitch > 0: nose down; heave > 0: body lower (m).
     body: { roll: 0, rollRate: 0, pitch: 0, pitchRate: 0, heave: 0, heaveRate: 0 },
     // FL, FR, RL, RR tread surface and carcass temperatures (°C).
@@ -338,10 +346,16 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const speed = Math.hypot(u, v);
   const q = 0.5 * c.airDensity * speed * speed;
   const aero = aeroMap(car);
-  const wake = car.wake ?? { drag: 1, downforce: 1 }, dragArea = c.dragArea * wake.drag;
-  const downforce = q * c.downforceArea * aero.factor * wake.downforce;
+  // DRS flap: opens on request, closes on the brakes or without a request.
+  const drsTarget = input.drs === true && brake <= c.drsBrake ? 1 : 0;
+  car.drs = clamp(drsTarget, (car.drs ?? 0) - c.drsRate * dt, (car.drs ?? 0) + c.drsRate * dt);
+  const drsDownforce = 1 - c.drsDownforceLoss * car.drs;
+  const wake = car.wake ?? { drag: 1, downforce: 1 }, dragArea = c.dragArea * wake.drag * (1 - c.drsDragLoss * car.drs);
+  const downforce = q * c.downforceArea * aero.factor * wake.downforce * drsDownforce;
   const drag = q * dragArea;
-  const loads = wheelLoads(car, downforce, aero.frontShare);
+  // The open flap only unloads the rear: the front's share of what is left grows.
+  const frontShare = aero.frontShare / drsDownforce;
+  const loads = wheelLoads(car, downforce, frontShare);
   const frontX = c.wheelbase * (1 - c.frontWeight);
   const rearX = -c.wheelbase * c.frontWeight;
   const positions = [[frontX, c.track / 2], [frontX, -c.track / 2], [rearX, c.track / 2], [rearX, -c.track / 2]];
@@ -491,7 +505,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   if (barrierAt) resolveBarrier(car, barrierAt);
   car.time += dt;
   car.distance += Math.hypot(car.vx, car.vy) * dt;
-  car.telemetry = { speed: Math.hypot(car.vx, car.vy), downforce, drag, wheels, aero,
+  car.telemetry = { speed: Math.hypot(car.vx, car.vy), downforce, drag, wheels, aero, frontShare, drs: car.drs,
     powertrain: { gear: car.gear, rpm, crankTorque, iceTorque, ersTorque, axleTorque,
       ers: ers ? { charge: ers.charge, deployed: ers.deployed, harvested: ers.harvested,
         deploy: ersTorque * crankOmega, harvest: ersHarvest } : null, clutchLocked, shifting, diffTransfer,
