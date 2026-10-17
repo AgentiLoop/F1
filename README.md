@@ -38,8 +38,8 @@ coordinates are right-handed, with body x forward, y left, and positive yaw left
   rear-wheel drive, power/torque-limited propulsion, and front/rear brake bias.
 - Four independent wheel angular velocities and inertias. Drive/brake torques
   act on wheels; longitudinal slip generates contact force on the chassis.
-- Saturating lateral force from slip angle, load-sensitive grip, and a combined
-  longitudinal/lateral friction-circle limit.
+- Load-sensitive grip with a combined longitudinal/lateral demand envelope that
+  rises to a peak and falls smoothly to a lower sliding force (see below).
 - Speed-squared aerodynamic load; drag integrated dissipatively after contact
   impulses to avoid reversing a nearly stopped car under braking.
 - Quasi-static longitudinal/lateral normal-load transfer with filtered
@@ -73,37 +73,68 @@ sign interpretation. The low-speed denominator is regularization, not tire data.
 
 Defaults introduced here: radius 0.33 m, wheel inertia 1.6 kg m², longitudinal
 stiffness 100000 N per unit slip. **All are illustrative, not measured F1 data.**
-There is no peak-to-sliding grip falloff, tire relaxation, thermal/wear state,
-ABS, or traction control. A locked tire still uses the simplified radial force
-limit, so lockup does not yet reproduce a calibrated loss of braking/cornering
-performance. Quasi-static transfer does not model suspension or body roll/pitch.
+There is no tire relaxation, thermal/wear state, ABS, or traction control.
+Quasi-static transfer does not model suspension or body roll/pitch.
+
+### Combined-slip peak and sliding envelope (cycle 3)
+
+`tireForce` first forms unsaturated demands: Fx_d from the implicit longitudinal
+slip solve above, and Fy_d = -C_alpha * alpha with alpha = atan2(v, max(|u|, 3 m/s)).
+With peak capacity F_peak = mu * grip * load (load-sensitive mu as before), the
+normalized combined demand is q = |(Fx_d, Fy_d)| / F_peak. Both components are
+scaled by the same factor, so force direction is preserved and lockup/wheelspin
+consume cornering authority:
+
+* q <= 2: |F| / F_peak = q (1 - q/4), with unit initial slope and peak 1 at q = 2.
+* q > 2: |F| / F_peak = s + (1 - s) exp(-((q - 2) / w)²), s = `slidingGripRatio`
+  (0.75), w = `slidingFalloff` (3). The curve and its slope are continuous at the
+  peak and decay monotonically to s.
+
+Telemetry adds `combinedDemand` (q) and `sliding` (q > 2); the browser shows
+PRE-PEAK / SLIDE / NO GRIP per wheel, and its bars are force / peak capacity.
+This is a hand-shaped, isotropic friction-circle substitute, **not** a fitted
+Pacejka/brush model: s, w and the peak position are uncalibrated assumptions,
+longitudinal and lateral peaks occur at the same normalized demand, and there
+is no camber, pressure, temperature, speed dependence, aligning torque, or
+transient relaxation length. The low-speed lateral clamp is still applied after
+the envelope. A locked wheel now produces less braking force than the peak and
+much less lateral force than a rolling tire at the same steering input.
 
 ## Verification
 
-Twenty deterministic tests cover the original rest, symmetry, aero/load/force,
+Twenty-eight deterministic tests cover the original rest, symmetry, aero/load/force,
 stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 
-- Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
-- Brake lockup/release, stationary brake hold against throttle.
-- Forward/reverse stopping down to rest at 60/240/960 Hz integration.
-- Wheel torque balance and isolated-wheel power/energy limits.
-- Total chassis plus wheel energy dissipation, including 5000 seeded arbitrary
+* Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
+* Brake lockup/release, stationary brake hold against throttle.
+* Forward/reverse stopping down to rest at 60/240/960 Hz integration.
+* Wheel torque balance and isolated-wheel power/energy limits.
+* Total chassis plus wheel energy dissipation, including 5000 seeded arbitrary
   chassis/wheel states (regression evidence, not a proof).
-- Straight-line timestep convergence, with 240-to-960 Hz speed and distance
+* Straight-line timestep convergence, with 240-to-960 Hz speed and distance
   differences below 1% in the tested five-second half-throttle scenario.
+* Cycle 3 envelope: zero/unit slope, exact peak, smooth peak derivative,
+  monotonic rise/fall, sliding plateau, reverse-travel symmetry, radial direction
+  preservation, grip/load scaling, zero load/grip.
+* Locked front wheels below 25% of rolling lateral force at 60/240/960 Hz in
+  both directions; torque balance through sliding and release; passive energy
+  through 6000 steps with discontinuous grip (0, 0.1, 1, 2) and sustained slides.
+* Locked-wheel stop from 30 m/s: falloff lengthens the stop by more than 15%
+  versus a no-falloff envelope. Measured 30.71 m at 240 Hz vs 31.12 m at
+  960 Hz (1.3%); the test bound is 2%, so high-slip braking is less converged
+  than straight-line acceleration.
 
-Cycle 2 reran headless Chrome against the actual page: keyboard acceleration,
-steering, pause, overview, reset, focus-loss release, and a 700 x 700 viewport.
-An additional browser check verified visible slip/RPM, wheelspin, LOCK/zero RPM,
-brake-release recovery, and clearing all four wheel displays on paused reset.
-Both passed without JavaScript page errors. Temporary harnesses and screenshots
+Cycle 3 reran all headless Chrome checks against the actual page, and a new
+check verified PRE-PEAK at rest, SLIDE during front lockup (q > 2, utilization
+below 1), recovery after brake release, reset clearing, and compact layout.
+All passed without JavaScript page errors. Temporary harnesses and screenshots
 are under `/tmp/f1-*`; they are not repository tests. Numerical regression checks
 establish internal consistency, not real-car accuracy.
 
 ## Next realism milestones
 
-1. Calibrated combined-slip curves with peak/sliding behavior, tire relaxation,
-   thermal/wear state, and measured brake/tire parameters.
+1. Tire relaxation/transient slip, fitted (e.g. Pacejka) curves replacing the
+   hand-shaped envelope, thermal/wear state, and measured brake/tire parameters.
 2. Suspension travel, roll/pitch/heave, road elevation, and aero platform effects.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
