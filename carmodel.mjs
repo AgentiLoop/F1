@@ -5,6 +5,7 @@ import * as THREE from './vendor/three.module.js';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/meshopt_decoder.module.js';
 import { smoothGeometry } from './smooth.mjs';
+import { CARBON_PARTS, WEAVE_TILE, NAP_TILE, isHeadrest, splitTriangles, addBoxUV, cockpitMaterials } from './cockpit.mjs';
 
 export const F222_URL = new URL('./models/f222.glb', import.meta.url).href;
 const WHEELS = ['front-left-wheel', 'front-right-wheel', 'rear-left-wheel', 'rear-right-wheel'];
@@ -19,6 +20,8 @@ const PLAIN_WHEEL = ['Object_102', 'Object_104', 'Object_106', 'Object_108', 'Ob
 export const STEERING_RATIO = 5;
 // The detailed wheel is only drawn within this many metres (it is inside the cockpit).
 const WHEEL_DISTANCE = 6;
+// Headrest padding split from the bodywork around the cockpit opening (cockpit.mjs).
+export const HEADREST = 'cockpit-padding';
 
 // Load the GLB once (a URL in the browser, an ArrayBuffer in node) and return its scene.
 // Each mesh becomes a LOD of smoothed copies (smooth.mjs keeps the author's hard edges)
@@ -33,6 +36,10 @@ export async function loadCarTemplate(source = F222_URL, wheelSource = WHEEL_URL
   if (typeof document === 'undefined') wheelLoader.register(() => ({ name: 'no-textures', loadTexture: () => Promise.resolve(null) }));
   const [gltf, wheel] = await Promise.all([load(source),
     wheelSource ? load(wheelSource, wheelLoader).catch(err => { console.warn('steering wheel failed to load', err); return null; }) : null]);
+  // Cockpit finish (cockpit.mjs): carbon weave tub and suede headrest padding.
+  const cockpit = cockpitMaterials();
+  for (const n of CARBON_PARTS) gltf.scene.getObjectByName(n).material = cockpit['cockpit-carbon'];
+  splitTriangles(gltf.scene.getObjectByName('Object_60'), isHeadrest, HEADREST).material = cockpit['cockpit-padding'];
   const meshes = []; gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
   for (const mesh of meshes) {
     const lod = new THREE.LOD(); lod.name = mesh.name;
@@ -43,6 +50,9 @@ export async function loadCarTemplate(source = F222_URL, wheelSource = WHEEL_URL
     lod.addLevel(new THREE.Mesh(smoothGeometry(mesh.geometry), mesh.material), SMOOTH_DISTANCE[0]);
     lod.addLevel(mesh, SMOOTH_DISTANCE[1]);
   }
+  gltf.scene.updateMatrixWorld(true);
+  for (const [names, tile] of [[CARBON_PARTS, WEAVE_TILE], [[HEADREST], NAP_TILE]])
+    for (const lod of names.map(n => gltf.scene.getObjectByName(n))) lod.levels.forEach(l => addBoxUV(l.object.geometry, lod.matrixWorld, tile));
   if (wheel) { wheel.scene.name = STEERING_WHEEL; gltf.scene.add(wheel.scene); }
   return gltf.scene;
 }
