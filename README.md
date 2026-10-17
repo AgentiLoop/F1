@@ -73,7 +73,7 @@ sign interpretation. The low-speed denominator is regularization, not tire data.
 
 Defaults introduced here: radius 0.33 m, wheel inertia 1.6 kg m², longitudinal
 stiffness 100000 N per unit slip. **All are illustrative, not measured F1 data.**
-There is no tire relaxation, thermal/wear state, ABS, or traction control.
+There is no thermal/wear state, ABS, or traction control (lateral relaxation was added in cycle 4; longitudinal slip has no relaxation).
 Quasi-static transfer does not model suspension or body roll/pitch.
 
 ### Combined-slip peak and sliding envelope (cycle 3)
@@ -95,14 +95,36 @@ PRE-PEAK / SLIDE / NO GRIP per wheel, and its bars are force / peak capacity.
 This is a hand-shaped, isotropic friction-circle substitute, **not** a fitted
 Pacejka/brush model: s, w and the peak position are uncalibrated assumptions,
 longitudinal and lateral peaks occur at the same normalized demand, and there
-is no camber, pressure, temperature, speed dependence, aligning torque, or
-transient relaxation length. The low-speed lateral clamp is still applied after
+is no camber, pressure, temperature, speed dependence, or aligning torque. The low-speed lateral clamp is still applied after
 the envelope. A locked wheel now produces less braking force than the peak and
 much less lateral force than a rolling tire at the same steering input.
 
+### Lateral slip relaxation (cycle 4)
+
+Each wheel stores a force-producing slip angle `car.slipAngle[i]`. Every step it
+relaxes toward the kinematic angle alpha_k = atan2(v, max(|u|, 3 m/s)) with the
+exact first-order update
+
+    alpha <- alpha_k + (alpha - alpha_k) exp(-max(|V|, V_floor) dt / sigma)
+
+where |V| is contact speed, sigma = `relaxationLength` (0.45 m) and V_floor =
+`relaxationSpeedFloor` (5 m/s). The lag is therefore a fixed travel distance:
+63% of a step change after sigma metres, shorter in time at higher speed. The
+exponential form is unconditionally stable; the speed floor keeps the state
+responsive near rest. The relaxed angle feeds the cycle 3 envelope (so it also
+shares grip with longitudinal demand). Telemetry adds `slipAngle` (relaxed) and
+`kinematicSlipAngle`; the browser shows both per wheel as `α relaxed / kinematic`.
+
+Passivity guard: the carcass deflection energy is not tracked, so a lateral force
+that would push the contact along its slip velocity (relaxed and kinematic angles
+of opposite sign) is set to zero instead of returning stored energy. The
+existing low-speed lateral impulse clamp still applies. Assumptions: sigma and
+V_floor are illustrative (no measured F1 relaxation data); sigma does not vary
+with load, slip or speed; there is no longitudinal relaxation.
+
 ## Verification
 
-Twenty-eight deterministic tests cover the original rest, symmetry, aero/load/force,
+Thirty-two deterministic tests cover the original rest, symmetry, aero/load/force,
 stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 
 * Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
@@ -123,6 +145,17 @@ stopping-distance, render-rate, hitch and 120-second stress checks, plus:
   versus a no-falloff envelope. Measured 30.71 m at 240 Hz vs 31.12 m at
   960 Hz (1.3%); the test bound is 2%, so high-slip braking is less converged
   than straight-line acceleration.
+* Cycle 4 relaxation: exactly e-fold decay per relaxation length at 240 and 960
+  Hz substeps; near-rest floor speed. Step steer at 50 m/s: first-step front force
+  is 43% of the instantaneous-tire force (bound 30–45%), 98% after 5 steps, and
+  settled yaw rate within 1.8% of the instantaneous tire after 1.5 s (bound 2%).
+  63% rise time 13.5 ms at 15 m/s vs 5.2 ms at 60 m/s (ratio 2.6, bound 2.5–5;
+  coupled chassis response keeps it below the ideal 4). 240 vs 960 Hz step
+  steer: yaw rate 0.43%, lateral displacement 0.55% apart.
+
+Cycle 4 reran all four headless Chrome checks (new `/tmp/f1-relax-smoke.mjs`:
+α readouts visible, relaxed angle nonzero while steering, reset clears state);
+all passed without page errors.
 
 Cycle 3 reran all headless Chrome checks against the actual page, and a new
 check verified PRE-PEAK at rest, SLIDE during front lockup (q > 2, utilization
@@ -133,7 +166,7 @@ establish internal consistency, not real-car accuracy.
 
 ## Next realism milestones
 
-1. Tire relaxation/transient slip, fitted (e.g. Pacejka) curves replacing the
+1. Fitted (e.g. Pacejka) curves replacing the
    hand-shaped envelope, thermal/wear state, and measured brake/tire parameters.
 2. Suspension travel, roll/pitch/heave, road elevation, and aero platform effects.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
