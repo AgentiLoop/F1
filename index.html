@@ -179,6 +179,7 @@ const buildCar = livery => carTemplate ? buildModel(carTemplate, DEFAULT_CAR, li
 const model = buildCar();
 scene.add(model.group);
 const wheelAngle = [0, 0, 0, 0];
+const MAX_SPIN_STEP = 0.3; // rad of drawn wheel rotation per frame
 // One model per AI opponent, in its livery (helmets match the accent).
 const rivals = DEFAULT_GRID.map(spec => {
   const m = buildCar({ paint: spec.color, accent: spec.accent, helmet: spec.accent });
@@ -197,7 +198,10 @@ function poseCar(m, c, angles, dt) {
   // Physics roll is left side up (left = -z), pitch is nose down, heave is downward.
   m.body.rotation.set(c.body.roll, 0, -c.body.pitch); m.body.position.y = -c.body.heave;
   m.wheels.forEach((w, i) => {
-    angles[i] = (angles[i] + c.wheelOmega[i] * dt) % (2 * Math.PI);
+    // Above ~0.3 rad a frame the rim pattern aliases (strobes, chatters or runs backwards),
+    // so the drawn spin is capped at that step: fast wheels turn steadily forwards.
+    const step = c.wheelOmega[i] * dt;
+    angles[i] = (angles[i] + Math.sign(step) * Math.min(Math.abs(step), MAX_SPIN_STEP)) % (2 * Math.PI);
     w.spin.rotation.z = -angles[i];
     if (w.front) w.pivot.rotation.y = c.steer;
   });
