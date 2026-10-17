@@ -66,17 +66,33 @@ export function smoothGeometry(geometry, { levels = 1, tolerance = 1e-5 } = {}) 
     if (w === undefined) { w = welded.length / 3; map.set(k, w); welded.push(x, y, z); }
     weld[i] = w;
   }
-  const n = index ? index.count : p.count, tris = [], corners = [];
+  // A triangle whose authored normals face against its winding (mirrored parts) is
+  // flipped: its recomputed normals point the authored way, as the author shaded it.
+  const n = index ? index.count : p.count, tris = [], corners = [], flip = [], N = geometry.getAttribute('normal');
+  const e0 = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
   for (let t = 0; t < n; t += 3) {
     const c = [0, 1, 2].map(k => index ? index.getX(t + k) : t + k), w = c.map(i => weld[i]);
-    if (w[0] !== w[1] && w[1] !== w[2] && w[2] !== w[0]) { tris.push(...w); corners.push(...c.map(String)); }
+    if (w[0] !== w[1] && w[1] !== w[2] && w[2] !== w[0]) {
+      tris.push(...w); corners.push(...c.map(String));
+      let f = false;
+      if (N) {
+        e0.fromBufferAttribute(p, c[0]);
+        e1.fromBufferAttribute(p, c[1]).sub(e0); e2.fromBufferAttribute(p, c[2]).sub(e0);
+        e1.cross(e2);
+        let d = 0; for (const i of c) d += e1.x * N.getX(i) + e1.y * N.getY(i) + e1.z * N.getZ(i);
+        f = d < 0;
+      }
+      flip.push(f);
+    }
   }
   let mesh = { pos: Float64Array.from(welded), tris: Uint32Array.from(tris), corners };
   for (let i = 0; i < levels; i++) mesh = loop(mesh.pos, mesh.tris, mesh.corners);
-  // One output vertex per (surface vertex, smoothing group).
+  const sub = 4 ** levels; // loop splits triangle t into triangles t*4 .. t*4+3
+  // One output vertex per (surface vertex, smoothing group, facing).
   const out = new Map(), positions = [], indices = new Uint32Array(mesh.tris.length);
   mesh.tris.forEach((w, i) => {
-    const k = `${w}|${mesh.corners[i]}`; let v = out.get(k);
+    const f = flip[Math.floor(i / 3 / sub)];
+    const k = `${w}|${mesh.corners[i]}|${f ? 1 : 0}`; let v = out.get(k);
     if (v === undefined) { v = positions.length / 3; out.set(k, v); positions.push(mesh.pos[w * 3], mesh.pos[w * 3 + 1], mesh.pos[w * 3 + 2]); }
     indices[i] = v;
   });
@@ -84,5 +100,13 @@ export function smoothGeometry(geometry, { levels = 1, tolerance = 1e-5 } = {}) 
   g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(positions), 3));
   g.setIndex(new THREE.BufferAttribute(indices, 1));
   g.computeVertexNormals();
+  if (flip.includes(true)) {
+    const nrm = g.getAttribute('normal'), done = new Set();
+    indices.forEach((v, i) => {
+      if (!flip[Math.floor(i / 3 / sub)] || done.has(v)) return;
+      done.add(v); nrm.setXYZ(v, -nrm.getX(v), -nrm.getY(v), -nrm.getZ(v));
+    });
+  }
   return g;
 }
+

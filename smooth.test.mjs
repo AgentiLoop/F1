@@ -36,3 +36,16 @@ test('soft edges round off: an icosahedron moves toward a sphere and shades smoo
     assert.ok(v.dot(new THREE.Vector3(n.getX(i), n.getY(i), n.getZ(i))) > 0.97, 'normal points outward along the radius');
   }
 });
+
+test('mirrored parts keep the authored facing: reversed winding, outward normals stay outward', () => {
+  const ico = new THREE.IcosahedronGeometry(1, 1); ico.deleteAttribute('uv');
+  const m = mergeVertices(ico), idx = m.index.array;
+  for (let t = 0; t < idx.length; t += 3) [idx[t + 1], idx[t + 2]] = [idx[t + 2], idx[t + 1]];
+  for (const levels of [1, 2]) {
+    const g = smoothGeometry(m, { levels }), p = g.attributes.position, n = g.attributes.normal;
+    for (let i = 0; i < p.count; i++) {
+      const v = new THREE.Vector3(p.getX(i), p.getY(i), p.getZ(i)).normalize();
+      assert.ok(v.dot(new THREE.Vector3(n.getX(i), n.getY(i), n.getZ(i))) > 0.9, `levels ${levels}: normal points outward`);
+    }
+  }
+});
