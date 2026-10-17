@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, Simulation, FIXED_DT }
+import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, tireWearGrip, updateTireWear, Simulation, FIXED_DT }
   from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
@@ -655,4 +655,39 @@ test('cold tires grip less: a stop on 40 °C tires is longer than on tires at th
   };
   const warm = stop(100), cold = stop(40);
   assert.ok(cold > warm * 1.1, `${warm.toFixed(1)} vs ${cold.toFixed(1)} m`);
+});
+test('wear grip falls linearly, then off a cliff, and is clamped at both ends', () => {
+  const c = createCar().config, g = w => tireWearGrip(c, w);
+  near(g(0), 1); near(g(-1), 1);
+  near(g(c.tireCliffWear), 1 - c.tireWearGripLoss * c.tireCliffWear);
+  near(g(1), 1 - c.tireWearGripLoss - c.tireCliffGripLoss); near(g(2), g(1));
+  // Steeper per unit of wear past the cliff than before it.
+  assert.ok(g(0.9) - g(1) > 2 * (g(0.4) - g(0.5)), `${g(0.4)} ${g(0.5)} ${g(0.9)} ${g(1)}`);
+});
+test('wear accumulates sliding energy, is timestep independent, faster when hot and capped at 1', () => {
+  const c = createCar().config, P = 20000, T = 10;
+  for (const dt of [1 / 60, 1 / 240, 1 / 960]) {
+    let w = 0;
+    for (let i = 0; i < Math.round(T / dt); i++) w = updateTireWear(w, c, P, c.tireOptimalTemp - 20, dt);
+    near(w, P * T / c.tireWearEnergy, 1e-9);
+  }
+  // Below the optimum temperature has no effect; one temperature scale above wears e times faster.
+  const hot = updateTireWear(0, c, P, c.tireOptimalTemp + c.tireWearTempScale, 1);
+  near(hot, Math.E * updateTireWear(0, c, P, c.tireOptimalTemp, 1), 1e-12);
+  near(updateTireWear(0.99, c, 1e9, 150, 1), 1);
+  assert.equal(updateTireWear(0.3, c, 0, 150, 1), 0.3);
+});
+test('a lockup wears the sliding tires, free rolling does not, and worn tires stop longer', () => {
+  const rolling = rollingCar(50), locked = rollingCar(50);
+  run(rolling, 1, {}); run(locked, 1, { brake: 1 });
+  for (const w of rolling.tireWear) assert.ok(w < 1e-5, `${w}`);
+  for (const w of locked.tireWear) assert.ok(w > 1e-4, `${w}`);
+  near(locked.telemetry.wheels[0].wear, locked.tireWear[0]);
+  const stop = wear => {
+    const c = rollingCar(50, { tireStartTemp: 100, tireStartWear: wear });
+    for (let i = 0; i < 2400 && c.vx > 0.01; i++) step(c, { brake: 1 });
+    return c.x;
+  };
+  const fresh = stop(0), worn = stop(1);
+  assert.ok(worn > fresh * 1.1, `${fresh.toFixed(1)} vs ${worn.toFixed(1)} m`);
 });

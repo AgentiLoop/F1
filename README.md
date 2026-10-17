@@ -165,7 +165,7 @@ sign interpretation. The low-speed denominator is regularization, not tire data.
 
 Defaults introduced here: radius 0.33 m, wheel inertia 1.6 kg m², longitudinal
 stiffness 100000 N per unit slip. **All are illustrative, not measured F1 data.**
-There is no wear state, ABS, or traction control (thermal state was added in cycle 6; lateral relaxation was added in cycle 4; longitudinal slip has no relaxation).
+There is no ABS or traction control (tread wear was added in cycle 8, thermal state in cycle 6; lateral relaxation was added in cycle 4; longitudinal slip has no relaxation).
 Quasi-static transfer does not model suspension or body roll/pitch.
 
 ### Combined-slip peak and sliding envelope (cycle 3)
@@ -212,8 +212,24 @@ On the stadium circuit with the autopilot the rears and the outside front reach
 ~90–100 °C after a few laps and the lightly loaded inside front stays near
 70 °C; after ~10 minutes the rears run ~120 °C (overheating from traction out
 of the hairpins) and lose ~5% grip. All coefficients are illustrative
-assumptions, not compound data; there is no wear, pressure, camber or
-graining, and the temperature is uniform across the tread width.
+assumptions, not compound data; there is no pressure, camber or graining,
+and the temperature is uniform across the tread width.
+### Tread wear (cycle 8)
+`car.tireWear[i]` is the fraction of usable tread used (0 new, 1 worn out;
+`tireStartWear` sets the starting value). Every step `updateTireWear` adds the
+same contact friction power that heats the tread, divided by `tireWearEnergy`
+(40 MJ for a full tire at or below the optimum) and multiplied by
+exp(max(0, Tsurface − 100) / 20), so a tire running 20 °C over the optimum
+wears e (~2.7) times faster. Free rolling causes no wear.
+`tireWearGrip` multiplies peak friction (alongside the thermal grip) by
+1 − 0.08·w − 0.15·c², where c = max(0, w − 0.75) / 0.25: a slow linear fade,
+then a cliff that removes a further 15% over the last quarter of the tread.
+A fully worn tire has 77% of a fresh tire's grip. The HUD shows wear and the
+wear-grip multiplier per wheel; resetting the car fits new tires.
+With the autopilot on the stadium circuit the rears use ~1.8% after 20 s
+(launch wheelspin plus traction out of the hairpins) and the fronts 0.2–0.4%.
+All coefficients are illustrative, not compound data; wear does not change
+tread thickness, heat capacity, or compound, and there are no pit stops.
 
 ### Lateral slip relaxation (cycle 4)
 
@@ -240,7 +256,7 @@ with load, slip or speed; there is no longitudinal relaxation.
 
 ## Verification
 
-Thirty-two deterministic tests cover the original rest, symmetry, aero/load/force,
+Deterministic tests (79 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
 stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 
 * Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
@@ -275,6 +291,13 @@ Cycle 6 thermal tests: thermal grip peaks at 100 °C, is symmetric and floors at
 locked-wheel sliding heats the tread >5 °C in 1 s while free rolling only cools
 it; a 50 m/s stop on 40 °C tires is >10% longer than on 100 °C tires.
 `/tmp/f1-thermal-smoke.mjs` checks the per-wheel temperature HUD in Chrome.
+Cycle 8 wear tests: wear grip is 1 when new, linear to the cliff, steeper past
+it, and clamped at both ends; wear equals sliding energy / 40 MJ at
+60/240/960 Hz, is e times faster one temperature scale above the optimum and
+caps at 1; a 1 s lockup wears every tire while free rolling does not; a 50 m/s
+stop on fully worn tires is >10% longer than on new ones.
+`/tmp/f1-wear-smoke.mjs` checks the wear HUD in Chrome, that wear grows while
+driving and that reset fits new tires; all nine earlier browser checks still pass.
 
 Cycle 7 input tests (`input.test.mjs`): deadzone/curve shaping and monotonicity;
 keyboard throttle ramp identical at 1/240, 1/60 and 1/30 s frames; steering
@@ -300,7 +323,7 @@ establish internal consistency, not real-car accuracy.
 ## Next realism milestones
 
 1. Fitted (e.g. Pacejka) curves replacing the
-   hand-shaped envelope, wear, pressure and measured brake/tire/thermal parameters.
+   hand-shaped envelope, pressure, camber and measured brake/tire/thermal parameters.
 2. Suspension travel per corner, road elevation, roll-sensitive aero, plank
    wear/friction and porpoising from a measured aero map.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.

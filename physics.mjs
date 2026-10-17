@@ -43,6 +43,12 @@ export const DEFAULT_CAR = Object.freeze({
   tireSurfaceHeatCapacity: 2500, tireCarcassHeatCapacity: 16000, tireSlipHeatShare: 0.5,
   tireSurfaceCooling: 12, tireSurfaceCoolingPerSpeed: 0.8, tireRoadConduction: 25,
   tireCoreConduction: 250, tireCarcassCooling: 8, tireCarcassCoolingPerSpeed: 0.4,
+  // Tread wear (illustrative): fraction of usable tread lost per joule of contact
+  // sliding energy (tireWearEnergy wears a tire out at the optimum), accelerated
+  // exponentially when the surface runs hot. Grip falls linearly with wear and
+  // drops off a cliff once the tread is nearly gone.
+  tireWearEnergy: 40e6, tireWearTempScale: 20, tireWearGripLoss: 0.08,
+  tireCliffWear: 0.75, tireCliffGripLoss: 0.15, tireStartWear: 0,
 });
 export const FIXED_DT = 1 / 240;
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -61,6 +67,8 @@ export function createCar(overrides = {}) {
     body: { roll: 0, rollRate: 0, pitch: 0, pitchRate: 0, heave: 0, heaveRate: 0 },
     // FL, FR, RL, RR tread surface and carcass temperatures (°C).
     tireTemp: [0, 1, 2, 3].map(() => ({ surface: config.tireStartTemp, carcass: config.tireStartTemp })),
+    // FL, FR, RL, RR tread wear fraction (0 new, 1 worn out).
+    tireWear: [0, 1, 2, 3].map(() => config.tireStartWear),
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [], powertrain: null },
   };
 }
@@ -69,6 +77,18 @@ export function createCar(overrides = {}) {
 export function tireTempGrip(c, temp) {
   const t = c.tireSurfaceGripWeight * temp.surface + (1 - c.tireSurfaceGripWeight) * temp.carcass;
   return clamp(1 - c.tireTempGripLoss * ((t - c.tireOptimalTemp) / c.tireWindow) ** 2, c.tireMinTempGrip, 1);
+}
+
+// Wear grip multiplier: linear loss plus a quadratic cliff past tireCliffWear.
+export function tireWearGrip(c, wear) {
+  const w = clamp(wear, 0, 1), cliff = Math.max(0, w - c.tireCliffWear) / (1 - c.tireCliffWear);
+  return 1 - c.tireWearGripLoss * w - c.tireCliffGripLoss * cliff * cliff;
+}
+
+// New wear fraction after sliding at slipPower (W) with the given surface temperature.
+export function updateTireWear(wear, c, slipPower, surfaceTemp, dt) {
+  const heat = Math.exp(Math.max(0, surfaceTemp - c.tireOptimalTemp) / c.tireWearTempScale);
+  return Math.min(1, wear + slipPower * heat * dt / c.tireWearEnergy);
 }
 
 // Advance one tire's temperatures (semi-implicit, stable for any dt).
@@ -328,10 +348,10 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     const worldX = car.x + x * cos - y * sin;
     const worldY = car.y + x * sin + y * cos;
     const grip = clamp(surfaceAt(worldX, worldY), 0, 2);
-    const temp = car.tireTemp[i], tempGrip = tireTempGrip(c, temp);
+    const temp = car.tireTemp[i], tempGrip = tireTempGrip(c, temp), wearGrip = tireWearGrip(c, car.tireWear[i]);
     const kinematicSlip = steadySlipAngle(wheelV, wheelU);
     car.slipAngle[i] = relaxSlipAngle(car.slipAngle[i], kinematicSlip, Math.hypot(wheelU, wheelV), c, dt);
-    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip * tempGrip, c, dt, car.slipAngle[i],
+    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip * tempGrip * wearGrip, c, dt, car.slipAngle[i],
       front ? c.corneringStiffness : c.rearCorneringStiffness);
     tire.kinematicSlipAngle = kinematicSlip;
     // Include contact translation and yaw in the low-speed lateral bound.
@@ -345,12 +365,13 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     // Contact friction power (force times slip velocity) and rolling hysteresis heat the tire.
     const slipPower = Math.abs(tire.fx * (r * car.wheelOmega[i] - wheelU)) + Math.abs(tire.fy * wheelV);
     updateTireTemp(temp, c, slipPower, c.rollingResistance * loads[i] * Math.abs(wheelU), Math.abs(wheelU), dt);
+    car.tireWear[i] = updateTireWear(car.tireWear[i], c, slipPower, temp.surface, dt);
     const bodyFx = tire.fx * ca - tire.fy * sa;
     const bodyFy = tire.fx * sa + tire.fy * ca;
     fx += bodyFx;
     fy += bodyFy;
     moment += x * bodyFy - y * bodyFx;
-    return { ...tire, load: loads[i], grip, tempGrip, slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
+    return { ...tire, load: loads[i], grip, tempGrip, wearGrip, wear: car.tireWear[i], slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
       x: worldX, y: worldY, steer: angle,
       omega: car.wheelOmega[i], driveTorque: torque,
       resistanceTorque: (freeOmega - car.wheelOmega[i]) * inertia / dt };
