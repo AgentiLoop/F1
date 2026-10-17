@@ -5,7 +5,7 @@
 // telemetry: a close follower loses up to towDragLoss of its drag and
 // dirtyAirLoss of its downforce, decaying over wakeLength metres behind the
 // leader and wakeWidth metres either side of its centreline.
-import { step, createCar, carMass, fitTires, tireTempGrip, tireWearGrip, TIRE_COMPOUNDS, FIXED_DT, clamp } from './physics.mjs';
+import { step, createCar, carMass, fitTires, newErsLap, tireTempGrip, tireWearGrip, TIRE_COMPOUNDS, FIXED_DT, clamp } from './physics.mjs';
 import { createAutopilot } from './autopilot.mjs';
 
 export const RACE_DEFAULTS = Object.freeze({
@@ -365,6 +365,8 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       let d = p - e.last; if (d < -length / 2) d += length; else if (d > length / 2) d -= length;
       const before = e.covered;
       e.covered += d; e.last = p;
+      // Crossing the line starts the ERS lap allowances afresh.
+      if (Math.floor(e.covered / length) > Math.floor(before / length)) newErsLap(e.car);
       // Finish: the leader at the race distance drops the flag; after that a car
       // finishes at its next line crossing (lapped cars a lap or more short).
       // The crossing time is interpolated within the step.

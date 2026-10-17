@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, tireWearGrip, updateTireWear, fitTires, carMass, TIRE_COMPOUNDS, Simulation, FIXED_DT }
+import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, tireWearGrip, updateTireWear, fitTires, carMass, newErsLap, TIRE_COMPOUNDS, Simulation, FIXED_DT }
   from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
@@ -28,6 +28,8 @@ const peakPower = c => {
   for (let rpm = 0; rpm <= c.maxRpm; rpm += 10) peak = Math.max(peak, engineTorque(c, rpm, 1) * rpm * Math.PI / 30);
   return peak;
 };
+// Peak drive power at the crank: the ICE curve plus the MGU-K.
+const drivePower = c => peakPower(c) + (c.ers ? c.ersPower : 0);
 
 test('rest is stable, including applied brakes and steering', () => {
   const c = run(createCar(), 10, { brake: 1, steer: 1 });
@@ -40,7 +42,7 @@ test('straight acceleration is symmetric and limited by the engine curve', () =>
   near(c.y, 0); near(c.heading, 0);
   const rear = c.telemetry.wheels.slice(2);
   assert.ok(rear.reduce((sum, w) => sum + w.fx, 0) * c.vx
-    < peakPower(c.config) * c.config.drivelineEfficiency * 1.001);
+    < drivePower(c.config) * c.config.drivelineEfficiency * 1.001);
 });
 
 
@@ -210,7 +212,7 @@ test('isolated rotating wheels obey torque balance and power bound', () => {
         w.driveTorque - c.config.wheelRadius * w.fx - w.resistanceTorque, 1e-7);
     }
     assert.ok((kineticEnergy(c) - energy) / FIXED_DT
-      <= peakPower(c.config) * c.config.drivelineEfficiency * 0.7 + 1e-6);
+      <= drivePower(c.config) * c.config.drivelineEfficiency * 0.7 + 1e-6);
   }
 });
 
@@ -730,4 +732,55 @@ test('fuel: burnt with crank work near the 100 kg/h limit at peak power, adds ma
   const dry = run(rollingCar(60, { fuelLoad: 0 }), 2, { throttle: 1 });
   assert.ok(dry.telemetry.speed < 58, `speed ${dry.telemetry.speed}`);
   assert.equal(dry.telemetry.powertrain.fuelFlow, 0);
+});
+
+test('ERS: the MGU-K adds up to 120 kW above 100 km/h, burns no fuel, and can be held back', () => {
+  const c = createCar().config;
+  const hybrid = run(rollingCar(50, { fuelLoad: 50 }), 0.5, { throttle: 1 }), p = hybrid.telemetry.powertrain;
+  near(p.ers.deploy, c.ersPower, 1e-6);
+  near(p.crankTorque, p.iceTorque + p.ersTorque);
+  near(p.ersTorque * p.rpm * Math.PI / 30, c.ersPower, 1e-6);
+  // Fuel flow follows the ICE work alone.
+  near(p.fuelFlow, p.iceTorque * p.rpm * Math.PI / 30 * c.fuelPerJoule * 3600, 1e-9);
+  const held = run(rollingCar(50), 0.5, { throttle: 1, ers: false });
+  const none = run(rollingCar(50, { ers: false }), 0.5, { throttle: 1 });
+  assert.equal(held.telemetry.powertrain.ersTorque, 0);
+  assert.equal(none.ers, null);
+  assert.ok(hybrid.vx > held.vx + 0.2, `${hybrid.vx} vs ${held.vx}`);
+  near(held.vx, none.vx, 1e-9);
+  // Nothing below ersMinSpeed (no first-gear wheelspin from the MGU-K).
+  const slow = run(rollingCar(15), 0.2, { throttle: 1 });
+  assert.equal(slow.telemetry.powertrain.ersTorque, 0);
+  // Part throttle deploys in proportion.
+  const part = run(rollingCar(50), 0.2, { throttle: 0.5 });
+  near(part.telemetry.powertrain.ers.deploy, c.ersPower / 2, 1e-6);
+});
+
+test('ERS: deployment stops at the per-lap allowance until a new lap; braking harvests up to the cap', () => {
+  const car = rollingCar(60, { ersHeatShare: 0 });
+  let t = 0;
+  while (car.ers.deployed < car.config.ersDeployPerLap - 1 && t < 60) { step(car, { throttle: 1 }); t += FIXED_DT; }
+  near(car.ers.deployed, car.config.ersDeployPerLap, 1e-6);
+  near(car.ers.charge, car.config.ersCapacity - car.config.ersDeployPerLap, 1e-6);
+  assert.ok(t > 33 && t < 34, `${t.toFixed(2)} s at 120 kW`); // 4 MJ / 120 kW = 33.3 s
+  step(car, { throttle: 1 });
+  assert.equal(car.telemetry.powertrain.ersTorque, 0); // allowance spent, store empty
+  // Braking from speed: harvest capped at ersPower, energy goes into the store.
+  car.vx = 80; car.wheelOmega.fill(80 / car.config.wheelRadius);
+  step(car, { brake: 1 });
+  near(car.telemetry.powertrain.ers.harvest, car.config.ersPower, 1e-6);
+  near(car.ers.charge, car.config.ersPower * FIXED_DT, 1e-6);
+  // The harvest cap per lap.
+  car.ers.harvested = car.config.ersHarvestPerLap;
+  step(car, { brake: 1 });
+  assert.equal(car.telemetry.powertrain.ers.harvest, 0);
+  // A new lap: allowances reset, charge kept; it deploys again.
+  newErsLap(car);
+  assert.equal(car.ers.deployed, 0); assert.equal(car.ers.harvested, 0);
+  car.ers.charge = 1e6; car.vx = 60; car.wheelOmega.fill(60 / car.config.wheelRadius);
+  run(car, 0.2, { throttle: 1 }); // past any downshift
+  assert.ok(car.telemetry.powertrain.ersTorque > 0);
+  // The store never overfills (MGU-H recovery at full throttle).
+  const full = run(rollingCar(60), 1, { throttle: 1, ers: false });
+  near(full.ers.charge, full.config.ersCapacity, 1e-6);
 });

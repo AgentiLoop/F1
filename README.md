@@ -230,8 +230,9 @@ beyond the planned lap.
 - `fuelLoad` (kg, default `null` = not modelled) sets `car.fuel`. The fuel adds
   to the mass at the CG: wheel loads, body modes, acceleration, wall and
   car-to-car impulses all use `carMass(car)`. Yaw inertia is unchanged.
-- Burn is proportional to positive crank work: `fuelPerJoule` 4.8e-8 kg/J gives
-  ~99 kg/h at the ~575 kW peak (the F1 flow limit is 100 kg/h). Coasting and
+- Burn is proportional to positive ICE crank work (the ERS burns none):
+  `fuelPerJoule` 4.8e-8 kg/J gives ~99 kg/h at the ~575 kW ICE peak (the F1
+  flow limit is 100 kg/h). Coasting and
   braking burn nothing (no idle flow). `telemetry.powertrain.fuel` / `fuelFlow`
   (kg/h).
 - An empty tank starves the engine: no drive, whatever the pedal.
@@ -247,6 +248,48 @@ beyond the planned lap.
   seeded 10-lap races with the compound rule every car finished with
   1.2-1.4 kg left and no car-to-car contact. A 10-lap race carries only
   ~5 kg, so the effect grows with `?laps=N`.
+
+### ERS hybrid deployment (`physics.mjs`, cycle 16)
+
+Modelled after the 2014–25 power-unit rules; the numbers are illustrative.
+
+- The torque curve is the ICE alone (~575 kW peak). The MGU-K adds up to
+  `ersPower` 120 kW at the crank (at most 200 N·m) in proportion to the
+  throttle. It fades in over 5 m/s above `ersMinSpeed` 100 km/h: the real rule
+  only applies at the race start, but here it applies everywhere, which also
+  keeps the MGU-K out of first-gear wheelspin. The limiter cuts it with the ICE,
+  and it is off during a shift.
+- The energy store holds `ersCapacity` 4 MJ (full at the start). Per lap at
+  most `ersDeployPerLap` 4 MJ goes to the MGU-K, and it harvests at most
+  `ersHarvestPerLap` 2 MJ. `newErsLap(car)` resets both counts. The race and
+  the time trial call it when a car crosses the line.
+- Harvest: under braking the MGU-K recovers up to 120 kW of the rear brake
+  power. The total brake force is unchanged, as with brake-by-wire. The MGU-H
+  puts 6% of the ICE power into the store, with no lap limit (an assumption).
+- `input.ers === false` holds deployment back; `ers: false` in the car spec
+  removes the system. Telemetry: `powertrain.iceTorque`, `ersTorque` and
+  `powertrain.ers` (`charge`, `deployed`, `harvested`, instantaneous `deploy`
+  and `harvest` W). The HUD shows the store, the live deploy/harvest power and
+  the energy deployed this lap.
+- The autopilot and AI deploy whenever they are on the throttle. They do not
+  plan where to spend the energy.
+- Measured, stadium track: laps drop from 28.7 s to 28.1 s and top speed from 267
+  to 282 km/h. The store empties after about 4 laps, because this lap is mostly
+  full throttle with little braking. After that each lap deploys only what it
+  recovers, about 0.7 MJ, and laps settle near 28.4 s. In 12 seeded 10-lap
+  races with the compound rule every car finished, with no car-to-car contact
+  and 1.5–1.7 kg of fuel left.
+- Measured, real circuits (second flying lap, Node; in brackets the cycle-15
+  car without ERS): Monza 96.9 s (98.2 s), Silverstone 115.7 s (116.2 s), Spa
+  128.8 s (128.9 s), Interlagos 87.5 s (88.4 s), Red Bull Ring 82.0 s
+  (83.3 s). Top speed rises by 9–20 km/h, to 310–324 km/h. Every lap uses the full 4 MJ, and the
+  MGU-H keeps the store topped up at Silverstone and Spa.
+- The time-trial autopilot now scales its corner speeds by the tyres' grip:
+  the compound, the most worn tyre, and any tyre running above its optimum
+  temperature (a cold tyre is left to the plan's grip margin). Without that, the
+  extra rear power at Spa overheated the rears (~127 °C, 28% worn after 2.4
+  laps) and the car spun on lap 3. With it, third flying laps are 1–3 s slower
+  as the rears go off.
 
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
@@ -651,7 +694,8 @@ establish internal consistency, not real-car accuracy.
    hand-shaped envelope, pressure, camber and measured brake/tire/thermal parameters.
 2. Suspension travel per corner, road elevation, roll-sensitive aero, plank
    wear/friction and porpoising from a measured aero map.
-3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
+3. Engine/transmission, differential, setup controls, and ERS deployment
+   strategy (where to spend the energy each lap, overtake mode).
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
 5. Wheel/pedal calibration and

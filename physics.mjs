@@ -9,7 +9,7 @@ export const DEFAULT_CAR = Object.freeze({
   slidingGripRatio: 0.85, slidingFalloff: 3,
   longitudinalStiffness: 100000, wheelRadius: 0.33, wheelInertia: 1.6,
   slipSpeedFloor: 1, relaxationLength: 0.45, relaxationSpeedFloor: 5,
-  // Combined ICE + ERS crank torque (rpm, N·m) at full throttle; peak ~575 kW.
+  // ICE crank torque (rpm, N·m) at full throttle; peak ~575 kW (ERS adds up to 120 kW).
   torqueCurve: Object.freeze([[4000, 250], [6000, 330], [8000, 400], [10000, 450],
     [11000, 465], [12000, 455], [13000, 420], [15000, 330]]),
   maxRpm: 15000, limiterBand: 250, idleRpm: 4000, launchRpm: 7000,
@@ -55,6 +55,17 @@ export const DEFAULT_CAR = Object.freeze({
   // work (fuelPerJoule ≈ the 100 kg/h flow limit at peak power). The fuel adds
   // to the mass at the CG; an empty tank starves the engine of drive.
   fuelLoad: null, fuelPerJoule: 4.8e-8,
+  // ERS (illustrative, after the 2014-25 power-unit rules): the MGU-K adds up
+  // to ersPower at the crank (at most ersMaxTorque) with the throttle, and
+  // harvests up to ersPower of the rear friction braking (brake-by-wire keeps
+  // the total brake force). The store holds ersCapacity J; per lap at most
+  // ersDeployPerLap goes to the MGU-K and ersHarvestPerLap comes from it
+  // (newErsLap resets the lap counts at the line). The MGU-H puts ersHeatShare
+  // of the ICE power into the store, not lap-limited. Deployment starts at
+  // ersMinSpeed (the 100 km/h race-start rule, applied everywhere here, which
+  // also keeps it out of first-gear wheelspin). ers: false = no ERS.
+  ers: true, ersPower: 120000, ersMaxTorque: 200, ersCapacity: 4e6, ersStartCharge: 1,
+  ersDeployPerLap: 4e6, ersHarvestPerLap: 2e6, ersHeatShare: 0.06, ersMinSpeed: 100 / 3.6, ersSpeedBlend: 5,
 });
 // Dry compounds (illustrative): peak-grip multiplier and wear-rate multiplier
 // relative to the medium. Softer rubber grips more and wears faster.
@@ -86,8 +97,15 @@ export function createCar(overrides = {}) {
     tireWear: [0, 1, 2, 3].map(() => config.tireStartWear),
     compound: compoundOf(config.tireCompound),
     fuel: config.fuelLoad,
+    // Energy store charge and this lap's MGU-K deployment and harvest (J).
+    ers: config.ers ? { charge: config.ersCapacity * config.ersStartCharge, deployed: 0, harvested: 0 } : null,
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [], powertrain: null },
   };
+}
+
+// Start a new lap for the ERS per-lap deployment and harvest limits.
+export function newErsLap(car) {
+  if (car.ers) car.ers.deployed = car.ers.harvested = 0;
 }
 
 // Total mass: the car (with driver) plus the fuel on board (kg).
@@ -337,11 +355,31 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const shifting = car.shiftTimer > 0;
   const clutchLocked = !shifting && coupledRpm >= engagedRpm;
   const rpm = clutchLocked ? coupledRpm : Math.max(coupledRpm, engagedRpm);
-  const crankTorque = shifting ? 0 : clutchLocked ? engineTorque(c, rpm, throttle)
+  const iceTorque = shifting ? 0 : clutchLocked ? engineTorque(c, rpm, throttle)
     : Math.max(0, engineTorque(c, rpm, throttle));
-  // Fuel burnt by positive crank work (kg/s); none modelled without a load.
-  const fuelFlow = car.fuel == null ? 0 : Math.max(0, crankTorque) * rpm / RPM * c.fuelPerJoule;
+  // Fuel burnt by positive ICE crank work (kg/s); none modelled without a load.
+  const fuelFlow = car.fuel == null ? 0 : Math.max(0, iceTorque) * rpm / RPM * c.fuelPerJoule;
   if (fuelFlow > 0) car.fuel = Math.max(0, car.fuel - fuelFlow * dt);
+  // ERS: MGU-K deployment with the throttle, faded in over ersSpeedBlend m/s
+  // above ersMinSpeed (input.ers === false holds it back), cut by the limiter and bounded by the store and the lap allowance;
+  // MGU-K harvest from the rear braking and MGU-H recovery from the ICE.
+  const ers = car.ers, crankOmega = Math.max(rpm, 1) / RPM;
+  let ersTorque = 0, ersHarvest = 0;
+  if (ers) {
+    if (!shifting && throttle > 0 && input.ers !== false) {
+      const want = throttle * Math.min(c.ersMaxTorque, c.ersPower / crankOmega) * clamp((c.maxRpm - rpm) / c.limiterBand, 0, 1)
+        * clamp((speed - c.ersMinSpeed) / c.ersSpeedBlend, 0, 1);
+      const energy = Math.max(0, Math.min(ers.charge, c.ersDeployPerLap - ers.deployed));
+      ersTorque = Math.min(want, energy / (crankOmega * dt));
+      ers.charge -= ersTorque * crankOmega * dt; ers.deployed += ersTorque * crankOmega * dt;
+    }
+    const space = c.ersCapacity - ers.charge;
+    ersHarvest = Math.min(c.ersPower, brake * c.maxBrakeForce * (1 - c.brakeBias) * Math.abs(u),
+      Math.max(0, c.ersHarvestPerLap - ers.harvested) / dt, space / dt);
+    ers.harvested += ersHarvest * dt;
+    ers.charge = Math.min(c.ersCapacity, ers.charge + ersHarvest * dt + c.ersHeatShare * Math.max(0, iceTorque) * crankOmega * dt);
+  }
+  const crankTorque = iceTorque + ersTorque;
   // Fuel cut also caps drive so a spinning axle cannot pass maxRpm within the
   // step (the tire only retards a forward-spinning wheel, so this is a bound).
   const axleTorque = Math.min(crankTorque * ratio * (crankTorque > 0 ? c.drivelineEfficiency : 1),
@@ -444,7 +482,9 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   car.time += dt;
   car.distance += Math.hypot(car.vx, car.vy) * dt;
   car.telemetry = { speed: Math.hypot(car.vx, car.vy), downforce, drag, wheels, aero,
-    powertrain: { gear: car.gear, rpm, crankTorque, axleTorque, clutchLocked, shifting, diffTransfer,
+    powertrain: { gear: car.gear, rpm, crankTorque, iceTorque, ersTorque, axleTorque,
+      ers: ers ? { charge: ers.charge, deployed: ers.deployed, harvested: ers.harvested,
+        deploy: ersTorque * crankOmega, harvest: ersHarvest } : null, clutchLocked, shifting, diffTransfer,
       limiter: rpm > c.maxRpm - c.limiterBand, fuel: car.fuel ?? null, fuelFlow: fuelFlow * 3600 } };
   return car;
 }
