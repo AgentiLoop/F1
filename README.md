@@ -363,7 +363,7 @@ illustrative, not FIA zone maps or wind-tunnel data.
   A car whose gap at the detection point to whichever car crossed it last is 1 s
   or less may open the flap in that zone. That car can be a lapped car. Cars
   that are pitting, retired or finished do not count. DRS is enabled once the
-  leader has completed 2 laps, so from lap 3, and is off after the chequered
+  leader has completed 1 lap (since cycle 35; 2 laps before), so from lap 2, and is off after the chequered
   flag. `createRace(track, { drs: false })` turns it off.
 - Zones: the stadium gets one on each straight. Each real circuit uses its
   real zones, measured from race telemetry (cycle 31, below), with the
@@ -374,7 +374,7 @@ illustrative, not FIA zone maps or wind-tunnel data.
   `findDrsZones(track)` lists them.
 - The AI and the player's autopilot request DRS wherever it is allowed, and
   the flap closes as they brake. A request from a player who is driving is
-  ignored outside an allowed zone. The HUD shows `DRS from lap 3`, the last
+  ignored outside an allowed zone. The HUD shows `DRS from lap 2` (`lap 3` until cycle 35), the last
   detection gap, `DRS · hold F` when it is available, and `DRS OPEN`. The
   standings mark rivals running with DRS open. The 3D rear-wing flap swings
   from 35° to 5° as it opens.
@@ -492,8 +492,8 @@ illustrative, not FIA zone maps or wind-tunnel data.
     line at the apex.
   - *Giving up:* a diver not alongside by `diveTurnIn` (15 m) before the corner
     gives up. The exception is a diver closing fast enough to be alongside
-    within `diveReach` (0.6 s), because backing out then would run into the
-    other car.
+    within `diveReach` (1.5 s since cycle 35; 0.6 s before), because backing out then would run into the
+    other car; since cycle 35 that commitment sticks until the dive ends.
   - *Ending:* the move ends once the diver is clearly ahead or no longer
     alongside, or `diveExit` (40 m) down the next straight. The corner's inside
     is the sign of the racing line's tightest curvature in the 60 m after the
@@ -862,6 +862,48 @@ races on all 18 circuits × 2 seeds finish with every car stopping once and no
 penalty; all but Imola seed 2 have no contact. That one has an 8.4 m/s contact
 at 120 s that also occurs without this change, with no car in a pit phase, so
 it is not a pit-entry problem and is still open. New `pit-entry.test.mjs` fails on the old code.
+
+**Overtaking on the real layouts (cycle 35, `race.mjs`):** fields on the real
+circuits hardly ever passed: 16 passes and 8 contacts over 3-lap races on all 18
+circuits × 2 seeds, and a car 3 m/s faster through the corners got by its
+rival in four laps at only 9 of 18 circuits (27/54 pace pairs at +1/+2/+3 m/s).
+Traces of the failures found four things, each fixed:
+
+- The pull-out point: still in the tow within 30 m of the car ahead, a car
+  pulled out from 400 m before the corner (`passRoom + laneReturn`), before it
+  had closed at all. Out of the tow its surplus went at once and it reached
+  the braking zone 15 m back. It now stays in the tow until `pullOutBy`
+  (250 m) before the corner.
+- The passing lane: lanes run parallel to the racing line and lose their room
+  wherever the line swings to that side of the road. The lane was chosen where
+  the straight began, and on the real lines the inside of the next corner is
+  often the side with no room there (Shanghai's back straight, Catalunya's
+  pit straight), so the car was out on the outside, held up where its lane
+  closed near the braking zone, while the inside opened. A car out in a lane
+  that runs out of room now crosses to the other lane if that is open.
+- The commitment: a dive was committed when the diver's closing rate would put
+  it alongside within `diveReach` (0.6 s). That was judged afresh every step,
+  and inside the corner the diver's tighter line is slower than the other
+  car's, so its closing rate went negative, the dive was dropped and the other
+  car took its line back ahead of it. `diveReach` is 1.5 s (committing from
+  ~10 m at a 2.7 m/s closing rate, as Silverstone's DRS run produced) and a
+  commitment now sticks until the dive ends.
+- Lane changes at `laneRate` 2.2 m/s took 2.7 s to cross the 6 m between the
+  two lanes, so the car was still crossing at the braking zone. A car pulling
+  out of a tow (or crossing to the other lane) now moves at `pullOutRate`
+  (3 m/s). Ordinary moves (off the grid slots, back to the line) keep 2.2:
+  raising them too gave a 24.5 m/s lap-1 contact in a stadium hairpin (seed 5).
+
+DRS is enabled after one lap (`drsEnableLaps` 1), as in the rules since 2024,
+so it is available from lap 2 and a 3-lap race has two laps of it. Results:
+pace pairs 27/54 → 38/54 (Shanghai, Silverstone, Interlagos and Miami 0 → 3,
+Catalunya 0 → 1, Spa 2 → 1; Monaco, Montreal, Hungaroring and Zandvoort still
+0), no contact; 3-lap fields on 18 circuits × 2 seeds 16 → 34 passes and 8 → 0
+contacts; seeded 10-lap stadium races (6 seeds, compound rule) all clean, with
+0–4 passes each (the stadium race is not bit-identical: DRS now opens from lap
+2 there too). 163 Node tests pass. The fictional field's pace spread
+(42.4–43.9 m/s corner speed, 3.5%) is still small for the model: a +1 m/s
+car hovers in DRS range without getting by at most circuits.
 
 **Limits:** the remaining gap is mostly medium and fast corners at Jeddah,
 Zandvoort, Yas Marina and the Red Bull Ring (0.65–0.85 of real), and Monaco's

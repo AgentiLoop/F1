@@ -18,7 +18,7 @@ export const RACE_DEFAULTS = Object.freeze({
   // (m) are explained in aiCommand. Grid slots are
   // gridSpacing m apart.
   cornerCurvature: 1 / 300, laneRoomAhead: 200, laneRoomExit: 80, laneReturn: 150, gridSpacing: 8,
-  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 1.2, passRoom: 250, towRange: 40, towClose: 0.5, towSpeed: 40, towBrake: 4, diveGap: 20, diveOverlap: 1, diveReach: 0.6, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, laneClearance: 2.6, sideGap: 3.1, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
+  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 1.2, passRoom: 250, pullOutBy: 250, towRange: 40, towClose: 0.5, towSpeed: 40, towBrake: 4, diveGap: 20, diveOverlap: 1, diveReach: 1.5, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, pullOutRate: 3, laneClearance: 2.6, sideGap: 3.1, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
   // Standing start: five red lights come on one per lightInterval seconds, then
   // go out after a random hold in [holdMin, holdMax]. Moving more than
   // jumpDistance metres before lights out is a jump start (jumpPenalty seconds).
@@ -49,7 +49,8 @@ export const RACE_DEFAULTS = Object.freeze({
   pitDecel: 14, boxDecel: 5, stopTimeMin: 2.1, stopTimeMax: 3.2, boxWindow: 3, pitSpeedingPenalty: 5, pitWear: 0.6, pitGap: 8, pitHeadway: 1.2, queueDistance: 200,
   // DRS (after the 2011-25 sporting rules): a car within drsGap s of the car
   // ahead at a zone's detection point may open its flap in that zone, once
-  // the leader has completed drsEnableLaps laps and until the chequered flag.
+  // the leader has completed drsEnableLaps laps (one, as since 2024; it was
+  // two) and until the chequered flag.
   // A circuit with real zones (track.drsZones, from race telemetry) uses
   // them, detection drsDetection m before each opening (the real detection
   // points are not in the data). Otherwise (illustrative placement) zones open
@@ -58,7 +59,7 @@ export const RACE_DEFAULTS = Object.freeze({
   // at least drsMinStraight m, a straight being where the racing line curves
   // no tighter than drsCurvature (1/m; looser than cornerCurvature so a zone
   // runs on to the braking zone).
-  drsGap: 1, drsEnableLaps: 2, drsZoneDelay: 60, drsDetection: 150, drsZones: 2, drsMinStraight: 450, drsCurvature: 1 / 200,
+  drsGap: 1, drsEnableLaps: 1, drsZoneDelay: 60, drsDetection: 150, drsZones: 2, drsMinStraight: 450, drsCurvature: 1 / 200,
 });
 
 // Smooth 0..1 blend of s across [a, b] (cosine, zero lateral rate at both ends).
@@ -569,15 +570,19 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // the slower car turned into the diving one.) Not alongside by diveTurnIn metres before the
     // corner, or dropped back, the diving car gives up and backs out (closing
     // fast enough to be alongside within diveReach seconds it is committed:
-    // too late to back out without running into the other car). It ends diveExit
+    // too late to back out without running into the other car). Once
+    // committed it stays committed: the commitment was judged afresh every
+    // step, and inside the corner the diving car's tighter line is slower
+    // than the other car's, so its closing rate went negative, the dive was
+    // dropped and the other car took its line back. It ends diveExit
     // metres down the next straight, once clearly ahead, or once no longer
     // alongside.
     if (e.dive) {
       const r = others.find(x => x.index === e.dive.rival);
       if (r) e.dive.overlap = r.gap < carLength + o.diveOverlap || (e.dive.overlap && r.gap < carLength + 3);
-      if (r) e.dive.committed = (speed - r.speed) * o.diveReach >= r.gap - carLength - o.diveOverlap;
+      if (r) e.dive.committed = e.dive.committed || (speed - r.speed) * o.diveReach >= r.gap - carLength - o.diveOverlap;
       const out = e.covered > e.dive.cornerAt && toCorner > 0 && fromCorner > o.diveExit;
-      if (!r || out || r.gap < -(carLength + 2) || (e.dive.overlap && r.gap > carLength + 3) || (!e.dive.overlap && ((toCorner < o.diveTurnIn && (speed - r.speed) * o.diveReach < r.gap - carLength - o.diveOverlap) || r.gap > o.diveGap + 5))) e.dive = null;
+      if (!r || out || r.gap < -(carLength + 2) || (e.dive.overlap && r.gap > carLength + 3) || (!e.dive.overlap && ((toCorner < o.diveTurnIn && !e.dive.committed) || r.gap > o.diveGap + 5))) e.dive = null;
     } else if (circuit && !slow && !e.finish && e.lane && Math.abs(e.offset - e.lane) < 0.5 && toCorner < o.laneReturn && toCorner > o.diveTurnIn
       && target && !target.diving && target.gap < o.diveGap && Math.sign(e.lane) === insideOf(s, toCorner)) {
       e.dive = { rival: target.index, cornerAt: e.covered + toCorner, overlap: target.gap < carLength + o.diveOverlap };
@@ -600,11 +605,21 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // pulled out at the leader's speed; equal cars then never passed. The move
     // is over (ordinary rules again) once ahead or dropped back, at laneReturn
     // metres before the corner, if the lane closes before it has pulled out,
-    // or if the car ahead brakes (harder than towBrake).
+    // or if the car ahead brakes (harder than towBrake). Still in the tow
+    // within 1.5 diveGap of the car ahead by pullOutBy metres before the
+    // corner it pulls out anyway for the out-braking move (it used to from 400
+    // m out, before it had drawn any closer: the surplus went the moment it
+    // left the tow, and it reached the braking zone 15 m back). A car out in
+    // its lane whose lane runs out of room (the racing line swings to that
+    // side of the road before the turn-in) crosses to the other lane if that
+    // is open: the lane was chosen where the straight began, and on a real
+    // line the inside of the next corner is often the side with no room
+    // there (Shanghai's back straight, Catalunya's pit straight).
     if (e.tow) {
       const r = others.find(x => x.index === e.tow.rival);
       if (!r || e.dive || yielding || e.finish || toCorner < o.passCutoff || r.gap < 0 || r.gap > o.towRange || r.ax < -o.towBrake || (!e.tow.out && !open(e.tow.lane))) e.tow = null;
-      else if (!e.tow.out && (r.gap < o.followMin + Math.max(0, speed - r.speed) * o.pullOutTime || (r.gap < 1.5 * o.diveGap && toCorner < o.passRoom + o.laneReturn))) { e.tow.out = true; e.lane = e.tow.lane; }
+      else if (!e.tow.out && (r.gap < o.followMin + Math.max(0, speed - r.speed) * o.pullOutTime || (r.gap < 1.5 * o.diveGap && toCorner < o.pullOutBy))) { e.tow.out = true; e.lane = e.tow.lane; }
+      else if (circuit && e.tow.out && e.lane === e.tow.lane && room(e.lane, o.laneRoomExit) < 0.8 * o.passLane && open(-e.lane)) e.lane = e.tow.lane = -e.lane;
     } else if (!e.dive && !yielding && !e.finish && e.lane === 0 && canChange && toCorner > o.passRoom && target && !target.diving && !target.pitIn
       && target.gap < o.towRange && speed > o.towSpeed && target.speed > o.towSpeed) {
       const inside = circuit ? insideOf(s, toCorner) : -1;
@@ -631,8 +646,12 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       e.lane = best;
     }
     // On a circuit a move across (e.g. from a grid slot to the racing line)
-    // pauses while the strip still to sweep is not free.
-    if (!circuit || yielding || free(e.lane)) e.offset += clamp(e.lane - e.offset, -o.laneRate * dt, o.laneRate * dt);
+    // pauses while the strip still to sweep is not free. A car pulling out of
+    // a tow (or crossing to the other lane) moves at pullOutRate: at laneRate
+    // the 6 m between the two lanes took 2.7 s, and the car was still crossing
+    // at the braking zone.
+    const rate = e.tow?.out ? o.pullOutRate : o.laneRate;
+    if (!circuit || yielding || free(e.lane)) e.offset += clamp(e.lane - e.offset, -rate * dt, rate * dt);
     // On a circuit a car keeps sideGap m (centre to centre; cars are 2 m wide)
     // across the road from any car alongside (within a car length and a
     // metre): where the racing line swings out to the road edge (a lane is
