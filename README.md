@@ -1,6 +1,7 @@
 # F1 Dynamics Lab
 
-A dependency-free, playable browser testbed for an open-wheel vehicle model.
+A playable browser testbed for an open-wheel vehicle model, rendered in 3D with
+Three.js (r170, vendored under `vendor/`, MIT licence in `vendor/LICENSE-three`).
 **Prototype, not a validated Formula 1 simulator.** All vehicle parameters are
 illustrative assumptions, not measured F1 data or a season's regulations.
 
@@ -8,10 +9,38 @@ illustrative assumptions, not measured F1 data or a season's regulations.
 
 From this directory, run `python3 -m http.server 5188 --bind 127.0.0.1`, then open
 `http://127.0.0.1:5188`. ES modules require HTTP; do not open the HTML as a file.
-The application has no runtime downloads, npm dependencies, or bundler.
+Three.js is served from `vendor/`, so there are no runtime downloads, npm
+dependencies, or bundler. A WebGL-capable browser is required.
 
-Run validation with `node --check physics.mjs && node --test physics.test.mjs`.
+Run validation with `node --test physics.test.mjs car3d.test.mjs`.
 Node's built-in test runner is the only test dependency.
+
+## 3D view and car model
+
+* `car3d.mjs` builds a procedural 2022-era-layout open-wheel car from the physics
+  config, so wheelbase (3.6 m), track and wheel radius always match the simulated
+  car: superellipse-lofted monocoque/nose, coke-bottle sidepods with inlets,
+  airbox and engine cover with fin, cockpit, driver helmet, halo, mirrors,
+  NACA-section four-element front wing and endplates, rear wing main plane and
+  DRS flap, beam wing, swan-neck pylons, rain light, floor with plank, diffuser
+  with strakes, wishbone/push-rod/track-rod suspension, brake drums, lathe-profiled
+  18-inch tires with compound stripe, rims and wheel covers. Materials are PBR
+  (clear-coated paint, carbon weave, rubber, metal) lit by a sun with soft
+  shadows plus an image-based environment.
+* Front wheels steer by the physics steer angle; every wheel spins at its own
+  simulated wheel speed (so wheelspin and lockup are visible).
+* `world3d.mjs` builds the same stadium circuit used by the surface function:
+  textured asphalt, edge lines, red/white kerbs, run-off, barriers, a start
+  gantry, grandstands, trees and a sky dome. Chase camera (smoothed) and a fixed
+  overview camera (V).
+* Limits: the shape is hand-modelled from public proportions, not CAD of any real
+  car; there is no body roll/pitch (the physics has no suspension yet), no
+  tire deformation, damage, livery editor or cockpit camera. Kerbs are drawn
+  but the physics still treats them as off-track grip.
+
+`car3d.test.mjs` checks the model fits a 5.65 × 2.0 × 0.96 m envelope, touches the
+ground only with tires and plank, places each wheel hub exactly at the physics
+contact position, has outward loft normals, and stays under 200k triangles.
 
 ## Controls
 
@@ -24,8 +53,8 @@ Node's built-in test runner is the only test dependency.
 - Losing window focus or hiding the tab pauses and releases held inputs.
 
 The stadium test circuit is fictional and flat. Asphalt and off-track grip are
-sampled separately at each wheel. The surrounding area is open: there are no
-walls, collisions, lap timing, or reset penalties. Use Reset if stranded.
+sampled separately at each wheel. Barriers are visual only: there are no
+collisions, lap timing, or reset penalties. Use Reset if stranded.
 
 ## Implemented model
 
@@ -172,8 +201,8 @@ establish internal consistency, not real-car accuracy.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
-5. 3D cockpit/track rendering, sound, gamepad/wheel input and force feedback,
-   collisions, circuit geometry, timing, opponents, and race rules.
+5. Cockpit camera, body motion from suspension, sound, gamepad/wheel input and
+   force feedback, collisions, real circuit geometry, timing, opponents, race rules.
 
 ## Repository / parity
 
