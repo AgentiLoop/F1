@@ -57,8 +57,9 @@ contact position, has outward loft normals, and stays under 200k triangles.
 - Gamepad (browser "standard" layout, e.g. Xbox/PlayStation pads): right
   trigger throttle, left trigger brake, left stick steering. P toggles
   autopilot off to drive.
-- Space: pause/resume; R: reset; V: overview/chase view; C: cockpit/chase camera;
-  M: sound on/off (the audio starts on the first key press or click).
+- Space: pause/resume; R: reset (restarts the race from the grid); V:
+  overview/chase view; C: cockpit/chase camera; M: sound on/off (the audio
+  starts on the first key press or click); O: opponents on/off (restarts).
 - Buttons provide the same pause/reset/view actions. Driving keys are ignored
   while a button has focus; click the circuit to return focus to driving.
 - Losing window focus or hiding the tab pauses and releases held inputs.
@@ -75,6 +76,48 @@ impulse at the depth-weighted centre of the penetrating corners: 25%
 restitution along the wall normal and Coulomb scrub (friction 0.5) along it,
 both coupled to yaw. The status line reports the closing speed of the last
 impact. There is no damage or reset penalty. Use Reset if stranded.
+
+### Opponents and racing (`race.mjs`, cycle 10)
+
+The player starts on pole with four AI opponents (fictional names and liveries)
+lined up 8 m apart behind, alternating 2.6 m either side of the centreline.
+Every car runs the full single-car physics, stepped in lockstep at 240 Hz, and
+the AI cars use the same autopilot as the player with their own corner speed
+(42.4–43.9 m/s vs 43) and braking target. Per step:
+
+* **Wake.** Behind a leader, w = e^(−(d − 4 m)/30 m) · e^(−(l/1.4 m)²) for a gap
+  d ≥ 4 m along the leader's heading and lateral offset l (strongest leader
+  wins). The follower's drag area is scaled by 1 − 0.35w (tow) and its
+  downforce by 1 − 0.25w (dirty air). Both are illustrative, not CFD.
+* **Contact.** Body footprints are oriented boxes (2.95 m ahead of / 2.35 m
+  behind the CG, 1.0 m half-width). A separating-axis test gives the minimum
+  overlap normal; cars are pushed apart by mass and get one impulse at the
+  middle of the touching features (restitution 0.3, Coulomb friction 0.4),
+  coupled to both yaw rates. Square rear-ends cause no spin; momentum is
+  conserved and energy never rises. No damage.
+* **AI traffic.** Lanes are the racing line and a passing lane 3 m either side.
+  Each lane's speed cap lets the car stop 14 m behind the nearest car in it
+  (18 m/s² planning deceleration, look-ahead grows with speed²). A car moves to
+  a lane at least 3 m/s faster when no car is alongside across the swept strip
+  and no nearby car is heading there, and returns to the line when it is no
+  worse. New moves start only on a straight more than 60 m before the braking
+  zone (or below 30 m/s, e.g. behind a stopped car); from the braking zone to
+  the exit a car not ahead backs out behind one alongside. Corner speed is
+  scaled for dirty air (√(1 − 0.45 · downforce loss)) and for a tighter line.
+* **Autopilot changes** (player and AI): line offset and speed cap inputs; the
+  throttle backs off as rear slip ratio passes 0.10 (gone at 0.25), like a
+  driver catching wheelspin; a cross-track term 0.012 rad/m (falling with
+  speed² above 40 m/s) and a 1.5 m/s lift per metre beyond 2 m wide of the line.
+  The lone autopilot covers 2903 m in 60 s (the existing test needs > 2891 m).
+* **Standings.** Order is by distance covered since the start line; the
+  interval is the time since the leader passed the car's latest 10 m mark.
+
+The timing box shows the race position (P1 / 5) and the side panel the order
+with intervals; the status line reports car-to-car contact speed. Lap timing,
+sound and telemetry remain the player's. Rival models use the same pose code as
+the player's car (body roll/pitch/heave, wheel spin and steer). There are no
+race rules yet (start lights, flags, penalties, pit stops), no blue flags, and
+AI cars do not defend or vary their pace by tire state.
 
 ### Driver input (`input.mjs`, cycle 7)
 
@@ -279,7 +322,7 @@ with load, slip or speed; there is no longitudinal relaxation.
 
 ## Verification
 
-Deterministic tests (85 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
+Deterministic tests (91 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
 stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 
 * Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
@@ -333,6 +376,17 @@ before a gesture, that a click starts it, live parameters while the autopilot
 drives, the M toggle, and renders the real graph offline at 10000 rpm full
 throttle: RMS 0.32, peak 0.62, dominant period 254 Hz (the 250 Hz half-order).
 
+Cycle 10 race tests (`race.test.mjs`): wake geometry (strongest close behind,
+none ahead, beside or overlapping); a car 15 m in the tow of an identical car
+gains more than 1 m in 3 s at full throttle over one in clean air and loses
+over 10% downforce; contacts in three configurations conserve linear momentum,
+never add energy and leave the cars separating, and a square rear-end adds no
+yaw; a five-car autopilot race runs 240 s with every car inside the kerbs, no
+contact above 2 m/s and every car past lap 8 with ordered standings; AI cars
+pass a car stopped on the grid without contact. `/tmp/f1-race-smoke.mjs`
+checks in Chrome the five-car field and standings HUD, that every rival model
+is drawn at its physics position, and that O removes and restores the field.
+
 Cycle 7 input tests (`input.test.mjs`): deadzone/curve shaping and monotonicity;
 keyboard throttle ramp identical at 1/240, 1/60 and 1/30 s frames; steering
 lock, return and centre crossing exact for small and single large steps;
@@ -364,7 +418,8 @@ establish internal consistency, not real-car accuracy.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
 5. Wheel/pedal calibration and
-   force feedback, damage, kerb geometry and bumps, real circuit geometry, opponents, race rules.
+   force feedback, damage, kerb geometry and bumps, real circuit geometry, race
+   rules (start procedure, flags, penalties, pit stops) and smarter AI racecraft.
 
 ## Repository / parity
 

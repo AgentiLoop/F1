@@ -105,7 +105,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
   const entries = [{ name: 'You', player: true, cornerSpeed: 43, brakeDecel: 26, ...player }, ...grid].map((spec, i) => {
     const car = createCar(spec.car);
     const lane = i === 0 ? 0 : (i % 2 ? -1 : 1) * 2.6;
-    car.x = -8 * i; car.y = -(radius + lane);
+    car.x = i ? -8 * i : 0; car.y = -(radius + lane); // pole at x = 0 (not -0)
     const p = track.progress(car.x, car.y);
     return { ...spec, index: i, car, lane: 0, offset: lane, last: p, covered: p - startLine,
       drive: createAutopilot({ halfStraight, radius }, { cornerSpeed: spec.cornerSpeed, brakeDecel: spec.brakeDecel }) };

@@ -85,7 +85,8 @@ function canvasTexture(size, draw, repeat = 1) {
   return t;
 }
 
-function materials() {
+// livery: { paint, accent, helmet } hex colours (defaults: AgentiLoop navy/teal).
+function materials({ paint: body = 0x0d2340, accent = 0x39e0ae, helmet = 0xf2bf5e } = {}) {
   const weave = canvasTexture(64, (g, s) => {
     for (let y = 0; y < s; y += 8) for (let x = 0; x < s; x += 8) {
       const v = ((x + y) / 8) % 2 ? 34 : 22;
@@ -97,14 +98,14 @@ function materials() {
   const cover = canvasTexture(256, (g, s) => {
     const c = s / 2;
     g.fillStyle = '#16191d'; g.fillRect(0, 0, s, s);
-    g.strokeStyle = '#39e0ae'; g.lineWidth = 10; g.beginPath(); g.arc(c, c, c * 0.86, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = `#${accent.toString(16).padStart(6, '0')}`; g.lineWidth = 10; g.beginPath(); g.arc(c, c, c * 0.86, 0, Math.PI * 2); g.stroke();
     g.fillStyle = '#2b3138';
     for (let i = 0; i < 5; i++) { g.save(); g.translate(c, c); g.rotate(i * Math.PI * 2 / 5); g.fillRect(-9, c * 0.2, 18, c * 0.6); g.restore(); }
     g.fillStyle = '#e9f0f6'; g.fillRect(c - 6, c * 0.18, 12, c * 0.66);
   });
   const paint = (color) => new THREE.MeshPhysicalMaterial({ color, metalness: 0.45, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.04 });
   return {
-    paint: paint(0x0d2340), accent: paint(0x39e0ae), white: paint(0xe9f0f6),
+    paint: paint(body), accent: paint(accent), white: paint(0xe9f0f6),
     carbon: new THREE.MeshPhysicalMaterial({ color: weave ? 0xffffff : 0x1a1c20, map: weave, metalness: 0.25, roughness: 0.38, clearcoat: 0.9, clearcoatRoughness: 0.12 }),
     rubber: new THREE.MeshStandardMaterial({ color: 0x1b1b1c, roughness: 0.93, side: THREE.DoubleSide }),
     black: new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.55, side: THREE.DoubleSide }),
@@ -113,14 +114,14 @@ function materials() {
     cover: new THREE.MeshPhysicalMaterial({ color: cover ? 0xffffff : 0x16191d, map: cover, metalness: 0.3, roughness: 0.3, clearcoat: 1, side: THREE.DoubleSide }),
     soft: new THREE.MeshStandardMaterial({ color: 0xe0262b, roughness: 0.6, side: THREE.DoubleSide }),
     plank: new THREE.MeshStandardMaterial({ color: 0x8b6a3e, roughness: 0.8 }),
-    helmet: new THREE.MeshPhysicalMaterial({ color: 0xf2bf5e, roughness: 0.25, clearcoat: 1 }),
+    helmet: new THREE.MeshPhysicalMaterial({ color: helmet, roughness: 0.25, clearcoat: 1 }),
     visor: new THREE.MeshPhysicalMaterial({ color: 0x0a0d12, metalness: 0.9, roughness: 0.05, clearcoat: 1 }),
     light: new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1a1a, emissiveIntensity: 2 }),
   };
 }
 
-export function buildF1Car(config) {
-  const M = materials();
+export function buildF1Car(config, livery) {
+  const M = materials(livery);
   const car = new THREE.Group(); car.name = 'f1-car';
   const add = (geometry, material, parent = car) => {
     const m = new THREE.Mesh(geometry, material); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;

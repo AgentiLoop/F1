@@ -71,3 +71,11 @@ test('sprung body rolls, pitches and heaves without moving the planted wheels', 
   assert.ok(point(2.5, 0.1, 0).y < 0.1 - 0.015, 'nose dips');
   assert.ok(point(0, 0.3, -0.6).y > point(0, 0.3, 0.6).y, 'left side rises');
 });
+
+test('livery recolours the paint and accent without changing the geometry', () => {
+  const rival = buildF1Car(DEFAULT_CAR, { paint: 0xc8102e, accent: 0xf4f4f4, helmet: 0xf4f4f4 });
+  const meshes = g => { const out = []; g.traverse(o => { if (o.isMesh) out.push(o.material.color.getHex()); }); return out; };
+  const colours = new Set(meshes(rival.group));
+  assert.equal(meshes(rival.group).length, meshes(buildF1Car(DEFAULT_CAR).group).length);
+  assert.ok(colours.has(0xc8102e) && colours.has(0xf4f4f4) && !colours.has(0x0d2340) && !colours.has(0x39e0ae));
+});
