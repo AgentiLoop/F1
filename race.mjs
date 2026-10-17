@@ -25,9 +25,10 @@ export const RACE_DEFAULTS = Object.freeze({
   // AI reaction times are drawn from [reactionMin, reactionMax].
   lightInterval: 1, holdMin: 0.2, holdMax: 3, jumpDistance: 0.5, jumpPenalty: 5, reactionMin: 0.18, reactionMax: 0.3,
   // After taking the chequered flag a car cruises at most coolDownSpeed (m/s).
-  // An AI car stuck (below 1 m/s, out of the pits) for retireAfter seconds
-  // after the start retires, e.g. beached against a wall: it has no reverse gear.
+  // An AI car stopped against a wall tries a bounded reverse manoeuvre before
+  // retiring. Fuel-starved cars and ordinary traffic queues do not reverse.
   coolDownSpeed: 45, retireAfter: 10,
+  recoveryDelay: 2, recoveryTimeout: 20, recoveryMinDistance: 3, recoveryDistance: 20, recoveryAlign: 0.35, recoverySpeed: 2, recoveryAttempts: 2,
   // Pit stops (illustrative): planning decelerations to the speed-limit line
   // and to the box marks (m/s²), stationary time range (s), the window either
   // side of the box marks where the crew services a stopped car (m), the
@@ -379,6 +380,63 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     return e.drive(car, { offset: e.offset, maxSpeed, grip });
   }
 
+  // Recovery is opponent-only: never take control of the player's pedals or
+  // reverse an ordinary queue. Probe just ahead of the nose for a facing wall.
+  function recoveryCommand(e, barrierAt) {
+    const car = e.car, c = car.config, cos = Math.cos(car.heading), sin = Math.sin(car.heading);
+    const hold = { throttle: 0, brake: 1, steer: 0 };
+    if (e.player || e.pit || e.finish || e.retired || time < lightsOut + 2) return null;
+    if (!e.recovery && e.stuck >= o.recoveryDelay && car.fuel !== 0 && (e.recoveryAttempts ?? 0) < o.recoveryAttempts) {
+      const facing = [-c.bodyHalfWidth, 0, c.bodyHalfWidth].some(y => {
+        const hit = barrierAt?.(car.x + (c.bodyFront + 0.5) * cos - y * sin, car.y + (c.bodyFront + 0.5) * sin + y * cos);
+        return hit && hit.nx * cos + hit.ny * sin < -0.5;
+      });
+      if (facing) {
+        e.recovery = { phase: 'reverse', begin: time, x: car.x, y: car.y };
+        e.recoveryAttempts = (e.recoveryAttempts ?? 0) + 1;
+      }
+    }
+    const r = e.recovery;
+    if (!r) return null;
+    if (time - r.begin > o.recoveryTimeout) {
+      e.recovery = null;
+      e.retired = { time: time - lightsOut, lap: Math.max(0, Math.floor(e.covered / length)) + 1 };
+      return hold;
+    }
+    if (r.phase === 'reverse' && (car.gear > 0 || car.shiftTimer > 0)) return { ...hold, reverse: true };
+    const heading = circuit ? track.heading(track.progress(car.x, car.y)) : Math.atan2(car.x - clamp(car.x, -halfStraight, halfStraight), -car.y);
+    const error = Math.atan2(Math.sin(heading - car.heading), Math.cos(heading - car.heading));
+    const steer = -clamp(2 * error, -1, 1);
+    // Conservative swept envelope, including the turn and two seconds of
+    // approaching traffic. A blocked path holds the brakes, never teleports.
+    const distance = Math.max(2, car.telemetry.speed * 1.5), curvature = Math.tan(steer * c.maxSteer) / c.wheelbase;
+    let wall = false;
+    const unsafe = Array.from({ length: 9 }, (_, i) => {
+      const d = distance * i / 8, yaw = car.heading - d * curvature;
+      const x = car.x - d * Math.cos(car.heading - d * curvature / 2), y = car.y - d * Math.sin(car.heading - d * curvature / 2);
+      const probe = footprint({ ...car, x, y, heading: yaw });
+      if (i && probe.corners.some(([px, py]) => barrierAt?.(px, py))) return (wall = true);
+      return entries.some(other => {
+        if (other === e) return false;
+        const b = footprint(other.car), radius = Math.hypot(probe.L, probe.W) + Math.hypot(b.L, b.W) + 1;
+        for (let t = 0; t <= 2; t += 0.25)
+          if (Math.hypot(probe.cx - b.cx - other.car.vx * t, probe.cy - b.cy - other.car.vy * t) < radius) return true;
+        return false;
+      });
+    }).some(Boolean);
+    // Reverse until roughly aligned with the track (full lock needs ~15 m to
+    // turn 90 degrees), or until the distance cap or a barrier behind.
+    const moved = Math.hypot(car.x - r.x, car.y - r.y);
+    if (r.phase === 'reverse' && (moved >= o.recoveryDistance || (moved >= o.recoveryMinDistance && (Math.abs(error) < o.recoveryAlign || wall)))) r.phase = 'forward';
+    if (r.phase === 'forward') {
+      if (car.gear < 0 || car.telemetry.speed >= 0.2 || car.shiftTimer > 0) return { ...hold, reverse: false };
+      e.recovery = null; e.stuck = 0; e.lane = 0; e.offset = rel(car);
+      return hold;
+    }
+    if (unsafe) return hold;
+    return { throttle: car.telemetry.speed < o.recoverySpeed ? 0.12 : 0, brake: car.telemetry.speed > o.recoverySpeed + 0.2 ? 0.3 : 0, steer };
+  }
+
   function stepAll(input, surfaceAt, barrierAt) {
     for (const e of entries) {
       let w = 0;
@@ -392,13 +450,13 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // when it decides to as it nears the line.
     for (const e of entries) {
       const p = track.progress(e.car.x, e.car.y);
-      if (pit && !e.pit && !(e.player && input) && time >= lightsOut && (p > length - 100 || p < pit.entry - 5) && wantsStop(e))
+      if (pit && !e.pit && !e.recovery && !(e.player && input) && time >= lightsOut && (p > length - 100 || p < pit.entry - 5) && wantsStop(e))
         e.pit = { phase: 'in', compound: nextCompound(e), from: e.offset };
     }
     for (const e of entries) e.manual = !!(e.player && input);
     const commands = entries.map((e, i) => {
       let command = e.pit?.phase === 'service' || e.retired ? hold : e.player && input ? input
-        : time < lightsOut + (start ? e.reactionTime : 0) ? hold : aiCommand(i);
+        : time < lightsOut + (start ? e.reactionTime : 0) ? hold : recoveryCommand(e, barrierAt) ?? aiCommand(i);
       // Pit limiter: no drive above the speed limit in the pit lane.
       if (command.throttle > 0 && pit && e.car.telemetry.speed > pit.speedLimit && inPitLane(e.car)) command = { ...command, throttle: 0 };
       return (e.command = command);
@@ -426,7 +484,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
         }
       }
       updatePit(e);
-      e.stuck = !e.player && !e.pit && !e.finish && !e.retired && time > lightsOut + 2 && e.car.telemetry.speed < 1 ? (e.stuck ?? 0) + FIXED_DT : 0;
+      e.stuck = !e.player && !e.pit && !e.recovery && !e.finish && !e.retired && time > lightsOut + 2 && e.car.telemetry.speed < 1 ? (e.stuck ?? 0) + FIXED_DT : 0;
       if (e.stuck > o.retireAfter) e.retired = { time: time - lightsOut, lap: Math.max(0, Math.floor(e.covered / length)) + 1 };
       if (start && !e.jumpStart && time < lightsOut && e.covered - e.grid > o.jumpDistance) { e.jumpStart = true; e.penalty += o.jumpPenalty; }
       // Reaction: from lights out to the first firm throttle (> 50%).
