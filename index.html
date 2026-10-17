@@ -15,9 +15,10 @@
 <div id="pause-state" role="status"></div><div class="label">Ground speed</div><div><span class="speed" id="speed">0</span> <span class="unit">km/h</span></div>
 <div class="section"><div class="stats"><div><div class="label">Last lap</div><div class="number" id="last-lap">–:––.–––</div></div><div><div class="label">Best lap</div><div class="number" id="best-lap">–:––.–––</div></div></div><div class="sectors" id="sectors"></div><p class="note">Sectors: purple = session best, yellow = slower. Track limits: a lap is deleted when all four tires are beyond the road edge.</p></div>
 <div class="section stats"><div><div class="label">Longitudinal</div><div class="number" id="long">0.00 g</div></div><div><div class="label">Lateral</div><div class="number" id="lat">0.00 g</div></div><div><div class="label">Downforce</div><div class="number" id="aero">0.0 kN</div></div><div><div class="label">Distance</div><div class="number" id="distance">0 m</div></div><div><div class="label">Sim time</div><div class="number" id="time">0.0 s</div></div><div><div class="label">Steering</div><div class="number" id="steer">0.0°</div></div><div><div class="label">Roll / pitch</div><div class="number" id="attitude">0.00° / 0.00°</div></div><div><div class="label">Aero squat</div><div class="number" id="heave">0 mm</div></div><div><div class="label">Ride F / R</div><div class="number" id="ride">40 / 80 mm</div></div><div><div class="label">Aero balance</div><div class="number" id="balance">40.0% F</div></div></div>
+<div class="section"><div class="label">Driver input · <span id="input-source">autopilot</span></div><div class="stats" style="margin-top:10px"><div><div class="label">Throttle</div><meter id="in-throttle" min="0" max="1" value="0" style="width:100%;accent-color:#6fffc3" aria-label="Throttle command"></meter></div><div><div class="label">Brake</div><meter id="in-brake" min="0" max="1" value="0" style="width:100%;accent-color:#ff8e86" aria-label="Brake command"></meter></div></div><p class="note">Keyboard pedals ramp in ~0.17 s and release in 0.1 s; keyboard steering moves toward lock at 3/s and returns at 5/s. Gamepad (standard layout): triggers are analog pedals, left stick steers with a deadzone and progressive curve. Steering authority falls with speed for both.</p></div>
 <div class="section"><div class="label">Tire force / peak grip</div><div class="wheels" id="wheels"></div><p class="note">FL / FR / RL / RR · normal load in kN.<br>Bars: force / peak capacity, not remaining grip. SLIDE: combined demand beyond the illustrative force peak; force falls toward 75% of peak. Slip: signed longitudinal slip; + is wheelspin when moving forward. LOCK: stopped wheel above 1 m/s. α: force-producing (relaxed) / kinematic slip angle; the carcass catches up over 0.45 m of travel. Temp: tread / carcass °C · thermal grip (blue cold, green near the 100 °C optimum, red hot); sliding heats the tread, airflow cools it. No ABS or traction control.</p></div>
-<div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview<br><kbd>C</kbd> Cockpit / chase camera<br><kbd>P</kbd> Autopilot on / off</div>
-<p class="note">Illustrative, uncalibrated dynamics. Keyboard steering is speed-scaled. Body roll, pitch and aero squat are damped spring modes for display; wheel loads are still quasi-static. Surface grip (assumed): kerb 90%, runoff 70%, grass 35%. Walls are rigid: the body footprint rebounds with 25% restitution and scrubs with friction 0.5; no damage model. Tires start at 70 °C (blanket temperature) and have a two-node thermal model; no wear, pressure or camber yet. This is a handling testbed, not a validated F1 simulator.</p>
+<div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview<br><kbd>C</kbd> Cockpit / chase camera<br><kbd>P</kbd> Autopilot on / off<br>Gamepad: RT throttle · LT brake · left stick steer</div>
+<p class="note">Illustrative, uncalibrated dynamics. Body roll, pitch and aero squat are damped spring modes for display; wheel loads are still quasi-static. Surface grip (assumed): kerb 90%, runoff 70%, grass 35%. Walls are rigid: the body footprint rebounds with 25% restitution and scrubs with friction 0.5; no damage model. Tires start at 70 °C (blanket temperature) and have a two-node thermal model; no wear, pressure or camber yet. This is a handling testbed, not a validated F1 simulator.</p>
 </aside></main>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
 <script type="module">
@@ -29,6 +30,7 @@ import { buildWorld } from './world3d.mjs';
 import { createAutopilot } from './autopilot.mjs';
 import { createStadiumTrack } from './track.mjs';
 import { createLapTimer, formatLapTime } from './laptimer.mjs';
+import { createDriverInput, readGamepad } from './input.mjs';
 const $ = id => document.getElementById(id);
 const canvas = $('track');
 let sim, paused = false, overview = false, cockpit = false, previousTime = null, snapCamera = true;
@@ -39,15 +41,18 @@ const track = createStadiumTrack({ halfStraight, radius, roadWidth });
 const { surfaceAt, barrierAt } = track;
 const drive = createAutopilot({ halfStraight, radius });
 const timer = createLapTimer(track);
-let autopilot = true;
+let autopilot = true, command = { throttle: 0, brake: 0, steer: 0 };
+const driver = createDriverInput();
+// First connected gamepad that reports the W3C standard layout.
+const gamepad = () => [...(navigator.getGamepads?.() ?? [])].map(p => readGamepad(p)).find(Boolean) ?? null;
 function toggleAutopilot() {
-  autopilot = !autopilot; keys.clear();
+  autopilot = !autopilot; keys.clear(); driver.reset();
   $('autopilot').textContent = `Autopilot: ${autopilot ? 'on' : 'off'}`;
   $('autopilot').setAttribute('aria-pressed', String(autopilot));
 }
 function reset() {
   sim = new Simulation(createCar()); sim.car.y = -radius; timer.restart();
-  keys.clear(); previousTime = null; snapCamera = true;
+  keys.clear(); driver.reset(); previousTime = null; snapCamera = true;
 }
 function pause(value) {
   paused = value; keys.clear(); previousTime = null;
@@ -211,17 +216,20 @@ function render(dt = 0) {
     el.classList.toggle('slower', t !== undefined && t !== ts.bestSectors[k]);
   }
   const surface = track.surface(c.x, c.y), impact = c.impact && c.impact.speed > 2 && c.time - c.impact.time < 1.5 ? c.impact : null;
-  $('status').textContent = paused ? 'Paused · Space or Resume to continue' : impact ? `Wall impact · ${Math.round(impact.speed * 3.6)} km/h into the barrier · R to reset` : surface !== 'asphalt' ? `On the ${surface} · reduced grip · R to reset` : autopilot ? 'Autopilot · P to take control' : c.telemetry.speed < 0.5 ? 'Ready · W or ↑ to accelerate' : 'Test circuit · keyboard steering assist';
+  $('status').textContent = paused ? 'Paused · Space or Resume to continue' : impact ? `Wall impact · ${Math.round(impact.speed * 3.6)} km/h into the barrier · R to reset` : surface !== 'asphalt' ? `On the ${surface} · reduced grip · R to reset` : autopilot ? 'Autopilot · P to take control' : c.telemetry.speed < 0.5 ? 'Ready · W or ↑ to accelerate' : `Test circuit · ${driver.source} input`;
+  $('input-source').textContent = autopilot ? 'autopilot' : driver.source;
+  $('in-throttle').value = command.throttle ?? 0; $('in-brake').value = command.brake ?? 0;
 }
 function frame(now) {
   const dt = previousTime !== null && !paused ? Math.min((now - previousTime) / 1000, 0.1) : 0;
   if (previousTime !== null && !paused) {
     const has = (...codes) => codes.some(code => keys.has(code));
-    const steer = Number(has('KeyA', 'ArrowLeft')) - Number(has('KeyD', 'ArrowRight'));
-    sim.advance((now - previousTime) / 1000, autopilot ? drive(sim.car) : {
-      throttle: Number(has('KeyW', 'ArrowUp')), brake: Number(has('KeyS', 'ArrowDown')),
-      steer: steer / (1 + (sim.car.telemetry.speed / 22) ** 2),
-    }, surfaceAt, barrierAt);
+    // Ramp over the same elapsed time the simulation accepts (it caps a frame at 0.25 s).
+    command = autopilot ? drive(sim.car) : driver.update(Math.min((now - previousTime) / 1000, 0.25), {
+      throttle: has('KeyW', 'ArrowUp'), brake: has('KeyS', 'ArrowDown'),
+      left: has('KeyA', 'ArrowLeft'), right: has('KeyD', 'ArrowRight'),
+    }, gamepad(), sim.car.telemetry.speed);
+    sim.advance((now - previousTime) / 1000, command, surfaceAt, barrierAt);
     timer.update(sim.car);
   }
   previousTime = now; render(dt); requestAnimationFrame(frame);
@@ -229,7 +237,7 @@ function frame(now) {
 reset(); resize(); requestAnimationFrame(frame);
 // Read-only snapshots for browser smoke tests and telemetry tools.
 window.f1Lab = {
-  snapshot: () => ({ car: structuredClone(sim.car), timing: structuredClone(timer.state), paused, overview, cockpit, keys: [...keys] }),
+  snapshot: () => ({ car: structuredClone(sim.car), timing: structuredClone(timer.state), paused, overview, cockpit, keys: [...keys], command: { ...command }, inputSource: autopilot ? 'autopilot' : driver.source }),
   // 3D render state: draw stats, the car's on-screen position and the pixel there.
   view: () => {
     const gl = renderer.getContext(), p = model.group.position.clone().setY(0.5).project(camera);

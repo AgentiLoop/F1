@@ -53,8 +53,10 @@ contact position, has outward loft normals, and stays under 200k triangles.
 ## Controls
 
 - W / Up: throttle; S / Down: brake.
-- A / Left and D / Right: steering. Keyboard steering has a speed-based scaling
-  assist; steering angle also has a rate limit.
+- A / Left and D / Right: steering.
+- Gamepad (browser "standard" layout, e.g. Xbox/PlayStation pads): right
+  trigger throttle, left trigger brake, left stick steering. P toggles
+  autopilot off to drive.
 - Space: pause/resume; R: reset; V: overview/chase view; C: cockpit/chase camera.
 - Buttons provide the same pause/reset/view actions. Driving keys are ignored
   while a button has focus; click the circuit to return focus to driving.
@@ -72,6 +74,25 @@ impulse at the depth-weighted centre of the penetrating corners: 25%
 restitution along the wall normal and Coulomb scrub (friction 0.5) along it,
 both coupled to yaw. The status line reports the closing speed of the last
 impact. There is no damage or reset penalty. Use Reset if stranded.
+
+### Driver input (`input.mjs`, cycle 7)
+
+Keyboard keys are on/off, so they are rate-limited instead of stepping the
+pedals: throttle and brake ramp to full at 6/s (about 0.17 s) and release at
+10/s; steering moves toward lock at 3/s and back toward centre at 5/s, and a
+reversal crosses centre at the return rate before ramping the other way. The
+ramps are exact for any frame time and use the same elapsed time the
+simulation accepts (frames are capped at 0.25 s). Gamepad triggers and stick
+are analog and applied without a ramp, after an 8% deadzone (remaining travel
+rescaled to 0–1); the stick has a 1.5 power curve for finer control near
+centre. Both sources share the speed-based steering authority
+1 / (1 + (u / 22 m/s)²), and the physics steering-rate limit (1.2 rad/s)
+still applies. When both are used, the larger pedal value wins and a held
+steering key overrides the stick. The HUD shows the active source and the
+throttle/brake commands, including the autopilot's. All rates are illustrative
+choices, not measured driver or hardware data. Only the W3C standard mapping
+is read; wheels and pedal sets that report a non-standard layout are ignored,
+and there is no force feedback, calibration screen or key rebinding yet.
 
 ### Lap timing (`laptimer.mjs`)
 
@@ -255,6 +276,16 @@ locked-wheel sliding heats the tread >5 °C in 1 s while free rolling only cools
 it; a 50 m/s stop on 40 °C tires is >10% longer than on 100 °C tires.
 `/tmp/f1-thermal-smoke.mjs` checks the per-wheel temperature HUD in Chrome.
 
+Cycle 7 input tests (`input.test.mjs`): deadzone/curve shaping and monotonicity;
+keyboard throttle ramp identical at 1/240, 1/60 and 1/30 s frames; steering
+lock, return and centre crossing exact for small and single large steps;
+speed-scaled authority for keyboard and stick; standard-mapping trigger/stick
+reading (non-standard or disconnected pads ignored, digital-only triggers
+read as full); merging and source selection. `/tmp/f1-input-smoke.mjs` drives
+a fake standard gamepad in Chrome: keyboard throttle ramps (0.10 seen
+mid-ramp), the HUD switches to gamepad, RT 0.77 gives throttle 0.75 and the car
+moves; all eight earlier browser checks still pass.
+
 Cycle 4 reran all four headless Chrome checks (new `/tmp/f1-relax-smoke.mjs`:
 α readouts visible, relaxed angle nonzero while steering, reset clears state);
 all passed without page errors.
@@ -275,7 +306,7 @@ establish internal consistency, not real-car accuracy.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
-5. Sound, gamepad/wheel input and
+5. Sound, wheel/pedal calibration and
    force feedback, damage, kerb geometry and bumps, real circuit geometry, opponents, race rules.
 
 ## Repository / parity
