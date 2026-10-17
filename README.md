@@ -387,8 +387,8 @@ illustrative, not FIA zone maps or wind-tunnel data.
 - In a seeded 10-lap stadium race the cars ran with DRS open for 7–40 s each;
   everyone finished with no wall impacts. In seeded 5-lap races at Monza,
   Silverstone and the Red Bull Ring the circuit AI field spread out by more
-  than 1 s before lap 3, so no car ever qualified for DRS. Closer circuit
-  racing needs better AI racecraft.
+  than 1 s before lap 3, so no car ever qualified for DRS (fixed in cycle 22,
+  below).
 
 ### Autopilot yaw-rate feedback: Spa's lap is valid again (`autopilot.mjs`, cycle 21)
 
@@ -414,6 +414,44 @@ illustrative, not FIA zone maps or wind-tunnel data.
 - **Assumptions:** the gain and the 60 m/s fade speed were picked from a sweep
   (gains 0.5–5; fade speeds 40–120 m/s, where 120 made the car weave at Spa).
   They are not taken from real driver data.
+
+### Close following and DRS on real circuits (`race.mjs`, `autopilot.mjs`, cycle 22)
+
+- **Cause:** circuit AI cars could not run close behind another car. The follow
+  law capped a car's speed so it could stop `followGap` (14 m) behind the car
+  ahead braking at a flat 18 m/s². It also took the speed the car ahead would
+  have 0.4 s later at its current deceleration. An F1 car with downforce brakes
+  at ~40 m/s² from 80 m/s, so the follower braked far too early for every
+  corner. A same-spec car behind lost ~0.3 s a lap and was 2.8 s down after 4
+  laps at Monza. No car got within 1 s for DRS. The AI's planned grip was also
+  cut for tires below their best temperature, but the autopilot's grip margin
+  already allows for tires at their 70 °C starting temperature.
+- **Fix (circuits only; the stadium is unchanged):**
+  - The follow law may brake as the car's own speed plan does,
+    `brakeGrip·μ·(g + q·v²)` plus drag, written as a + b·v². The highest
+    speed that braking slows to the leader's speed within the gap has a closed
+    form, `drive.brakeSpeed`: v0² = ((a + b·v²)·e^(2bd) − a) / b. The flat law
+    stays as a floor and is the only law closer than `followGap`.
+  - Anticipation counts only braking harder than the plan (a spin, a wall).
+  - The tire-temperature grip factor counts only grip lost below the starting
+    temperature.
+  - The faster follow law caused new light contacts on lap 1, fixed by two
+    changes. A car moving across, for example from its grid slot to the racing
+    line, now pauses while the strip it still has to cross is not free. A slow
+    car may still change lanes anywhere, but no longer in a slow corner such as
+    La Source or Hungaroring T1, where this used to let cars run side by side.
+- **Measured:** in a 2-car, 4-lap Monza race the follower's detection gaps fell
+  from 1.37 to 0.63 s. It finished 0.46 s behind (was 2.76 s) with DRS open for
+  44 s (was 0). In seeded 5-lap races with the full field, Monza had 69 s of
+  DRS use and Silverstone 90 s (both 0 before). On all 18 circuits, 3-lap races
+  had no wall impacts and no car-to-car contact except Monaco's existing
+  1.8 m/s lap-1 touch. 5-lap races with 2–3 seeds at Monza, Spa, Silverstone,
+  Interlagos, the Red Bull Ring, the Hungaroring, Zandvoort, Jeddah and Monaco
+  were also clean apart from that Monaco touch. Race times are faster,
+  for example Monaco 3 laps 296.8 → 288.9 s. Time-trial laps are unchanged
+  (Spa 125.83 s, Monza 95.55 s).
+- **Still missing:** cars now run in DRS range but almost never pass on
+  circuits. The AI still has no late-braking or defending moves.
 
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
@@ -917,6 +955,14 @@ line. All 128 Node tests pass. `/tmp/f1-drs-smoke.mjs` waited in Chrome for a
 car to open DRS on lap 3. It checked that open flaps were allowed and drawn
 flat and that the standings showed DRS, with no page errors. The race,
 circuit-race, circuit and 3D checks still pass.
+
+Cycle 22 follow tests (`follow.test.mjs`, two tests): `brakeSpeed` matches a
+numerical integration of the plan's braking over 20, 80 and 250 m and beats
+the flat 18 m/s² law from high speed; in a 2-car, 4-lap Monza race the
+follower's detection gap falls by more than 0.4 s, DRS opens for more than
+10 s, the car finishes less than 1 s behind and there is no contact. The race
+test fails against the cycle 21 code. All 132 Node tests pass, and the
+circuit and circuit-race browser checks pass.
 
 ## Next realism milestones
 
