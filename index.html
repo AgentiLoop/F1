@@ -13,7 +13,7 @@
 <main><section class="scene" aria-label="Driving viewport"><canvas id="track" role="img" aria-label="Top-down open-wheel car on a stadium-shaped test circuit"></canvas><div class="tag"><strong>LIVE</strong> &nbsp; 240 Hz PHYSICS / SI UNITS</div><div id="status" role="status">Ready · W or ↑ to accelerate</div></section><aside aria-label="Vehicle telemetry">
 <div id="pause-state" role="status"></div><div class="label">Ground speed</div><div><span class="speed" id="speed">0</span> <span class="unit">km/h</span></div>
 <div class="section stats"><div><div class="label">Longitudinal</div><div class="number" id="long">0.00 g</div></div><div><div class="label">Lateral</div><div class="number" id="lat">0.00 g</div></div><div><div class="label">Downforce</div><div class="number" id="aero">0.0 kN</div></div><div><div class="label">Distance</div><div class="number" id="distance">0 m</div></div><div><div class="label">Sim time</div><div class="number" id="time">0.0 s</div></div><div><div class="label">Steering</div><div class="number" id="steer">0.0°</div></div></div>
-<div class="section"><div class="label">Tire force / available grip</div><div class="wheels" id="wheels"></div><p class="note">FL / FR / RL / RR · normal load in kN.<br>Bars: force utilization. Slip: signed longitudinal slip; + is wheelspin when moving forward. LOCK: stopped wheel above 1 m/s. No ABS or traction control.</p></div>
+<div class="section"><div class="label">Tire force / peak grip</div><div class="wheels" id="wheels"></div><p class="note">FL / FR / RL / RR · normal load in kN.<br>Bars: force / peak capacity, not remaining grip. SLIDE: combined demand beyond the illustrative force peak; force falls toward 75% of peak. Slip: signed longitudinal slip; + is wheelspin when moving forward. LOCK: stopped wheel above 1 m/s. No ABS or traction control.</p></div>
 <div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview</div>
 <p class="note">Illustrative, uncalibrated dynamics. Keyboard steering is speed-scaled. No suspension travel, tire temperature, collisions, or race rules yet. This is a handling testbed, not a validated F1 simulator.</p>
 </aside></main>
@@ -60,7 +60,7 @@ window.addEventListener('blur', () => pause(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(true); });
 for (const name of ['FL', 'FR', 'RL', 'RR']) {
   const box = document.createElement('div'); box.className = 'wheel';
-  box.innerHTML = `${name}<span id="load-${name}">0.0</span><meter id="grip-${name}" min="0" max="1" value="0" aria-label="${name} tire utilization"></meter><div id="slip-${name}" aria-label="${name} longitudinal slip">Slip 0%</div><div id="rpm-${name}" aria-label="${name} wheel rpm">0 rpm</div>`;
+  box.innerHTML = `${name}<span id="load-${name}">0.0</span><meter id="grip-${name}" min="0" max="1" value="0" aria-label="${name} tire utilization"></meter><div id="slip-${name}" aria-label="${name} longitudinal slip">Slip 0%</div><div id="rpm-${name}" aria-label="${name} wheel rpm">0 rpm</div><div id="state-${name}" aria-label="${name} tire force regime">—</div>`;
   $('wheels').append(box);
 }
 function resize() {
@@ -132,6 +132,8 @@ function render() {
     $(`slip-${name}`).textContent = wheel?.locked ? 'LOCK' : `Slip ${((wheel?.slipRatio ?? 0) * 100).toFixed(0)}%`;
     $(`slip-${name}`).style.color = wheel?.locked ? '#ff8e86' : '#b8c8d5';
     $(`rpm-${name}`).textContent = `${Math.round((wheel?.omega ?? 0) * 60 / (2 * Math.PI))} rpm`;
+    $(`state-${name}`).textContent = !wheel ? '—' : wheel.capacity <= 0 ? 'NO GRIP' : wheel.sliding ? 'SLIDE' : 'PRE-PEAK';
+    $(`state-${name}`).style.color = wheel?.sliding ? '#ffc86f' : '#b8c8d5';
   });
   $('status').textContent = paused ? 'Paused · Space or Resume to continue' : surfaceAt(c.x, c.y) < 1 ? 'Off circuit · reduced grip · R to reset' : c.telemetry.speed < 0.5 ? 'Ready · W or ↑ to accelerate' : 'Test circuit · keyboard steering assist';
 }
