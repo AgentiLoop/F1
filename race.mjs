@@ -18,7 +18,7 @@ export const RACE_DEFAULTS = Object.freeze({
   // (m) are explained in aiCommand. Grid slots are
   // gridSpacing m apart.
   cornerCurvature: 1 / 300, laneRoomAhead: 200, laneRoomExit: 80, laneReturn: 150, gridSpacing: 8,
-  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 0.3, passRoom: 250, diveGap: 20, diveOverlap: 1, diveReach: 0.6, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, anticipation: 0.4, laneRate: 2.2, laneClearance: 2.6, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
+  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 0.3, passRoom: 250, diveGap: 20, diveOverlap: 1, diveReach: 0.6, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, laneClearance: 2.6, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
   // Standing start: five red lights come on one per lightInterval seconds, then
   // go out after a random hold in [holdMin, holdMax]. Moving more than
   // jumpDistance metres before lights out is a jump start (jumpPenalty seconds).
@@ -415,15 +415,20 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // the car followGap behind one ahead braking at followDecel; on a circuit
     // it may instead brake as its own speed plan does, with downforce (a flat
     // 18 m/s² there held cars ~1 s/lap behind and out of DRS range). Closer
-    // than followGap the flat law alone slows the car below the leader's speed.
-    const follow = (v, d) => Math.max(Math.sqrt(Math.max(0, v * v + 2 * o.followDecel * d)), circuit && d > 0 ? e.drive.brakeSpeed(car.config, v, d) : 0);
+    // than followGap the flat law alone slows the car below the leader's speed;
+    // on a circuit by no more than the shortfall over backOutTime seconds (the
+    // flat law asks a car 8 m short behind one at 15 m/s in a hairpin to stop,
+    // and the queue behind it then crawled through lap-1 hairpins at 1-5 km/h).
+    const follow = (v, d) => Math.max(Math.sqrt(Math.max(0, v * v + 2 * o.followDecel * d)), circuit && d > 0 ? e.drive.brakeSpeed(car.config, v, d) : circuit ? v + d / o.backOutTime : 0);
     // On a circuit the gap kept grows with speed (followMin m plus followTime
     // s of travel, at most followGap): a fixed 14 m was ~0.7 s in a hairpin,
     // and that time gap carried down the next straight out of passing range.
     // A car still crossing to its lane (e.g. off its grid slot) keeps the full gap.
     const followGap = circuit && Math.abs(rel(car) - e.lane) < 1 ? Math.min(o.followGap, o.followMin + o.followTime * speed) : o.followGap;
     const carLength = car.config.bodyFront + car.config.bodyRear;
-    // Backing out from alongside still drops back the full followGap, except
+    // Backing out from alongside drops back the full followGap (on a circuit the
+    // speed-scaled gap: the full 14 m behind a car at hairpin speed was ~1 s,
+    // and backing out that far stacked up the field behind), except
     // from the car this one is diving down the inside of; a car with another
     // alongside on its inside under a dive yields to it (backs out behind).
     // Behind a car slower than followSlow m/s (e.g. one that ran wide in a
@@ -434,7 +439,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       if (x.claim && x.gap > -2 * o.alongside) return Math.min(m, follow(x.speed, x.gap - carLength - o.yieldGap));
       if (!(x.gap > 0 && x.gap < lookAhead)) return m;
       if (Math.abs(x.offset - lane) < o.laneClearance || x.lane === lane || (x.pitIn && pitSide * lane < pitSide * x.offset + o.laneClearance)) return Math.min(m, follow(x.speed, x.gap - g));
-      return !sideBySide && x.gap < 2 * o.alongside && x.index !== e.dive?.rival ? Math.min(m, follow(x.speed, x.gap - Math.max(g, o.followGap))) : m;
+      return !sideBySide && x.gap < 2 * o.alongside && x.index !== e.dive?.rival ? Math.min(m, follow(x.speed, x.gap - (circuit ? g : Math.max(g, o.followGap)))) : m;
     }, Infinity);
     // No car alongside, or closing from behind within closeTime seconds,
     // anywhere across the strip swept from here to the lane, and no nearby car

@@ -698,6 +698,70 @@ the circuit's real one.
   turn 1 hairpin on lap 1 still slows some cars below 5 km/h; this happened
   before this change too (same seeds at the previous commit).
 
+### Lap-1 hairpin queues (`race.mjs`, cycle 27)
+
+On lap 1 the field crawled through tight first corners. At the Red Bull Ring,
+16 of 20 seeded starts had a car under 15 m/s twelve seconds after lights out
+(turn 1's apex is planned at 19 m/s), and cars stopped almost completely
+(0.8 m/s). The same happened at Spa (La Source), COTA turn 1 and the
+Hungaroring. Two follow-law rules caused it:
+
+* **Backing out the full 14 m.** In a corner nobody runs side by side, so a
+  car that is not ahead backs out behind a car alongside. It dropped back the
+  full `followGap` (14 m). At 15 m/s in a hairpin that is about 1 s, and the
+  car behind it then had to drop back too. On a circuit, backing out now uses
+  the speed-scaled gap (`followMin` + `followTime` · speed, as when
+  following), so 9 m at 15 m/s.
+* **Stopping to make up a small shortfall.** When a car was closer than its
+  gap, the flat law `sqrt(v² + 2 · followDecel · d)` (d < 0) set its speed
+  cap. That is the speed from which it could still stop behind a car braking
+  at 18 m/s². For a car 8 m short behind one doing 15 m/s, it gives zero, so
+  the car braked to a standstill. On a circuit the cap is now never below the
+  leader's speed minus the shortfall per `backOutTime` (1 s): 7 m/s in that
+  example. At speed the flat law is still the lower limit, and it is never
+  raised for a stopped car (it gives zero there anyway).
+
+The stadium is unchanged: a seeded stadium race gives the same times to the
+last digit.
+
+**Results** (3 seeds per circuit, lap 1 from 5 s after lights out):
+
+| | before | after |
+|---|---|---|
+| time cars spent under 8 m/s, all 18 circuits | 44.4 s | 12.0 s |
+| circuits where some car went under 5 m/s | 5 | 2 (Spa, COTA) |
+| RBR seeds with a car under 15 m/s at 12 s (of 20) | 16 | 2 (14 m/s at the apex) |
+| slowest car at RBR, lap 1 | 0.8 m/s | 9.6 m/s |
+| contacts | 0 | 0 |
+
+* 3-lap races without stops, 18 circuits, 2 seeds: on-track passes after
+  lap 1 went from 0 to 4, with no contacts or wall hits. Fewer cars are stuck
+  queuing, so they stay close enough to race.
+* 3-lap races with the compound rule, 18 circuits: all 90 stops clean. No
+  contacts, time off the road, spins, wall hits, penalties or
+  disqualifications.
+* 2-car pace pairs, 18 circuits: still 22 passes in 54 runs, no contact.
+* Monza pair test: the faster car now gets through on lap 2 at the first
+  chicane. That is before DRS is enabled, because it is no longer held up
+  leaving the grid. The test now checks that it reaches DRS range instead
+  of checking how long DRS was open.
+* Browser: the Red Bull Ring race check passed 3 runs in a row with random
+  seeds (slowest car at 12 s: 64-67 km/h). Before, it failed on most seeds.
+
+**Not done, found while testing:** the standing start is still staggered.
+Every car is heading for the racing line (lane 0), so a car counts the car
+8 m ahead in the other column as in its lane and waits for it to pull away.
+At Shanghai the last car moved 5.6 s after lights out. I tried letting cars
+launch from their grid columns together until 30 m/s. That gives a real
+start, but the field then reaches turn 1 three or four abreast. The AI
+cannot yet run side by side through a corner (the inside lane meets the
+racing line at the apex), and lap-1 contacts went from none to dozens (64
+light touches over 54 starts in the best variant tried). So the simultaneous launch waits for side-by-side cornering.
+
+**Tests:** a new test checks that on three Red Bull Ring seeds no car drops
+under 8 m/s on lap 1, with no contact. It fails on the previous commit. All
+139 Node tests pass.
+
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
 Pick a circuit from the menu in the header, or open `?track=<key>`. The keys
@@ -1240,7 +1304,8 @@ the circuit browser check passes.
 5. Wheel/pedal calibration and
    force feedback, damage, kerb geometry and bumps, race
    rules (safety car, blue flags), undercut/overcut strategy, smarter AI racecraft
-   and recovery from side-on or gravel beachings (marshals).
+   (side-by-side cornering, so the whole grid can launch together) and recovery
+   from side-on or gravel beachings (marshals).
 6. Real circuits: elevation, camber and surveyed track widths, a minimum-time
    racing line, pit lanes (and the compound rule) on real layouts, AI that can
    overtake there, and car calibration so lap times can be compared with real

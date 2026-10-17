@@ -36,7 +36,7 @@ test('a passing lane has its own speed plan: slower than the racing line where i
   }
 });
 
-test('a faster car closes up behind on Monza, gets DRS and passes, without contact', () => {
+test('a faster car closes up behind on Monza into DRS range and passes, without contact', () => {
   const race = createRace(monza, { grid: [DEFAULT_GRID[0]], laps: 4 });
   const follower = race.entries[1], gaps = [];
   let drs = 0, contact = 0;
@@ -49,7 +49,8 @@ test('a faster car closes up behind on Monza, gets DRS and passes, without conta
   }
   const [first] = race.classification();
   assert.ok(gaps.at(-1) < gaps[0] - 0.4, `detection gaps ${gaps.map(g => g.toFixed(2)).join(' ')}`);
-  assert.ok(drs > 10, `DRS open ${drs.toFixed(1)} s`);
+  // In DRS range at a detection point (it now passes on lap 2, before DRS is enabled).
+  assert.ok(Math.min(...gaps) <= race.options.drsGap, `detection gaps ${gaps.map(g => g.toFixed(2)).join(' ')}, DRS open ${drs.toFixed(1)} s`);
   assert.equal(first.index, 1, 'the faster car wins');
   assert.equal(contact, 0);
 });
@@ -73,4 +74,22 @@ test('a much faster car out-brakes a slower one down the inside at Interlagos, a
   assert.ok(overlaps >= 1, 'it gets alongside on the inside under braking');
   assert.ok(yieldedOutside, 'the slower car leaves room');
   assert.equal(contact, 0);
+});
+
+test('the lap-1 queue through the Red Bull Ring turn 1 hairpin keeps moving, without contact', () => {
+  // Backing out behind a car alongside (or closing on one in a hairpin) slows a
+  // car by at most the shortfall per backOutTime: before, the field crawled
+  // through turn 1 at under 5 km/h on most seeds.
+  const track = createCircuitTrack(CIRCUITS['red-bull-ring']);
+  for (const seed of [2, 5, 6]) {
+    const race = createRace(track, { grid: DEFAULT_GRID, start: { seed }, laps: 2 });
+    let slowest = Infinity, contact = 0;
+    while (Math.max(...race.entries.map(e => e.covered)) < track.length) {
+      race.advance(1 / 60, null, track.surfaceAt, track.barrierAt);
+      if (race.start.sinceLightsOut > 5) for (const e of race.entries) slowest = Math.min(slowest, e.car.telemetry.speed);
+      for (const e of race.entries) if (e.car.contact) contact = Math.max(contact, e.car.contact.speed);
+    }
+    assert.ok(slowest > 8, `seed ${seed}: slowest ${slowest.toFixed(1)} m/s on lap 1`);
+    assert.equal(contact, 0, `seed ${seed}`);
+  }
 });
