@@ -41,6 +41,9 @@ test('a faster car closes up behind on Monza into DRS range and passes, without 
   // Kovač's 43.6 closes to 0.3-0.5 s but no longer gets by in four laps.
   const race = createRace(monza, { grid: [{ ...DEFAULT_GRID[0], cornerSpeed: 44 }], laps: 4 });
   const follower = race.entries[1], gaps = [];
+  // Keep the faster opponent behind for this overtaking scenario.
+  for (const k of ['x', 'y', 'heading']) [race.car[k], follower.car[k]] = [follower.car[k], race.car[k]];
+  for (const k of ['last', 'covered', 'grid', 'offset']) [race.entries[0][k], follower[k]] = [follower[k], race.entries[0][k]];
   let drs = 0, contact = 0;
   while (!race.finish.done) {
     race.advance(1 / 60, null, monza.surfaceAt, monza.barrierAt);
@@ -63,6 +66,9 @@ test('a much faster car out-brakes a slower one down the inside at Interlagos, a
   const track = createCircuitTrack(CIRCUITS.interlagos);
   const race = createRace(track, { player: { cornerSpeed: 42, brakeDecel: 26 }, grid: [{ ...DEFAULT_GRID[0], cornerSpeed: 45, brakeDecel: 26 }], laps: 5 });
   const [slow, fast] = race.entries;
+  // Keep the faster opponent behind for this overtaking scenario.
+  for (const k of ['x', 'y', 'heading']) [slow.car[k], fast.car[k]] = [fast.car[k], slow.car[k]];
+  for (const k of ['last', 'covered', 'grid', 'offset']) [slow[k], fast[k]] = [fast[k], slow[k]];
   let contact = 0, overlaps = 0, yieldedOutside = false, was = false;
   while (!race.finish.done) {
     race.advance(1 / 60, null, track.surfaceAt, track.barrierAt);

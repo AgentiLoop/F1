@@ -169,8 +169,10 @@ test('a race on a real circuit: grid behind the line, fuel for the distance, a c
   // A pit lane, but a one-lap race has no compound rule.
   assert.ok(race.pit); assert.equal(race.compoundRule, false);
   race.requestPit('soft'); assert.equal(race.entries[0].pitRequest, 'soft'); race.requestPit(null);
+  assert.equal(race.standings().at(-1).player, true);
   race.entries.forEach((e, i) => {
-    assert.ok(Math.abs(e.covered + 0.8 + RACE_DEFAULTS.gridSpacing * i) < 0.5, `slot ${i}: ${e.covered.toFixed(2)} m`);
+    const slot = i === 0 ? DEFAULT_GRID.length : i - 1;
+    assert.ok(Math.abs(e.covered + 0.8 + RACE_DEFAULTS.gridSpacing * slot) < 0.5, `slot ${slot}: ${e.covered.toFixed(2)} m`);
     assert.ok(Math.abs(e.car.fuel - (RACE_DEFAULTS.fuelPerKm * track.length / 1000 * (1 + RACE_DEFAULTS.fuelMargin) + RACE_DEFAULTS.fuelReserve)) < 1e-9);
   });
   let contact = 0, maxOff = 0;

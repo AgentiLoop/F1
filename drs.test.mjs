@@ -32,13 +32,9 @@ test('the flap moves at its actuation rate and the brakes close it', () => {
   assert.equal(car.drs, 0, 'braking shuts it even while requested');
 });
 
-// Player (entry 0) starts 8 m behind one opponent instead of on pole.
+// Player (entry 0) starts 8 m behind one opponent.
 function behind(options = {}, extra = {}) {
-  const race = createRace(track, { grid: [DEFAULT_GRID[0]], options, ...extra });
-  const [a, b] = race.entries;
-  for (const k of ['x', 'y', 'heading']) [a.car[k], b.car[k]] = [b.car[k], a.car[k]];
-  for (const k of ['last', 'covered', 'grid', 'offset']) [a[k], b[k]] = [b[k], a[k]];
-  return race;
+  return createRace(track, { grid: [DEFAULT_GRID[0]], options, ...extra });
 }
 function run(race, seconds, input = () => null) {
   const opened = [false, false], allowed = [false, false];

@@ -7,6 +7,19 @@ import { createRace, wakeStrength, resolveCarContact, RACE_DEFAULTS, DEFAULT_GRI
 const track = createStadiumTrack({ halfStraight: 220, radius: 90, roadWidth: 15 });
 const place = (x, y, heading = 0, speed = 0) => Object.assign(createCar(), { x, y, heading, vx: speed * Math.cos(heading), vy: speed * Math.sin(heading) });
 
+test('the player starts behind every opponent and solo starts stay on pole', () => {
+  for (const start of [false, { seed: 7 }]) for (const count of [0, 1, DEFAULT_GRID.length]) {
+    const race = createRace(track, { grid: DEFAULT_GRID.slice(0, count), start });
+    assert.equal(race.car, race.entries[0].car);
+    assert.equal(race.entries[0].player, true);
+    assert.equal(race.standings().at(-1).index, 0);
+    assert.equal(race.car.x, count ? -RACE_DEFAULTS.gridSpacing * count : 0);
+    assert.equal(race.car.y, -(track.radius + (count === 0 ? 0 : (count % 2 ? -1 : 1) * 2.6)));
+    assert.ok(race.entries.slice(1).every(e => e.covered > race.entries[0].covered));
+    assert.deepEqual(race.standings().map(e => e.index), [...Array.from({ length: count }, (_, i) => i + 1), 0]);
+  }
+});
+
 test('wake is strongest close behind on the centreline and absent ahead or beside', () => {
   const lead = place(0, 0);
   assert.ok(wakeStrength(lead, place(-RACE_DEFAULTS.wakeMinGap - 0.01, 0)) > 0.99);
@@ -124,7 +137,7 @@ test('standing start: five lights one per second, a random hold, then a clean la
 });
 
 test('moving before lights out is a jump start with a time penalty; reacting after is not', () => {
-  const jumped = runStart(8, () => ({ throttle: 0.6 })).race;
+  const jumped = runStart(8, race => race.time < 1 ? { throttle: 0.6 } : { brake: 1 }).race;
   assert.equal(jumped.entries[0].jumpStart, true);
   assert.equal(jumped.entries[0].penalty, RACE_DEFAULTS.jumpPenalty);
   assert.equal(jumped.standings().find(s => s.player).penalty, RACE_DEFAULTS.jumpPenalty);

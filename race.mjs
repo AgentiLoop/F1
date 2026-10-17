@@ -188,8 +188,8 @@ export function findDrsZones(track, options = {}) {
 }
 export const inDrsZone = (track, z, p) => { const L = track.length, a = d => ((d % L) + L) % L; return a(p - z.start) <= a(z.end - z.start); };
 
-// track: createStadiumTrack(); grid: opponent specs (the player is entry 0 on
-// pole, on the centreline at x = 0; opponents line up 8 m apart behind,
+// track: createStadiumTrack(); grid: opponent specs (the player stays entry 0
+// but starts behind all opponents; grid slots are 8 m apart,
 // alternating either side of the centreline). start: false races from t = 0;
 // true or { seed } runs the standing-start light sequence first. laps: race
 // distance; the chequered flag falls when the leader completes it, and every
@@ -219,10 +219,11 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     const car = createCar(spec.car), tyres = spec.tyres ?? ['medium', 'hard'];
     fitTires(car, tyres[0]);
     if (fuel && laps && spec.car?.fuelLoad === undefined) car.fuel = laps * fuelLap * (1 + o.fuelMargin) + o.fuelReserve;
-    const lane = i === 0 ? 0 : (i % 2 ? -1 : 1) * 2.6;
+    const slot = i === 0 ? grid.length : i - 1;
+    const lane = slot === 0 ? 0 : (slot % 2 ? -1 : 1) * 2.6;
     // Grid slots gridSpacing m apart behind the line, alternating sides.
-    if (circuit) { const s = length - 0.8 - o.gridSpacing * i; [car.x, car.y] = track.point(s, lane); car.heading = track.heading(s); }
-    else { car.x = i ? -o.gridSpacing * i : 0; car.y = -(radius + lane); } // pole at x = 0 (not -0)
+    if (circuit) { const s = length - 0.8 - o.gridSpacing * slot; [car.x, car.y] = track.point(s, lane); car.heading = track.heading(s); }
+    else { car.x = slot ? -o.gridSpacing * slot : 0; car.y = -(radius + lane); } // pole at x = 0 (not -0)
     const p = track.progress(car.x, car.y);
     // Circuit AI pace: the plan's grip margins scale with the spec's corner
     // speed and braking relative to the player's (43 m/s, 26 m/s²).
