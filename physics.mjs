@@ -25,6 +25,12 @@ export const DEFAULT_CAR = Object.freeze({
   // heave against the aero platform springs. Damping as a ratio of critical.
   rollStiffness: 400000, rollInertia: 120, pitchStiffness: 600000, pitchInertia: 650,
   heaveStiffness: 700000, bodyDampingRatio: 0.6,
+  // Ride-height aero map (illustrative): static ride heights at the axles (m),
+  // ground-effect downforce gain per metre the floor runs below its static
+  // height, floor stall below stallHeight (losing up to stallLoss at the
+  // ground), and the front-share shift per metre of rake beyond static.
+  frontRideHeight: 0.04, rearRideHeight: 0.08, groundEffectGain: 4,
+  stallHeight: 0.012, stallLoss: 0.3, rakeBalanceGain: 1.5,
   // Rigid footprint for barrier contact (m from the CG) and wall impact response.
   bodyFront: 2.95, bodyRear: 2.35, bodyHalfWidth: 1.0, wallRestitution: 0.25, wallFriction: 0.5,
 });
@@ -80,10 +86,29 @@ export function shift(car, direction) {
   return true;
 }
 
-export function wheelLoads(car, downforce) {
+// Axle ride heights from the sprung-body state (pitch about the CG, heave
+// down), the floor's ground-effect downforce factor and the aero balance.
+// Ride heights are clamped at the plank (0); bottoming flags the contact.
+export function aeroMap(car) {
+  const c = car.config, b = car.body;
+  const frontArm = c.wheelbase * (1 - c.frontWeight), rearArm = c.wheelbase * c.frontWeight;
+  const rawFront = c.frontRideHeight - b.heave - b.pitch * frontArm;
+  const rawRear = c.rearRideHeight - b.heave + b.pitch * rearArm;
+  const front = Math.max(0, rawFront), rear = Math.max(0, rawRear);
+  const floor = (front + rear) / 2, reference = (c.frontRideHeight + c.rearRideHeight) / 2;
+  const atStall = 1 + c.groundEffectGain * (reference - c.stallHeight);
+  const factor = floor >= c.stallHeight ? 1 + c.groundEffectGain * (reference - floor)
+    : atStall * (1 - c.stallLoss * (c.stallHeight - floor) / c.stallHeight);
+  const rake = rear - front, staticRake = c.rearRideHeight - c.frontRideHeight;
+  const frontShare = clamp(c.frontAero + c.rakeBalanceGain * (rake - staticRake), 0.3, 0.55);
+  return { front, rear, factor, frontShare, stalled: floor < c.stallHeight,
+    bottoming: rawFront <= 0 || rawRear <= 0 };
+}
+
+export function wheelLoads(car, downforce, frontShare = car.config.frontAero) {
   const c = car.config;
   const total = c.mass * 9.81 + downforce;
-  const front = clamp(c.mass * 9.81 * c.frontWeight + downforce * c.frontAero
+  const front = clamp(c.mass * 9.81 * c.frontWeight + downforce * frontShare
     - c.mass * car.ax * c.cgHeight / c.wheelbase, 0, total);
   const rear = total - front;
   // Quasi-static transfer split by roll stiffness (front-biased for stability).
@@ -95,7 +120,8 @@ export function wheelLoads(car, downforce) {
 
 // Sprung-body roll, pitch and heave as damped oscillators driven by the
 // chassis accelerations and downforce. Backward Euler: stable for any dt.
-// Visual/telemetry only for now: wheel loads stay quasi-static.
+// Pitch and heave set the ride heights of the aero map (next step's
+// downforce); wheel loads themselves stay quasi-static.
 export function updateBody(car, ax, ay, downforce, dt) {
   const c = car.config, b = car.body, h = c.mass * c.cgHeight;
   const mode = (x, rate, force, k, inertia) => {
@@ -201,9 +227,10 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const v = -car.vx * sin + car.vy * cos;
   const speed = Math.hypot(u, v);
   const q = 0.5 * c.airDensity * speed * speed;
-  const downforce = q * c.downforceArea;
+  const aero = aeroMap(car);
+  const downforce = q * c.downforceArea * aero.factor;
   const drag = q * c.dragArea;
-  const loads = wheelLoads(car, downforce);
+  const loads = wheelLoads(car, downforce, aero.frontShare);
   const frontX = c.wheelbase * (1 - c.frontWeight);
   const rearX = -c.wheelbase * c.frontWeight;
   const positions = [[frontX, c.track / 2], [frontX, -c.track / 2], [rearX, c.track / 2], [rearX, -c.track / 2]];
@@ -321,7 +348,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   if (barrierAt) resolveBarrier(car, barrierAt);
   car.time += dt;
   car.distance += Math.hypot(car.vx, car.vy) * dt;
-  car.telemetry = { speed: Math.hypot(car.vx, car.vy), downforce, drag, wheels,
+  car.telemetry = { speed: Math.hypot(car.vx, car.vy), downforce, drag, wheels, aero,
     powertrain: { gear: car.gear, rpm, crankTorque, axleTorque, clutchLocked, shifting, diffTransfer,
       limiter: rpm > c.maxRpm - c.limiterBand } };
   return car;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, Simulation, FIXED_DT }
+import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, Simulation, FIXED_DT }
   from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
@@ -560,4 +560,54 @@ test('driving the car rolls it out of a left turn, dips the nose on braking and 
   assert.ok(braking.body.pitch > 0.005, `pitch ${braking.body.pitch}`);
   const accelerating = run(rollingCar(15), 0.5, { throttle: 1 });
   assert.ok(accelerating.body.pitch < 0, 'acceleration lifts the nose');
+});
+test('aero map: static ride heights at rest, ground effect as the floor drops, stall near the ground', () => {
+  const car = createCar(), c = car.config;
+  const rest = aeroMap(car);
+  near(rest.front, c.frontRideHeight); near(rest.rear, c.rearRideHeight);
+  near(rest.factor, 1); near(rest.frontShare, c.frontAero);
+  assert.ok(!rest.stalled && !rest.bottoming);
+  const factorAt = heave => { car.body.heave = heave; return aeroMap(car); };
+  // Lowering the floor adds downforce until the stall height, then it is lost.
+  const mid = factorAt(0.02), low = factorAt(0.045), stalled = factorAt(0.064);
+  assert.ok(mid.factor > 1 && low.factor > mid.factor, `${mid.factor} ${low.factor}`);
+  near(mid.factor, 1 + c.groundEffectGain * 0.02, 1e-12);
+  assert.ok(stalled.stalled && stalled.factor < low.factor, `stall ${stalled.factor} vs ${low.factor}`);
+  const grounded = factorAt(0.2);
+  assert.ok(grounded.bottoming && grounded.front === 0 && grounded.rear === 0);
+  near(grounded.factor, (1 + c.groundEffectGain * (0.06 - c.stallHeight)) * (1 - c.stallLoss), 1e-12);
+});
+test('nose-down pitch lowers the front, raises the rear and moves the aero balance forward', () => {
+  const car = createCar(), c = car.config;
+  car.body.pitch = 0.005;
+  const map = aeroMap(car);
+  near(map.front, c.frontRideHeight - 0.005 * c.wheelbase * (1 - c.frontWeight), 1e-12);
+  near(map.rear, c.rearRideHeight + 0.005 * c.wheelbase * c.frontWeight, 1e-12);
+  assert.ok(map.frontShare > c.frontAero, `share ${map.frontShare}`);
+  const neutral = wheelLoads(car, 10000), forward = wheelLoads(car, 10000, map.frontShare);
+  assert.ok(forward[0] + forward[1] > neutral[0] + neutral[1]);
+  near(forward.reduce((a, b) => a + b), neutral.reduce((a, b) => a + b), 1e-9);
+});
+test('at speed the car squats into ground effect and settles without porpoising at any timestep', () => {
+  for (const dt of [FIXED_DT, 1 / 60]) {
+    const car = rollingCar(75);
+    const heaves = [];
+    for (let i = 0; i < Math.round(2 / dt); i++) {
+      step(car, { throttle: 0.6 }, dt);
+      if (i * dt > 1) heaves.push(car.body.heave);
+    }
+    const { aero, downforce, speed } = car.telemetry;
+    const base = 0.5 * car.config.airDensity * speed * speed * car.config.downforceArea;
+    assert.ok(aero.factor > 1.05 && downforce > base * 1.05, `factor ${aero.factor}`);
+    assert.ok(aero.front > 0 && aero.rear > aero.front && !aero.stalled, `${aero.front} ${aero.rear}`);
+    // Ride height drifts only with speed in the last second: no sustained oscillation.
+    const swing = Math.max(...heaves) - Math.min(...heaves);
+    assert.ok(swing < 0.002 && Math.abs(car.body.heaveRate) < 0.01, `dt ${dt} swing ${swing}`);
+  }
+});
+test('heavy braking at speed shifts the aero balance forward with the pitch', () => {
+  const car = run(rollingCar(80), 0.4, { brake: 1 });
+  const { aero } = car.telemetry;
+  assert.ok(car.body.pitch > 0 && aero.frontShare > car.config.frontAero + 0.02, `share ${aero.frontShare}`);
+  assert.ok(aero.rear > car.config.rearRideHeight * 0.9 && aero.front < car.config.frontRideHeight / 2);
 });

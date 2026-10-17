@@ -95,6 +95,16 @@ coordinates are right-handed, with body x forward, y left, and positive yaw left
   rises to a peak and falls smoothly to a lower sliding force (see below).
 - Speed-squared aerodynamic load; drag integrated dissipatively after contact
   impulses to avoid reversing a nearly stopped car under braking.
+- Ride-height aero map (`aeroMap`): front/rear ride heights from the sprung
+  body's heave and pitch (static 40 / 80 mm, clamped at the plank). Downforce
+  gains 4% per 10 mm the mean floor height drops below static (ground effect),
+  and the floor stalls below 12 mm, losing up to 30% at the ground. Aero
+  balance moves forward 1.5% per 10 mm of extra rake, so braking nose-down
+  shifts load to the front axle. Body state from the previous step feeds the
+  next step's downforce; the heave spring (700 kN/m) is far stiffer than the
+  aero gain, so the platform settles without porpoising. All values are
+  illustrative, not a measured aero map. The HUD shows ride heights
+  (`· plank` when bottoming, `· stall` when the floor stalls) and balance.
 - Quasi-static longitudinal/lateral normal-load transfer with filtered
   acceleration, nonnegative wheel loads, and conserved total normal load.
 - Rolling-resistance torque and low-speed contact regularization.
@@ -221,7 +231,8 @@ establish internal consistency, not real-car accuracy.
 
 1. Fitted (e.g. Pacejka) curves replacing the
    hand-shaped envelope, thermal/wear state, and measured brake/tire parameters.
-2. Suspension travel, roll/pitch/heave, road elevation, and aero platform effects.
+2. Suspension travel per corner, road elevation, roll-sensitive aero, plank
+   wear/friction and porpoising from a measured aero map.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
