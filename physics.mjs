@@ -63,6 +63,8 @@ export function createCar(overrides = {}) {
     wheelOmega: [0, 0, 0, 0],
     slipAngle: [0, 0, 0, 0],
     gear: 1, shiftTimer: 0, impact: null,
+    // Aero multipliers from running in another car's wake (set by race.mjs).
+    wake: { drag: 1, downforce: 1 },
     // roll > 0: left side up; pitch > 0: nose down; heave > 0: body lower (m).
     body: { roll: 0, rollRate: 0, pitch: 0, pitchRate: 0, heave: 0, heaveRate: 0 },
     // FL, FR, RL, RR tread surface and carcass temperatures (°C).
@@ -279,8 +281,9 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const speed = Math.hypot(u, v);
   const q = 0.5 * c.airDensity * speed * speed;
   const aero = aeroMap(car);
-  const downforce = q * c.downforceArea * aero.factor;
-  const drag = q * c.dragArea;
+  const wake = car.wake ?? { drag: 1, downforce: 1 }, dragArea = c.dragArea * wake.drag;
+  const downforce = q * c.downforceArea * aero.factor * wake.downforce;
+  const drag = q * dragArea;
   const loads = wheelLoads(car, downforce, aero.frontShare);
   const frontX = c.wheelbase * (1 - c.frontWeight);
   const rearX = -c.wheelbase * c.frontWeight;
@@ -379,7 +382,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   // Apply drag to the post-contact velocity so braking plus drag cannot reverse it.
   const nextU = u + fx / c.mass * dt;
   const nextV = v + fy / c.mass * dt;
-  const dragFactor = 1 / (1 + 0.5 * c.airDensity * c.dragArea * Math.hypot(nextU, nextV) * dt / c.mass);
+  const dragFactor = 1 / (1 + 0.5 * c.airDensity * dragArea * Math.hypot(nextU, nextV) * dt / c.mass);
   fx += nextU * (dragFactor - 1) * c.mass / dt;
   fy += nextV * (dragFactor - 1) * c.mass / dt;
   updateBody(car, fx / c.mass, fy / c.mass, downforce, dt);
