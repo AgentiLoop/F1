@@ -244,5 +244,5 @@ export function buildF1Car(config) {
   const pivots = new Set(wheels.map(w => w.pivot));
   car.children.filter(o => !pivots.has(o)).forEach(o => body.add(o));
   car.add(body);
-  return { group: car, body, wheels };
+  return { group: car, body, wheels, driver: [helmet, visor] };
 }

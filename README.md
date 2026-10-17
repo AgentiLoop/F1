@@ -31,11 +31,18 @@ Node's built-in test runner is the only test dependency.
   simulated wheel speed (so wheelspin and lockup are visible).
 * `world3d.mjs` builds the same stadium circuit used by the surface function:
   textured asphalt, edge lines, red/white kerbs, run-off, barriers, a start
-  gantry, grandstands, trees and a sky dome. Chase camera (smoothed) and a fixed
-  overview camera (V).
+  gantry, grandstands, trees and a sky dome. Chase camera (smoothed), a fixed
+  overview camera (V) and a cockpit camera (C).
+* Cockpit camera: the driver's eye (0.8 m up, just ahead of the helmet centre) is
+  carried by the sprung body, so roll, pitch and heave move the view; it looks
+  along the car's heading, tilted 4° down, 64° vertical FOV, near plane 3 cm so
+  the halo is not clipped. The helmet and visor are hidden while inside. The
+  head is displaced opposite to the body-frame acceleration (8 mm/g fore-aft,
+  6 mm/g lateral, clamped to 40/30 mm, 80 ms first-order lag) — an illustrative
+  neck-compliance cue, not a measured driver model.
 * Limits: the shape is hand-modelled from public proportions, not CAD of any real
   car; there is no body roll/pitch (the physics has no suspension yet), no
-  tire deformation, damage, livery editor or cockpit camera. Kerbs are drawn
+  tire deformation, damage or livery editor. Kerbs are drawn
   but the physics still treats them as off-track grip.
 
 `car3d.test.mjs` checks the model fits a 5.65 × 2.0 × 0.96 m envelope, touches the
@@ -47,7 +54,7 @@ contact position, has outward loft normals, and stays under 200k triangles.
 - W / Up: throttle; S / Down: brake.
 - A / Left and D / Right: steering. Keyboard steering has a speed-based scaling
   assist; steering angle also has a rate limit.
-- Space: pause/resume; R: reset; V: overview/chase view.
+- Space: pause/resume; R: reset; V: overview/chase view; C: cockpit/chase camera.
 - Buttons provide the same pause/reset/view actions. Driving keys are ignored
   while a button has focus; click the circuit to return focus to driving.
 - Losing window focus or hiding the tab pauses and releases held inputs.
@@ -236,7 +243,7 @@ establish internal consistency, not real-car accuracy.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
-5. Cockpit camera, body motion from suspension, sound, gamepad/wheel input and
+5. Sound, gamepad/wheel input and
    force feedback, damage, kerb geometry and bumps, real circuit geometry, opponents, race rules.
 
 ## Repository / parity
