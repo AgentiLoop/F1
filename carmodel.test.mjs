@@ -23,8 +23,13 @@ test('model car is 2022-sized, sits on the ground and is light enough for a full
   assert.ok(size.z > 1.95 && size.z < 2.1, `width ${size.z}`);
   assert.ok(size.y > 0.95 && size.y < 1.15, `height ${size.y}`);
   assert.ok(Math.abs(box(group).min.y) < 1e-3, `lowest point ${box(group).min.y}`);
-  let tris = 0; group.traverse(o => { if (o.isMesh) tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
-  assert.ok(tris > 50000 && tris < 80000, `${tris} triangles`);
+  // Each part: twice-subdivided close up, once at mid range, the original far away.
+  const count = m => (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+  const tris = [0, 0, 0]; group.traverse(o => { if (o.isLOD) o.levels.forEach((l, i) => { tris[i] += count(l.object); }); });
+  const [near, mid, far] = tris;
+  assert.ok(far > 50000 && far < 80000, `${far} far triangles`);
+  assert.ok(mid > 3.5 * far && mid < 300000, `${mid} mid-range triangles`);
+  assert.ok(near > 3.5 * mid && near < 1100000, `${near} close-up triangles`);
 });
 
 test('wheel hubs sit on the physics axles, left wheels at -z, tires on the ground', () => {

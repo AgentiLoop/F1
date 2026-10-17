@@ -4,16 +4,33 @@
 import * as THREE from './vendor/three.module.js';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/meshopt_decoder.module.js';
+import { smoothGeometry } from './smooth.mjs';
 
 export const F222_URL = new URL('./models/f222.glb', import.meta.url).href;
 const WHEELS = ['front-left-wheel', 'front-right-wheel', 'rear-left-wheel', 'rear-right-wheel'];
+// Each part draws its mesh Loop-subdivided twice within SMOOTH_DISTANCE[0] m (close-up
+// and cockpit views), once within SMOOTH_DISTANCE[1] m and as authored beyond that.
+export const SMOOTH_DISTANCE = [12, 40];
 
 // Load the GLB once (a URL in the browser, an ArrayBuffer in node) and return its scene.
+// Each mesh becomes a LOD of smoothed copies (smooth.mjs keeps the author's hard edges)
+// and the original. Subdivided geometry is shared by every car built from the template.
 export async function loadCarTemplate(source = F222_URL) {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const gltf = typeof source === 'string' ? await loader.loadAsync(source) : await loader.parseAsync(source, '');
+  const meshes = []; gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
+  for (const mesh of meshes) {
+    const lod = new THREE.LOD(); lod.name = mesh.name;
+    lod.position.copy(mesh.position); lod.quaternion.copy(mesh.quaternion); lod.scale.copy(mesh.scale);
+    mesh.parent.children[mesh.parent.children.indexOf(mesh)] = lod; lod.parent = mesh.parent; mesh.parent = null;
+    mesh.position.set(0, 0, 0); mesh.quaternion.identity(); mesh.scale.set(1, 1, 1);
+    lod.addLevel(new THREE.Mesh(smoothGeometry(mesh.geometry, { levels: 2 }), mesh.material), 0);
+    lod.addLevel(new THREE.Mesh(smoothGeometry(mesh.geometry), mesh.material), SMOOTH_DISTANCE[0]);
+    lod.addLevel(mesh, SMOOTH_DISTANCE[1]);
+  }
   return gltf.scene;
 }
+const meshOf = o => o.isLOD ? o.levels[0].object : o;
 
 // livery: { paint, accent, helmet } hex colours, as buildF1Car.
 export function buildModelCar(template, config, { paint = 0x0d2340, accent = 0x39e0ae, helmet = 0xf2bf5e } = {}) {
@@ -34,7 +51,7 @@ export function buildModelCar(template, config, { paint = 0x0d2340, accent = 0x3
     o.material = M[o.material.name] ?? o.material; o.castShadow = true; o.receiveShadow = true;
   });
   const box = o => { car.updateMatrixWorld(true); return new THREE.Box3().setFromObject(o); };
-  const tyre = name => root.getObjectByName(name).children.find(m => m.material === M['livery-tyre']);
+  const tyre = name => root.getObjectByName(name).children.find(m => meshOf(m).material === M['livery-tyre']);
   const F = config.wheelbase * (1 - config.frontWeight);
   root.position.x = F - box(tyre(WHEELS[0])).getCenter(new THREE.Vector3()).x;
 
