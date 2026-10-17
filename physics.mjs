@@ -5,6 +5,7 @@ export const DEFAULT_CAR = Object.freeze({
   cgHeight: 0.3, frontWeight: 0.46, frontAero: 0.45,
   airDensity: 1.225, downforceArea: 5.0, dragArea: 1.25,
   tireMu: 1.65, loadSensitivity: 0.08, corneringStiffness: 85000,
+  slidingGripRatio: 0.75, slidingFalloff: 3,
   longitudinalStiffness: 100000, wheelRadius: 0.33, wheelInertia: 1.6,
   slipSpeedFloor: 1,
   power: 560000, maxDriveForce: 13000, maxBrakeForce: 34000,
@@ -41,17 +42,28 @@ export function tireForce(longitudinalDemand, lateralSpeed, forwardSpeed, load, 
   const referenceLoad = c.mass * 9.81 / 4;
   const mu = c.tireMu * grip * Math.pow(Math.max(load, 1) / referenceLoad, -c.loadSensitivity);
   const capacity = mu * load;
-  if (capacity <= 0) return { fx: 0, fy: 0, capacity: 0, utilization: 0, slipAngle: 0 };
   const slipAngle = Math.atan2(lateralSpeed, Math.max(Math.abs(forwardSpeed), 3));
-  let fy = -capacity * Math.tanh(c.corneringStiffness * slipAngle / capacity);
+  if (capacity <= 0) return { fx: 0, fy: 0, capacity: 0, utilization: 0, slipAngle,
+    combinedDemand: 0, sliding: false };
+  // Combine unsaturated demands before shaping either component: lockup or
+  // wheelspin consumes lateral authority as well as longitudinal grip.
+  const lateralDemand = -c.corneringStiffness * slipAngle;
+  const requested = Math.hypot(longitudinalDemand, lateralDemand);
+  const combinedDemand = requested / capacity;
+  // C1-continuous illustrative envelope: unit initial slope, peak at q=2,
+  // then a smooth decay to slidingGripRatio. Not a fitted tire-data curve.
+  const envelope = combinedDemand <= 2
+    ? combinedDemand * (1 - combinedDemand / 4)
+    : c.slidingGripRatio + (1 - c.slidingGripRatio)
+      * Math.exp(-(((combinedDemand - 2) / c.slidingFalloff) ** 2));
+  const scale = requested > 0 ? capacity * envelope / requested : 1;
+  const fx = longitudinalDemand * scale;
+  let fy = lateralDemand * scale;
   // Regularize the low-speed contact damping to avoid a standstill oscillation.
-  fy = clamp(fy, -Math.abs(lateralSpeed) * c.mass / (4 * dt), Math.abs(lateralSpeed) * c.mass / (4 * dt));
-  let fx = longitudinalDemand;
-  const requested = Math.hypot(fx, fy);
-  const scale = requested > capacity ? capacity / requested : 1;
-  fx *= scale;
-  fy *= scale;
-  return { fx, fy, capacity, utilization: Math.hypot(fx, fy) / capacity, slipAngle };
+  const lateralLimit = Math.abs(lateralSpeed) * c.mass / (4 * dt);
+  fy = clamp(fy, -lateralLimit, lateralLimit);
+  return { fx, fy, capacity, utilization: Math.hypot(fx, fy) / capacity, slipAngle,
+    combinedDemand, sliding: combinedDemand > 2 };
 }
 
 // surfaceAt receives each contact's world position and returns a grip multiplier.
