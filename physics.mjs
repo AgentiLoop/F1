@@ -71,8 +71,8 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
   const rearX = -c.wheelbase * c.frontWeight;
   const positions = [[frontX, c.track / 2], [frontX, -c.track / 2], [rearX, c.track / 2], [rearX, -c.track / 2]];
   const drive = throttle * Math.min(c.maxDriveForce, c.power / Math.max(Math.abs(u), 1));
-  let fx = speed > 0 ? -drag * u / speed : 0;
-  let fy = speed > 0 ? -drag * v / speed : 0;
+  let fx = 0;
+  let fy = 0;
   let moment = 0;
   const wheels = positions.map(([x, y], i) => {
     const front = i < 2;
@@ -97,6 +97,12 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
     moment += x * bodyFy - y * bodyFx;
     return { ...tire, load: loads[i], grip, x: worldX, y: worldY, steer: angle };
   });
+  // Apply drag to the post-contact velocity so braking plus drag cannot reverse it.
+  const nextU = u + fx / c.mass * dt;
+  const nextV = v + fy / c.mass * dt;
+  const dragFactor = 1 / (1 + 0.5 * c.airDensity * c.dragArea * Math.hypot(nextU, nextV) * dt / c.mass);
+  fx += nextU * (dragFactor - 1) * c.mass / dt;
+  fy += nextV * (dragFactor - 1) * c.mass / dt;
   // Filter acceleration used by quasi-static transfer, not the integrated forces.
   const response = 1 - Math.exp(-dt / 0.05);
   car.ax += (fx / c.mass - car.ax) * response;
