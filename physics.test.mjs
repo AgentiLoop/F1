@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, tireWearGrip, updateTireWear, Simulation, FIXED_DT }
+import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, tireWearGrip, updateTireWear, fitTires, TIRE_COMPOUNDS, Simulation, FIXED_DT }
   from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
@@ -690,4 +690,21 @@ test('a lockup wears the sliding tires, free rolling does not, and worn tires st
   };
   const fresh = stop(0), worn = stop(1);
   assert.ok(worn > fresh * 1.1, `${fresh.toFixed(1)} vs ${worn.toFixed(1)} m`);
+});
+test('softer compounds stop shorter and wear faster; fitTires fits a fresh set at blanket temperature', () => {
+  const stop = compound => {
+    const c = rollingCar(50, { tireStartTemp: 100, tireCompound: compound });
+    for (let i = 0; i < 2400 && c.vx > 0.01; i++) step(c, { brake: 1 });
+    return c;
+  };
+  const soft = stop('soft'), medium = stop('medium'), hard = stop('hard');
+  assert.ok(soft.x < medium.x && medium.x < hard.x, `${soft.x.toFixed(2)} ${medium.x.toFixed(2)} ${hard.x.toFixed(2)} m`);
+  assert.ok(soft.tireWear[0] > 1.5 * medium.tireWear[0] && hard.tireWear[0] < 0.7 * medium.tireWear[0]);
+  near(soft.telemetry.wheels[0].compoundGrip ?? TIRE_COMPOUNDS.soft.grip, TIRE_COMPOUNDS.soft.grip);
+  fitTires(soft, 'hard');
+  assert.equal(soft.compound, 'hard');
+  assert.deepEqual(soft.tireWear, [0, 0, 0, 0]);
+  for (const t of soft.tireTemp) assert.deepEqual(t, { surface: 100, carcass: 100 });
+  assert.throws(() => fitTires(soft, 'wet'), RangeError);
+  assert.equal(createCar().compound, 'medium');
 });

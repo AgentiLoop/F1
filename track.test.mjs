@@ -15,10 +15,28 @@ const energy = (car) => 0.5 * car.config.mass * (car.vx ** 2 + car.vy ** 2) + 0.
 test('surfaces run asphalt, kerb, runoff, grass outward on straights and arcs', () => {
   for (const [d, name] of [[0, 'asphalt'], [7.4, 'asphalt'], [8, 'kerb'], [10, 'runoff'], [16, 'grass']]) {
     assert.equal(track.surface(0, -90 - d), name, `bottom straight outside ${d} m`);
-    assert.equal(track.surface(0, -90 + d), name, `bottom straight inside ${d} m`);
+    assert.equal(track.surface(0, 90 - d), name, `back straight inside ${d} m`);
     assert.equal(track.surface(220 + 90 + d, 0), name, `right arc outside ${d} m`);
   }
   assert.equal(track.surfaceAt(0, -98), SURFACE_GRIP.kerb);
+});
+
+test('the pit apron is asphalt-grade from the entry on the main straight to the exit on the back straight', () => {
+  const { pit } = track, y = o => -90 - o; // bottom straight: offset o at x
+  for (const o of [-10, pit.lane, pit.boxOffset, -18]) assert.equal(track.surface(0, y(o)), 'pit', `offset ${o}`);
+  assert.equal(track.surface(0, y(-8)), 'kerb');
+  assert.equal(track.surface(0, y(-19)), 'grass');
+  assert.equal(track.surface(-220 + pit.entry - 1, y(pit.lane)), 'runoff');
+  // The exit lane runs round the inside of the first hairpin onto the back straight.
+  assert.equal(track.surface(220 + 90 + pit.lane, 0), 'pit');
+  const turn = 440 + Math.PI * 90, backX = q => 220 - (q - turn);
+  assert.equal(track.surface(backX(pit.exit - 1), 90 + pit.lane), 'pit');
+  assert.equal(track.surface(backX(pit.exit + 1), 90 + pit.lane), 'runoff');
+  assert.equal(track.surface(-220 - 90 - pit.lane, 0), 'runoff'); // last hairpin: no pit lane
+  assert.equal(SURFACE_GRIP.pit, 1);
+  assert.ok(pit.entry < pit.limitStart && pit.limitStart < pit.boxStart && pit.boxStart + 4 * pit.boxSpacing + 18 < pit.limitEnd
+    && pit.limitEnd < 440 && turn < pit.mergeStart && pit.mergeStart < pit.exit);
+  assert.ok(-pit.boxOffset + 1 < track.wallOffset, 'boxes clear of the inner wall');
 });
 
 test('barriers report depth and an inward normal on both walls', () => {

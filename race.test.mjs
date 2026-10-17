@@ -181,3 +181,81 @@ test('time penalties are added to the race time; cars that never finish are uncl
   assert.equal(final.at(-1).time, null);
   assert.ok(final.slice(0, -1).every(r => r.finished && r.laps === 1));
 });
+
+function runPitRace(laps, setup) {
+  const race = createRace(track, { laps, compoundRule: true, start: { seed: 3 } });
+  setup?.(race);
+  let hardestContact = 0, pitSpeed = 0;
+  for (let i = 0; i < 400 * 240 && !race.finish.done; i++) {
+    race.advance(1 / 240, null, track.surfaceAt, track.barrierAt);
+    for (const e of race.entries) {
+      if (e.car.contact && Math.abs(e.car.contact.time - e.car.time) < 1e-9) hardestContact = Math.max(hardestContact, e.car.contact.speed);
+      const s = track.progress(e.car.x, e.car.y);
+      if (e.car.y < 0 && s > track.pit.limitStart + 5 && s < track.pit.limitEnd && track.offset(e.car.x, e.car.y) < -track.pit.inner) pitSpeed = Math.max(pitSpeed, e.car.telemetry.speed);
+    }
+  }
+  return { race, hardestContact, pitSpeed };
+}
+
+test('under the two-compound rule every car makes one clean pit stop and changes compound', () => {
+  const { race, hardestContact, pitSpeed } = runPitRace(3);
+  assert.ok(race.finish.done && race.compoundRule);
+  assert.ok(hardestContact < 2, `hardest contact ${hardestContact.toFixed(2)} m/s`);
+  assert.ok(pitSpeed <= track.pit.speedLimit + 0.5, `pit lane speed ${pitSpeed.toFixed(2)} m/s`);
+  for (const e of race.entries) {
+    assert.equal(e.stops.length, 1, e.name);
+    const [stop] = e.stops;
+    assert.ok(stop.lap >= 1 && stop.lap <= 3, `${e.name} stopped on lap ${stop.lap}`);
+    assert.ok(stop.service >= RACE_DEFAULTS.stopTimeMin && stop.service <= RACE_DEFAULTS.stopTimeMax && stop.stationary >= stop.service && stop.stationary < stop.service + 10, `${e.name} serviced ${stop.service} s, stood ${stop.stationary} s`);
+    assert.equal(stop.compound, e.tyres[1]);
+    assert.equal(e.car.compound, e.tyres[1]);
+    assert.notEqual(e.compounds[0], e.compounds[1]);
+    assert.equal(e.penalty, 0);
+  }
+  const result = race.classification();
+  assert.ok(result.every(r => r.finished && !r.dsq && r.stops === 1 && r.laps === 3), JSON.stringify(result));
+});
+
+test('a finisher who never changes compound is disqualified and classified last', () => {
+  const { race } = runPitRace(2, r => { r.entries[0].stopLap = null; });
+  const result = race.classification(), me = result.find(r => r.player);
+  assert.ok(race.finish.done);
+  assert.deepEqual([me.position, me.dsq, me.finished, me.stops, me.gap], [5, true, true, 0, null]);
+  assert.ok(result.slice(0, -1).every(r => !r.dsq && r.stops === 1));
+  // Without the rule nobody stops in a short race on healthy tires.
+  const free = createRace(track, { laps: 2 });
+  assert.equal(free.compoundRule, false);
+  assert.ok(free.entries.every(e => e.stopLap === null));
+});
+
+test('the player can request a stop and a compound; the autopilot boxes and fits it', () => {
+  const race = createRace(track);
+  race.requestPit('soft');
+  race.requestPit('intermediate'); // unknown compounds are ignored
+  assert.equal(race.entries[0].pitRequest, 'soft');
+  for (let i = 0; i < 70 * 240 && !race.entries[0].stops.length; i++) race.advance(1 / 240, null, track.surfaceAt, track.barrierAt);
+  const me = race.entries[0];
+  assert.equal(me.stops.length, 1);
+  assert.equal(me.car.compound, 'soft');
+  assert.equal(me.pitRequest, null);
+  assert.deepEqual(me.car.tireWear, [0, 0, 0, 0]);
+  assert.ok(race.entries.slice(1).every(e => !e.stops.length));
+});
+
+test('pit lane: the limiter cuts drive, speeding costs a penalty, a car stopped in its box is serviced', () => {
+  const { pit } = track, at = (car, s, offset, speed) => Object.assign(car, { x: s - 220, y: -(90 + offset), heading: 0, vx: speed, vy: 0 });
+  const fast = createRace(track);
+  at(fast.car, pit.limitStart + 20, pit.lane, 30);
+  fast.advance(0.2, { throttle: 1 }, track.surfaceAt, track.barrierAt);
+  assert.equal(fast.entries[0].command.throttle, 0);
+  assert.equal(fast.entries[0].penalty, RACE_DEFAULTS.pitSpeedingPenalty);
+  fast.advance(0.2, { throttle: 1 }, track.surfaceAt, track.barrierAt);
+  assert.equal(fast.entries[0].penalty, RACE_DEFAULTS.pitSpeedingPenalty); // once per visit
+  const box = createRace(track), me = box.entries[0];
+  box.requestPit('hard');
+  at(box.car, me.box, pit.boxOffset, 0);
+  for (let i = 0; i < 5 * 240; i++) box.advance(1 / 240, { brake: 1 }, track.surfaceAt, track.barrierAt);
+  assert.equal(me.stops.length, 1);
+  assert.equal(me.car.compound, 'hard');
+  assert.ok(me.compounds.includes('medium') && me.compounds.includes('hard'));
+});

@@ -1,6 +1,7 @@
 // Three.js circuit scenery for the stadium test track used by the physics
 // surface function. Physics (x, y) maps to world (x, 0, -y); y is up.
 import * as THREE from './vendor/three.module.js';
+import { stadiumPitLane } from './track.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -51,10 +52,11 @@ function ribbon(pts, a, b, y0, material, vScale, y1) {
   return m;
 }
 
-export function buildWorld({ halfStraight, radius, roadWidth }) {
+// boxColors: one paint colour per pit box (car index order).
+export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) {
   const world = new THREE.Group();
   const pts = centerline(halfStraight, radius);
-  const half = roadWidth / 2;
+  const half = roadWidth / 2, pit = stadiumPitLane(halfStraight, radius, roadWidth);
   const std = (o) => new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, ...o });
 
   // Sky dome with a horizon gradient.
@@ -90,6 +92,24 @@ export function buildWorld({ halfStraight, radius, roadWidth }) {
     const w = ribbon(pts, s * (half + 12), 0, 0, std({ map: wall, roughness: 0.8 }), 6, 1.1);
     w.castShadow = true; world.add(w);
   }
+  // Pit lane (track.mjs layout): asphalt apron on the inside from the entry to
+  // the exit, a solid white line along the circuit edge, speed-limit lines,
+  // painted boxes in each car's colour and a garage block behind the wall.
+  const along = (a, b) => pts.filter(p => p.s >= a && p.s <= b);
+  world.add(ribbon(along(pit.entry, pit.exit), pit.inner, pit.outer, 0.006, std({ map: asphalt, roughness: 0.9 }), 30));
+  world.add(ribbon(along(pit.entry, pit.exit), pit.inner, pit.inner + 0.25, 0.009, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
+  const paint = (s, offset, length, width, color, y = 0.01) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(length, width), std({ color, roughness: 0.6 }));
+    m.rotation.x = -Math.PI / 2; m.position.set(s - halfStraight, y, radius + offset); world.add(m); m.receiveShadow = true;
+  };
+  for (const s of [pit.limitStart, pit.limitEnd]) paint(s, -(pit.inner + pit.outer) / 2, 0.4, pit.outer - pit.inner, 0xf2f2ee);
+  for (let i = 0; i < Math.max(boxColors.length, 5); i++) {
+    const s = pit.boxStart + pit.boxSpacing * i;
+    paint(s, pit.boxOffset, 7, 3, 0xf2f2ee); paint(s, pit.boxOffset, 6.6, 2.6, boxColors[i] ?? 0x3a4450, 0.012);
+  }
+  const garageLength = pit.boxSpacing * 4 + 60; // from 30 m before the first box to 30 m past the fifth
+  const garage = new THREE.Mesh(new THREE.BoxGeometry(garageLength, 6, 7), std({ color: 0xd9dcd6, roughness: 0.7 }));
+  garage.position.set(pit.boxStart - 30 + garageLength / 2 - halfStraight, 3, radius - (half + 12 + 4.5)); garage.castShadow = garage.receiveShadow = true; world.add(garage);
   // Start/finish: chequered strip, gantry with lights.
   const chequer = texture(128, (g, s) => { for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) { g.fillStyle = (i + j) % 2 ? '#111' : '#eee'; g.fillRect(i * s / 8, j * s / 8, s / 8, s / 8); } }, 1, 7.5);
   const line = new THREE.Mesh(new THREE.PlaneGeometry(1.6, roadWidth), new THREE.MeshStandardMaterial({ map: chequer, roughness: 0.6 }));
@@ -161,7 +181,8 @@ export function buildWorld({ halfStraight, radius, roadWidth }) {
   const boardBack = new THREE.MeshStandardMaterial({ color: 0x1a2430, roughness: 0.8 });
   const boardMats = [boardBack, boardBack, boardBack, boardBack, logoMat, boardBack];
   const boardSpots = [];
-  for (const s of [-1, 1]) pts.forEach((p, i) => { if (i % 18 === 9) boardSpots.push([p, s]); });
+  // (none on the inside along the pit lane, which runs beside the inner wall)
+  for (const s of [-1, 1]) pts.forEach((p, i) => { if (i % 18 === 9 && !(s > 0 && p.s > pit.entry && p.s < pit.exit)) boardSpots.push([p, s]); });
   const boards = new THREE.InstancedMesh(new THREE.BoxGeometry(8, 1, 0.12), boardMats, boardSpots.length);
   const dummy = new THREE.Object3D();
   boardSpots.forEach(([p, s], i) => {

@@ -49,6 +49,14 @@ export const DEFAULT_CAR = Object.freeze({
   // drops off a cliff once the tread is nearly gone.
   tireWearEnergy: 40e6, tireWearTempScale: 20, tireWearGripLoss: 0.08,
   tireCliffWear: 0.75, tireCliffGripLoss: 0.15, tireStartWear: 0,
+  tireCompound: 'medium',
+});
+// Dry compounds (illustrative): peak-grip multiplier and wear-rate multiplier
+// relative to the medium. Softer rubber grips more and wears faster.
+export const TIRE_COMPOUNDS = Object.freeze({
+  soft: Object.freeze({ grip: 1.015, wear: 2 }),
+  medium: Object.freeze({ grip: 1, wear: 1 }),
+  hard: Object.freeze({ grip: 0.985, wear: 0.55 }),
 });
 export const FIXED_DT = 1 / 240;
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -71,8 +79,21 @@ export function createCar(overrides = {}) {
     tireTemp: [0, 1, 2, 3].map(() => ({ surface: config.tireStartTemp, carcass: config.tireStartTemp })),
     // FL, FR, RL, RR tread wear fraction (0 new, 1 worn out).
     tireWear: [0, 1, 2, 3].map(() => config.tireStartWear),
+    compound: compoundOf(config.tireCompound),
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [], powertrain: null },
   };
+}
+
+function compoundOf(name) {
+  if (!TIRE_COMPOUNDS[name]) throw new RangeError(`Unknown tire compound: ${name}`);
+  return name;
+}
+
+// Fit a new set of tires (a pit stop): unworn tread at blanket temperature.
+export function fitTires(car, compound = car.compound) {
+  car.compound = compoundOf(compound);
+  car.tireWear.fill(0);
+  for (const t of car.tireTemp) t.surface = t.carcass = car.config.tireStartTemp;
 }
 
 // Thermal grip multiplier from a surface/carcass blend around the optimum.
@@ -352,9 +373,10 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     const worldY = car.y + x * sin + y * cos;
     const grip = clamp(surfaceAt(worldX, worldY), 0, 2);
     const temp = car.tireTemp[i], tempGrip = tireTempGrip(c, temp), wearGrip = tireWearGrip(c, car.tireWear[i]);
+    const compound = TIRE_COMPOUNDS[car.compound ?? c.tireCompound];
     const kinematicSlip = steadySlipAngle(wheelV, wheelU);
     car.slipAngle[i] = relaxSlipAngle(car.slipAngle[i], kinematicSlip, Math.hypot(wheelU, wheelV), c, dt);
-    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip * tempGrip * wearGrip, c, dt, car.slipAngle[i],
+    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip * compound.grip * tempGrip * wearGrip, c, dt, car.slipAngle[i],
       front ? c.corneringStiffness : c.rearCorneringStiffness);
     tire.kinematicSlipAngle = kinematicSlip;
     // Include contact translation and yaw in the low-speed lateral bound.
@@ -368,13 +390,13 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     // Contact friction power (force times slip velocity) and rolling hysteresis heat the tire.
     const slipPower = Math.abs(tire.fx * (r * car.wheelOmega[i] - wheelU)) + Math.abs(tire.fy * wheelV);
     updateTireTemp(temp, c, slipPower, c.rollingResistance * loads[i] * Math.abs(wheelU), Math.abs(wheelU), dt);
-    car.tireWear[i] = updateTireWear(car.tireWear[i], c, slipPower, temp.surface, dt);
+    car.tireWear[i] = updateTireWear(car.tireWear[i], c, slipPower * compound.wear, temp.surface, dt);
     const bodyFx = tire.fx * ca - tire.fy * sa;
     const bodyFy = tire.fx * sa + tire.fy * ca;
     fx += bodyFx;
     fy += bodyFy;
     moment += x * bodyFy - y * bodyFx;
-    return { ...tire, load: loads[i], grip, tempGrip, wearGrip, wear: car.tireWear[i], slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
+    return { ...tire, load: loads[i], grip, compoundGrip: compound.grip, tempGrip, wearGrip, wear: car.tireWear[i], slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
       x: worldX, y: worldY, steer: angle,
       omega: car.wheelOmega[i], driveTorque: torque,
       resistanceTorque: (freeOmega - car.wheelOmega[i]) * inertia / dt };

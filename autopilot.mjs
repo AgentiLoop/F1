@@ -1,14 +1,14 @@
 // Autopilot for the stadium test circuit: pure-pursuit steering on the centerline,
 // anticlockwise, with a braking-distance speed plan for the two hairpins.
 // Optional per-call control: offset (m, + towards the outside of the loop) runs a
-// parallel line, maxSpeed (m/s) caps the target speed (traffic following), grip
+// parallel line (a function of lap progress s for a path such as the pit lane), maxSpeed (m/s) caps the target speed (traffic following), grip
 // scales the corner speed (e.g. < 1 in dirty air). The corner speed also scales
 // down with the square root of a tighter (inside) line's radius; an outside line keeps
 // the centreline speed, so it has margin for running wide.
 import { clamp } from './physics.mjs';
 
 export function createAutopilot({ halfStraight, radius }, tuning = {}) {
-  const t = { cornerSpeed: 43, brakeDecel: 26, lookahead: 0.55, minLookahead: 9, slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 40, driftLift: 1.5, driftAllowance: 2, ...tuning };
+  const t = { cornerSpeed: 43, brakeDecel: 26, lookahead: 0.55, minLookahead: 9, slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 40, driftLift: 1.5, driftAllowance: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ...tuning };
   const straight = 2 * halfStraight, arc = Math.PI * radius, length = 2 * straight + 2 * arc;
   const wrap = s => ((s % length) + length) % length;
   // Arc length along the centerline, starting at the left end of the bottom straight.
@@ -37,7 +37,9 @@ export function createAutopilot({ halfStraight, radius }, tuning = {}) {
     const c = car.config, speed = car.telemetry.speed;
     const s = progress(car.x, car.y);
     const ld = Math.max(t.minLookahead, speed * t.lookahead);
-    const [px, py] = point(s + ld, offset);
+    const offsetAt = typeof offset === 'function' ? q => offset(wrap(q)) : () => offset;
+    const [px, py] = point(s + ld, offsetAt(s + ld));
+    offset = offsetAt(s);
     const alpha = Math.atan2(py - car.y, px - car.x) - car.heading;
     // Pure pursuit plus a cross-track term: tire slip makes pure pursuit run
     // wide at the limit, so steer back towards the chosen line (+ offset = outside).
@@ -54,10 +56,16 @@ export function createAutopilot({ halfStraight, radius }, tuning = {}) {
     // Throttle modulation like a driver catching wheelspin: back off as the
     // driven (rear) wheels' slip ratio passes t.slipTarget.
     const wheels = car.telemetry.wheels, rearSlip = wheels.length ? Math.max(wheels[2].slipRatio ?? 0, wheels[3].slipRatio ?? 0) : 0;
-    const traction = clamp(1 - (rearSlip - t.slipTarget) / t.slipBand, 0.15, 1);
+    // Catching a slide: lift as the rear slip angle grows past rearSlide
+    // (power oversteer); when the fronts slide past frontSlide (understeer),
+    // stop adding lock and come off the throttle.
+    const slipAt = k => wheels.length ? Math.abs(wheels[k].slipAngle ?? 0) : 0;
+    const rearAlpha = Math.max(slipAt(2), slipAt(3)), frontAlpha = Math.max(slipAt(0), slipAt(1));
+    const traction = clamp(1 - (rearSlip - t.slipTarget) / t.slipBand, 0.15, 1) * clamp(1 - (rearAlpha - t.rearSlide) / t.slideBand, 0, 1);
+    const understeer = frontAlpha > t.frontSlide && Math.abs(steerAngle) > Math.abs(car.steer) && Math.sign(steerAngle) === Math.sign(car.steer);
     return {
-      steer: clamp(steerAngle / c.maxSteer, -1, 1),
-      throttle: err > 0 ? clamp(err / 3, 0, 1) * traction : 0,
+      steer: clamp((understeer ? car.steer : steerAngle) / c.maxSteer, -1, 1),
+      throttle: err > 0 && !understeer ? clamp(err / 3, 0, 1) * traction : 0,
       brake: err < -1 ? clamp(-err / 8, 0, 1) : 0,
     };
   };

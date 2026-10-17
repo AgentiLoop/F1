@@ -65,6 +65,12 @@ contact position, has outward loft normals, and stays under 200k triangles.
   Add `?nostart` to the URL to skip the start sequence.
 - Race distance: 10 laps by default; `?laps=N` sets another. At the chequered
   flag the side panel shows the classification; R starts a new race.
+- Pit stops: B cycles the pit request (box for Soft → Medium → Hard →
+  cancel). On autopilot the car pits at the next pit entry; when driving, take
+  the pit lane on the inside of the main straight (80 km/h limiter, +5 s for
+  speeding) and stop in your box (the first one, painted green). `?tyre=soft`
+  (or `medium`/`hard`) picks the start compound. With opponents every finisher
+  must use two compounds (one stop) or is disqualified.
 - Buttons provide the same pause/reset/view actions. Driving keys are ignored
   while a button has focus; click the circuit to return focus to driving.
 - Losing window focus or hiding the tab pauses and releases held inputs.
@@ -113,7 +119,7 @@ the AI cars use the same autopilot as the player with their own corner speed
   throttle backs off as rear slip ratio passes 0.10 (gone at 0.25), like a
   driver catching wheelspin; a cross-track term 0.012 rad/m (falling with
   speed² above 40 m/s) and a 1.5 m/s lift per metre beyond 2 m wide of the line.
-  The lone autopilot covers 2903 m in 60 s (the existing test needs > 2891 m).
+  The lone autopilot covers 2901 m in 60 s (2903 m before the cycle 13 slide-catching; the existing test needs > 2891 m).
 * **Standings.** Order is by distance covered since the start line; the
   interval is the time since the leader passed the car's latest 10 m mark.
 
@@ -121,8 +127,8 @@ The timing box shows the race position (P1 / 5) and the side panel the order
 with intervals; the status line reports car-to-car contact speed. Lap timing,
 sound and telemetry remain the player's. Rival models use the same pose code as
 the player's car (body roll/pitch/heave, wheel spin and steer). There are no
-pit stops, blue flags or penalties other than a jump start yet, and AI cars do
-not defend or vary their pace by tire state.
+blue flags yet, and AI cars do not defend. Pit stops and tyre-state pace came in
+cycle 13.
 
 ### Standing start (`race.mjs`, cycle 11)
 
@@ -150,8 +156,74 @@ time penalties (the jump-start penalty is applied here); cars still running
 follow in road order. The side panel switches to the classification (winner's
 time, gaps, `+N laps`, `incl. 5s pen`), the timing box to `Finished P2 / 5`
 and the status line to the result. Before the flag the timing box shows the
-lap (`P1 / 5 · Lap 3/10`). Race lengths here are short (a lap is ~30 s); there
-are no pit stops or fuel/tyre strategy yet.
+lap (`P1 / 5 · Lap 3/10`). Race lengths here are short (a lap is ~30 s).
+
+### Tyre compounds, pit lane and pit stops (cycle 13)
+
+**Compounds** (`physics.mjs`): `TIRE_COMPOUNDS` scales peak grip and the wear
+rate relative to the medium: soft ×1.015 grip and ×2 wear, hard ×0.985 grip and
+×0.55 wear (illustrative, not supplier data). `car.compound` is set from
+`tireCompound` and `fitTires(car, compound)` fits a new set: unworn tread at the
+blanket temperature (70 °C).
+
+**Pit lane** (`track.mjs`, `stadiumPitLane`): an asphalt apron on the inside of
+the circuit, from 31 m into the main straight to 176 m into the back straight.
+Cars cross a solid white line into the fast lane (11.5 m inside the
+centreline). An 80 km/h limit applies between two lines at 145 m and 321 m.
+There are five boxes 30 m apart, each 15.5 m inside the centreline, painted in
+each car's colour, with a garage block behind the wall. Like many real pit
+exits, the exit lane runs round the inside of the first hairpin and rejoins on
+the back straight.
+
+**Rules and service** (`race.mjs`):
+- In the speed-limited zone a limiter cuts drive above the limit. Exceeding it
+  by more than 0.5 m/s costs +5 s once per visit.
+- A car that stops within 3 m of its box marks is serviced for 2.1–3.2 s
+  (seeded random) and gets the requested or planned compound.
+- The crew holds the car while another car approaches in the fast lane or is
+  pulling out of a box behind (safe release). `stops[]` records the lap,
+  compound, service time and total stationary time.
+- With `compoundRule` (the page enables it with opponents; it applies to races
+  of 2+ laps), a finisher who never ran a second compound is disqualified and
+  classified after the running cars.
+
+**AI strategy and driving**:
+- Each car has a planned stop lap at 35–65% of the race distance, and a
+  start/second compound (`tyres`: Kovač, Hart, Tanaka and the player
+  medium→hard, Ferreira soft→hard). A planned stop is put off a lap if a car
+  less than 200 m ahead is already boxing, unless it is the last chance.
+- Without the rule, cars stop only when tread wear passes 60% with 3+ laps to go.
+- A stopping car follows a path into the fast lane, across to its box and back.
+  It brakes to reach the limit 15 m before the line and stops on its marks.
+- In the pit lane it queues at a constant time headway (1.2 s + 8 m), so a
+  bunch of cars boxing on the same lap does not concertina into each other.
+- It rejoins only when no car on the circuit is alongside or closing within
+  5 s; otherwise it waits at the end of the exit lane.
+- Cars on either side of the pit-lane line are separate traffic. A car heading
+  for the pit entry blocks every lane on its inside for cars behind it.
+- `requestPit(compound)` sets the player's request (on autopilot the car boxes
+  at the next entry). `inPitLane(car)` reports the limiter zone.
+
+**Driver-model changes made while adding stops** (they affect all AI cars and
+the player's autopilot):
+- The AI's corner speed now scales with compound grip, the coldest tire's
+  thermal grip (so out-laps on new tyres are slower) and the most worn tire's
+  wear grip.
+- The autopilot lifts as the rear slip angle grows past 0.08 rad, and stops
+  adding lock (and lifts) when the fronts slide past 0.16 rad.
+- No new passing move starts in the first 40 m after a hairpin. A lane change
+  needs no car closing from behind within 2.5 s.
+- Followers anticipate a braking car ahead (0.4 s of its deceleration).
+- Lanes count cars moving into them. Cars also respect the strip they actually
+  occupy, down to a nose-to-tail gap, then creep.
+
+In 24 seeded 10-lap races (four seeds; default, hard-start and all-soft
+grids; with and without the rule) there was one car-to-car contact over 2 m/s.
+A stop costs ~15 s of race time here, about half a lap, which is a larger
+share of a lap than in F1 (~20 s on a ~90 s lap). Stops now reshuffle the
+order, and AI cars sometimes win. There is no fuel load, no tyre-change or
+wheel-gun failure model, no pit-lane speed trap timing, and no undercut logic
+beyond the planned lap.
 
 ### Driver input (`input.mjs`, cycle 7)
 
@@ -306,8 +378,8 @@ A fully worn tire has 77% of a fresh tire's grip. The HUD shows wear and the
 wear-grip multiplier per wheel; resetting the car fits new tires.
 With the autopilot on the stadium circuit the rears use ~1.8% after 20 s
 (launch wheelspin plus traction out of the hairpins) and the fronts 0.2–0.4%.
-All coefficients are illustrative, not compound data; wear does not change
-tread thickness, heat capacity, or compound, and there are no pit stops.
+All coefficients are illustrative; wear does not change tread thickness or
+heat capacity. Compound grip/wear multipliers and pit stops came in cycle 13.
 
 ### Engine and tire sound (`audio.mjs`, cycle 9)
 All sound is synthesized from the physics telemetry; there are no recorded
@@ -356,7 +428,7 @@ with load, slip or speed; there is no longitudinal relaxation.
 
 ## Verification
 
-Deterministic tests (95 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
+Deterministic tests (101 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
 stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 
 * Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
@@ -442,6 +514,29 @@ unclassified (`finished: false`) at the back while the AI field finishes.
 chequered-flag status, and R restarting the race. The race, start and basic
 driving browser checks were rerun and pass.
 
+Cycle 13 tests:
+- Softer compounds stop shorter and wear faster, and `fitTires` resets wear
+  and temperature.
+- The pit apron surface runs from the entry, round the first hairpin, to the
+  exit.
+- A 3-lap race under the compound rule: every car makes exactly one stop and
+  changes compound, the service time is within its range, there is no contact
+  over 2 m/s, no pit-lane speed above the limit + 0.5 m/s and no penalties.
+- A car that never changes compound is disqualified and classified last.
+- A player request on autopilot fits the requested soft tyres.
+- Pit-lane rules: the limiter, a one-off speeding penalty, and service for a
+  car stopped in its box.
+
+`/tmp/f1-pit-smoke.mjs` (`?nostart&laps=2`) checks in Chrome:
+- the pit-info line;
+- B cycling the request;
+- the limiter and pit-stop status texts;
+- the player fitting softs;
+- a full classification where every car shows `1 stop`.
+
+The finish, race, start, basic driving and 3D checks were rerun and pass. The
+finish check's row regex now allows the ` · 0 stops` suffix.
+
 Cycle 7 input tests (`input.test.mjs`): deadzone/curve shaping and monotonicity;
 keyboard throttle ramp identical at 1/240, 1/60 and 1/30 s frames; steering
 lock, return and centre crossing exact for small and single large steps;
@@ -474,7 +569,7 @@ establish internal consistency, not real-car accuracy.
    and transient handling before making realism claims.
 5. Wheel/pedal calibration and
    force feedback, damage, kerb geometry and bumps, real circuit geometry, race
-   rules (pit stops, safety car, blue flags) and smarter AI racecraft.
+   rules (safety car, blue flags), undercut/overcut strategy and smarter AI racecraft.
 
 ## Repository / parity
 
