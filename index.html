@@ -10,15 +10,15 @@
 </style>
 </head>
 <body>
-<header><div><h1><span>AgentiLoop</span> RACING</h1><div class="subtitle">F1 DYNAMICS SIMULATOR · 240 Hz PHYSICS</div></div><nav aria-label="Simulation controls"><button id="autopilot" aria-pressed="true">Autopilot: on</button><button id="pause" aria-pressed="false">Pause</button><button id="cockpit" aria-pressed="false">Cockpit</button><button id="view" aria-pressed="false">Overview</button><button id="reset">Reset car</button></nav></header>
+<header><div><h1><span>AgentiLoop</span> RACING</h1><div class="subtitle">F1 DYNAMICS SIMULATOR · 240 Hz PHYSICS</div></div><nav aria-label="Simulation controls"><button id="autopilot" aria-pressed="true">Autopilot: on</button><button id="pause" aria-pressed="false">Pause</button><button id="cockpit" aria-pressed="false">Cockpit</button><button id="view" aria-pressed="false">Overview</button><button id="sound" aria-pressed="true">Sound: on</button><button id="reset">Reset car</button></nav></header>
 <main><section class="scene" aria-label="Driving viewport"><canvas id="track" role="img" aria-label="3D view of an open-wheel race car on a stadium-shaped test circuit"></canvas><div class="tag"><strong>LIVE</strong> &nbsp; THREE.JS 3D · 240 Hz PHYSICS / SI UNITS</div><div id="timing" aria-label="Lap timing"><div class="label" id="lap-label">Out lap</div><div id="lap-time">–:––.–––</div><div id="lap-delta"></div></div><div id="status" role="status">Ready · W or ↑ to accelerate</div></section><aside aria-label="Vehicle telemetry">
 <div id="pause-state" role="status"></div><div class="label">Ground speed</div><div><span class="speed" id="speed">0</span> <span class="unit">km/h</span></div>
 <div class="section"><div class="stats"><div><div class="label">Last lap</div><div class="number" id="last-lap">–:––.–––</div></div><div><div class="label">Best lap</div><div class="number" id="best-lap">–:––.–––</div></div></div><div class="sectors" id="sectors"></div><p class="note">Sectors: purple = session best, yellow = slower. Track limits: a lap is deleted when all four tires are beyond the road edge.</p></div>
 <div class="section stats"><div><div class="label">Longitudinal</div><div class="number" id="long">0.00 g</div></div><div><div class="label">Lateral</div><div class="number" id="lat">0.00 g</div></div><div><div class="label">Downforce</div><div class="number" id="aero">0.0 kN</div></div><div><div class="label">Distance</div><div class="number" id="distance">0 m</div></div><div><div class="label">Sim time</div><div class="number" id="time">0.0 s</div></div><div><div class="label">Steering</div><div class="number" id="steer">0.0°</div></div><div><div class="label">Roll / pitch</div><div class="number" id="attitude">0.00° / 0.00°</div></div><div><div class="label">Aero squat</div><div class="number" id="heave">0 mm</div></div><div><div class="label">Ride F / R</div><div class="number" id="ride">40 / 80 mm</div></div><div><div class="label">Aero balance</div><div class="number" id="balance">40.0% F</div></div></div>
 <div class="section"><div class="label">Driver input · <span id="input-source">autopilot</span></div><div class="stats" style="margin-top:10px"><div><div class="label">Throttle</div><meter id="in-throttle" min="0" max="1" value="0" style="width:100%;accent-color:#6fffc3" aria-label="Throttle command"></meter></div><div><div class="label">Brake</div><meter id="in-brake" min="0" max="1" value="0" style="width:100%;accent-color:#ff8e86" aria-label="Brake command"></meter></div></div><p class="note">Keyboard pedals ramp in ~0.17 s and release in 0.1 s; keyboard steering moves toward lock at 3/s and returns at 5/s. Gamepad (standard layout): triggers are analog pedals, left stick steers with a deadzone and progressive curve. Steering authority falls with speed for both.</p></div>
 <div class="section"><div class="label">Tire force / peak grip</div><div class="wheels" id="wheels"></div><p class="note">FL / FR / RL / RR · normal load in kN.<br>Bars: force / peak capacity, not remaining grip. SLIDE: combined demand beyond the illustrative force peak; force falls toward 75% of peak. Slip: signed longitudinal slip; + is wheelspin when moving forward. LOCK: stopped wheel above 1 m/s. α: force-producing (relaxed) / kinematic slip angle; the carcass catches up over 0.45 m of travel. Temp: tread / carcass °C · thermal grip (blue cold, green near the 100 °C optimum, red hot); sliding heats the tread, airflow cools it. Wear: tread used · wear grip; sliding energy wears the tread (faster above the optimum), grip fades then falls off a cliff past 75% wear (amber above 37.5%, red above 75%); reset (R) fits new tires. No ABS or traction control.</p></div>
-<div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview<br><kbd>C</kbd> Cockpit / chase camera<br><kbd>P</kbd> Autopilot on / off<br>Gamepad: RT throttle · LT brake · left stick steer</div>
-<p class="note">Illustrative, uncalibrated dynamics. Body roll, pitch and aero squat are damped spring modes for display; wheel loads are still quasi-static. Surface grip (assumed): kerb 90%, runoff 70%, grass 35%. Walls are rigid: the body footprint rebounds with 25% restitution and scrubs with friction 0.5; no damage model. Tires start at 70 °C (blanket temperature) and have a two-node thermal model; no wear, pressure or camber yet. This is a handling testbed, not a validated F1 simulator.</p>
+<div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview<br><kbd>C</kbd> Cockpit / chase camera<br><kbd>P</kbd> Autopilot on / off<br><kbd>M</kbd> Sound on / off<br>Gamepad: RT throttle · LT brake · left stick steer</div>
+<p class="note">Illustrative, uncalibrated dynamics. Body roll, pitch and aero squat are damped spring modes for display; wheel loads are still quasi-static. Surface grip (assumed): kerb 90%, runoff 70%, grass 35%. Walls are rigid: the body footprint rebounds with 25% restitution and scrubs with friction 0.5; no damage model. Tires start at 70 °C (blanket temperature) and have a two-node thermal model and tread wear; no pressure or camber yet. Sound is synthesized from engine rpm, throttle, turbo spool, tire sliding power and speed (V6 firing frequency; no recorded samples). This is a handling testbed, not a validated F1 simulator.</p>
 </aside></main>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
 <script type="module">
@@ -31,6 +31,7 @@ import { createAutopilot } from './autopilot.mjs';
 import { createStadiumTrack } from './track.mjs';
 import { createLapTimer, formatLapTime } from './laptimer.mjs';
 import { createDriverInput, readGamepad } from './input.mjs';
+import { createSoundModel, createAudioEngine } from './audio.mjs';
 const $ = id => document.getElementById(id);
 const canvas = $('track');
 let sim, paused = false, overview = false, cockpit = false, previousTime = null, snapCamera = true;
@@ -43,6 +44,19 @@ const drive = createAutopilot({ halfStraight, radius });
 const timer = createLapTimer(track);
 let autopilot = true, command = { throttle: 0, brake: 0, steer: 0 };
 const driver = createDriverInput();
+// Sound: the AudioContext is created on the first key press or click (autoplay policy).
+const soundModel = createSoundModel(DEFAULT_CAR);
+let soundOn = true, audioCtx = null, audio = null, soundParams = null;
+function startAudio() {
+  if (!soundOn || audio || !window.AudioContext) return;
+  audioCtx = new AudioContext(); audio = createAudioEngine(audioCtx);
+}
+function toggleSound() {
+  soundOn = !soundOn; if (soundOn) startAudio(); else audio?.silence();
+  $('sound').textContent = `Sound: ${soundOn ? 'on' : 'off'}`;
+  $('sound').setAttribute('aria-pressed', String(soundOn));
+}
+window.addEventListener('pointerdown', startAudio);
 // First connected gamepad that reports the W3C standard layout.
 const gamepad = () => [...(navigator.getGamepads?.() ?? [])].map(p => readGamepad(p)).find(Boolean) ?? null;
 function toggleAutopilot() {
@@ -52,7 +66,7 @@ function toggleAutopilot() {
 }
 function reset() {
   sim = new Simulation(createCar()); sim.car.y = -radius; timer.restart();
-  keys.clear(); driver.reset(); previousTime = null; snapCamera = true;
+  keys.clear(); driver.reset(); soundModel.reset(); previousTime = null; snapCamera = true;
 }
 function pause(value) {
   paused = value; keys.clear(); previousTime = null;
@@ -75,16 +89,19 @@ $('pause').onclick = () => pause(!paused);
 $('reset').onclick = reset;
 $('view').onclick = changeView;
 $('autopilot').onclick = toggleAutopilot;
+$('sound').onclick = toggleSound;
 const drivingKeys = ['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
 window.addEventListener('keydown', e => {
   if (e.target.closest('button,input,select,textarea')) return;
-  if ([...drivingKeys,'Space','KeyR','KeyV','KeyP','KeyC'].includes(e.code)) e.preventDefault();
+  if ([...drivingKeys,'Space','KeyR','KeyV','KeyP','KeyC','KeyM'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
+  if (e.code !== 'KeyM') startAudio();
   if (e.code === 'Space') pause(!paused);
   else if (e.code === 'KeyR') reset();
   else if (e.code === 'KeyV') changeView();
   else if (e.code === 'KeyP') toggleAutopilot();
   else if (e.code === 'KeyC') changeCamera();
+  else if (e.code === 'KeyM') toggleSound();
   else if (!paused) keys.add(e.code);
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
@@ -235,12 +252,18 @@ function frame(now) {
     sim.advance((now - previousTime) / 1000, command, surfaceAt, barrierAt);
     timer.update(sim.car);
   }
+  if (audio) {
+    // Quieter from the overview camera; silent while paused or muted.
+    soundParams = soundModel.update(dt, sim.car.telemetry, command);
+    if (soundOn && !paused) { if (audioCtx.state === 'suspended') audioCtx.resume(); audio.apply(soundParams, overview ? 0.3 : cockpit ? 0.9 : 0.7); } else audio.silence();
+  }
   previousTime = now; render(dt); requestAnimationFrame(frame);
 }
 reset(); resize(); requestAnimationFrame(frame);
 // Read-only snapshots for browser smoke tests and telemetry tools.
 window.f1Lab = {
   snapshot: () => ({ car: structuredClone(sim.car), timing: structuredClone(timer.state), paused, overview, cockpit, keys: [...keys], command: { ...command }, inputSource: autopilot ? 'autopilot' : driver.source }),
+  sound: () => ({ on: soundOn, state: audioCtx?.state ?? null, params: soundParams && { ...soundParams } }),
   // 3D render state: draw stats, the car's on-screen position and the pixel there.
   view: () => {
     const gl = renderer.getContext(), p = model.group.position.clone().setY(0.5).project(camera);

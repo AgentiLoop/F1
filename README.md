@@ -57,7 +57,8 @@ contact position, has outward loft normals, and stays under 200k triangles.
 - Gamepad (browser "standard" layout, e.g. Xbox/PlayStation pads): right
   trigger throttle, left trigger brake, left stick steering. P toggles
   autopilot off to drive.
-- Space: pause/resume; R: reset; V: overview/chase view; C: cockpit/chase camera.
+- Space: pause/resume; R: reset; V: overview/chase view; C: cockpit/chase camera;
+  M: sound on/off (the audio starts on the first key press or click).
 - Buttons provide the same pause/reset/view actions. Driving keys are ignored
   while a button has focus; click the circuit to return focus to driving.
 - Losing window focus or hiding the tab pauses and releases held inputs.
@@ -231,6 +232,28 @@ With the autopilot on the stadium circuit the rears use ~1.8% after 20 s
 All coefficients are illustrative, not compound data; wear does not change
 tread thickness, heat capacity, or compound, and there are no pit stops.
 
+### Engine and tire sound (`audio.mjs`, cycle 9)
+All sound is synthesized from the physics telemetry; there are no recorded
+samples. `createSoundModel` is a pure mapping (tested in Node) and
+`createAudioEngine` renders it with Web Audio:
+- Engine: the firing frequency of a four-stroke V6, rpm / 60 × 3 (200 Hz at the
+  4000 rpm idle, 750 Hz at 15000 rpm), as a sawtooth plus a half-order rumble
+  and a second harmonic, through a resonant low-pass whose cutoff rises from
+  2.5× to 8× the firing frequency with throttle. Level rises with throttle and
+  rpm (22% on a closed throttle), drops to 35% during the 30 ms ignition-cut
+  shift, and a 22 Hz square gate chops it on the rev limiter.
+- Turbo whine: a sine from 1.8 to 7.5 kHz following throttle × rpm with a
+  0.35 s exponential spool lag (frame-rate independent).
+- Tire squeal: band-passed noise whose level follows the total contact sliding
+  power (the same quantity that heats and wears the tires), audible from
+  15 kW and full at 150 kW, with pitch rising slightly with intensity.
+- Wind: low-passed noise, level and brightness growing with speed squared
+  (full at 90 m/s).
+Parameters glide (setTargetAtTime) to avoid zipper noise. The mix is quieter
+from the overview camera and silent while paused. The levels and frequencies
+are illustrative; there is no exhaust/intake modelling, Doppler, spatial
+panning, gear whine, or sound of other cars.
+
 ### Lateral slip relaxation (cycle 4)
 
 Each wheel stores a force-producing slip angle `car.slipAngle[i]`. Every step it
@@ -256,7 +279,7 @@ with load, slip or speed; there is no longitudinal relaxation.
 
 ## Verification
 
-Deterministic tests (79 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
+Deterministic tests (85 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
 stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 
 * Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
@@ -299,6 +322,17 @@ stop on fully worn tires is >10% longer than on new ones.
 `/tmp/f1-wear-smoke.mjs` checks the wear HUD in Chrome, that wear grows while
 driving and that reset fits new tires; all nine earlier browser checks still pass.
 
+Cycle 9 sound tests (`audio.test.mjs`): V6 firing frequency; engine level and
+filter brightness rise with throttle and rpm, shift cut and limiter flag;
+turbo spool matches 1 − e^(−t/τ) at 30/60/240 Hz and decays; no squeal while
+free rolling, strong squeal in a lockup; wind ∝ speed²; a full-throttle run
+gives a rising firing frequency that drops at each upshift; the Web Audio graph
+builds against a stand-in context and schedules only finite, sub-Nyquist
+values. `/tmp/f1-audio-smoke.mjs` checks in Chrome that no AudioContext exists
+before a gesture, that a click starts it, live parameters while the autopilot
+drives, the M toggle, and renders the real graph offline at 10000 rpm full
+throttle: RMS 0.32, peak 0.62, dominant period 254 Hz (the 250 Hz half-order).
+
 Cycle 7 input tests (`input.test.mjs`): deadzone/curve shaping and monotonicity;
 keyboard throttle ramp identical at 1/240, 1/60 and 1/30 s frames; steering
 lock, return and centre crossing exact for small and single large steps;
@@ -329,7 +363,7 @@ establish internal consistency, not real-car accuracy.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
-5. Sound, wheel/pedal calibration and
+5. Wheel/pedal calibration and
    force feedback, damage, kerb geometry and bumps, real circuit geometry, opponents, race rules.
 
 ## Repository / parity
