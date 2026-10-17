@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from './vendor/three.module.js';
-import { loadCarTemplate, buildModelCar } from './carmodel.mjs';
+import { loadCarTemplate, buildModelCar, STEERING_RATIO } from './carmodel.mjs';
 import { DEFAULT_CAR } from './physics.mjs';
 
 const bytes = readFileSync(new URL('./models/f222.glb', import.meta.url));
-const template = await loadCarTemplate(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+const wheelBytes = readFileSync(new URL('./models/mclaren-wheel.glb', import.meta.url));
+const ab = b => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+const template = await loadCarTemplate(ab(bytes), ab(wheelBytes));
 const box = o => { let r = o; while (r.parent) r = r.parent; r.updateMatrixWorld(true); return new THREE.Box3().setFromObject(o, true); };
 
 test('GLB carries its CC BY 4.0 attribution and loads into the expected named parts', () => {
@@ -25,7 +27,7 @@ test('model car is 2022-sized, sits on the ground and is light enough for a full
   assert.ok(Math.abs(box(group).min.y) < 1e-3, `lowest point ${box(group).min.y}`);
   // Each part: twice-subdivided close up, once at mid range, the original far away.
   const count = m => (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
-  const tris = [0, 0, 0]; group.traverse(o => { if (o.isLOD) o.levels.forEach((l, i) => { tris[i] += count(l.object); }); });
+  const tris = [0, 0, 0]; group.traverse(o => { if (o.isLOD && o.levels[0].object.isMesh) o.levels.forEach((l, i) => { tris[i] += count(l.object); }); });
   const [near, mid, far] = tris;
   assert.ok(far > 50000 && far < 80000, `${far} far triangles`);
   assert.ok(mid > 3.5 * far && mid < 300000, `${mid} mid-range triangles`);
@@ -69,4 +71,35 @@ test('sprung body rolls without moving the wheels; DRS opens the flap; livery pa
   const colours = new Set(); car.body.traverse(o => { if (o.isMesh && o.material.clearcoat === 1) colours.add(o.material.color.getHex()); });
   assert.ok([...colours].some(c => new THREE.Color(0xc8102e).getHex() === c), 'paint colour applied');
   assert.ok(car.driver.length >= 2 && car.eye.length === 2);
+});
+
+test('detailed steering wheel (CC BY 4.0) replaces the plain one, faces the driver and turns about its column', () => {
+  const json = JSON.parse(wheelBytes.subarray(20, 20 + wheelBytes.readUInt32LE(12)).toString());
+  assert.match(json.asset.extras.license, /CC-BY-4\.0/);
+  assert.match(json.asset.extras.author, /dhimasdc9/);
+  const car = buildModelCar(template, DEFAULT_CAR), sw = car.steeringWheel;
+  for (const name of ['Object_102', 'Object_104', 'Object_110']) assert.equal(car.group.getObjectByName(name), undefined, `${name} removed`);
+  const b = box(sw), size = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+  assert.ok(size.z > 0.22 && size.z < 0.26 && size.y > 0.11 && size.y < 0.16, `wheel size ${size.toArray()}`);
+  // Ahead of and below the driver's eye, on the centre line.
+  assert.ok(c.x - car.eye[0] > 0.25 && c.x - car.eye[0] < 0.5, `reach ${c.x - car.eye[0]}`);
+  assert.ok(car.eye[1] - c.y > 0.08 && car.eye[1] - c.y < 0.25, `drop ${car.eye[1] - c.y}`);
+  assert.ok(Math.abs(c.z) < 0.01);
+  // The screen faces the driver: it sits behind (toward the eye) the column connector.
+  const centre = o => box(o).getCenter(new THREE.Vector3());
+  const screen = centre(sw.getObjectByName('Plane014_screen_0')), column = centre(sw.getObjectByName('Circle004_connector_0'));
+  assert.ok(screen.x < column.x - 0.02, `screen ${screen.x} column ${column.x}`);
+  assert.ok(screen.y > column.y, 'screen above the column');
+  // Steering left (positive steer) turns the top of the wheel to the left (-z); the column stays put.
+  sw.rotation.x = -0.3 * STEERING_RATIO;
+  const turned = centre(sw.getObjectByName('Plane014_screen_0'));
+  assert.ok(turned.z < -0.02, `screen moves left ${turned.z}`);
+  assert.ok(centre(sw.getObjectByName('Circle004_connector_0')).distanceTo(column) < 0.003, 'column fixed');
+  // Drawn only near the car.
+  const lod = sw.parent; assert.ok(lod.isLOD && lod.levels[1].distance <= 10 && lod.levels[1].object.children.length === 0);
+});
+test('without the detailed wheel the model keeps its own', async () => {
+  const plain = await loadCarTemplate(ab(bytes), null), car = buildModelCar(plain, DEFAULT_CAR);
+  assert.equal(car.steeringWheel, null);
+  assert.ok(car.group.getObjectByName('Object_102'));
 });

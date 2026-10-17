@@ -28,7 +28,7 @@ import { RoomEnvironment } from './vendor/RoomEnvironment.js';
 import { DEFAULT_CAR, TIRE_COMPOUNDS } from './physics.mjs';
 import { createRace, DEFAULT_GRID } from './race.mjs';
 import { buildF1Car } from './car3d.mjs';
-import { loadCarTemplate, buildModelCar } from './carmodel.mjs';
+import { loadCarTemplate, buildModelCar, STEERING_RATIO } from './carmodel.mjs';
 import { buildWorld, buildCircuitWorld } from './world3d.mjs';
 import { createStadiumTrack } from './track.mjs';
 import { createCircuitTrack } from './circuit.mjs';
@@ -197,6 +197,8 @@ function poseCar(m, c, angles, dt) {
     w.spin.rotation.z = -angles[i];
     if (w.front) w.pivot.rotation.y = c.steer;
   });
+  // Steering left (positive steer) turns the wheel's top toward the left side (-z).
+  if (m.steeringWheel) m.steeringWheel.rotation.x = -c.steer * STEERING_RATIO;
   // DRS: the flap swings from 35° to 5° of incidence as it opens.
   m.drsFlap.rotation.z = -(35 - 30 * (c.drs ?? 0)) * Math.PI / 180;
 }
@@ -381,7 +383,7 @@ window.f1Lab = {
     const px = Math.round((p.x + 1) / 2 * gl.drawingBufferWidth), py = Math.round((p.y + 1) / 2 * gl.drawingBufferHeight);
     const rgba = new Uint8Array(4); gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
     return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, carNdc: [p.x, p.y, p.z], carPixel: [...rgba],
-      steer: model.wheels[0].pivot.rotation.y, spin: model.wheels.map(w => w.spin.rotation.z), body: [model.body.rotation.x, model.body.rotation.z, model.body.position.y], camera: camera.position.toArray(), cameraDir: camera.getWorldDirection(new THREE.Vector3()).toArray(), head: { ...head }, driverVisible: model.driver[0].visible };
+      steer: model.wheels[0].pivot.rotation.y, steeringWheel: model.steeringWheel?.rotation.x ?? null, spin: model.wheels.map(w => w.spin.rotation.z), body: [model.body.rotation.x, model.body.rotation.z, model.body.position.y], camera: camera.position.toArray(), cameraDir: camera.getWorldDirection(new THREE.Vector3()).toArray(), head: { ...head }, driverVisible: model.driver[0].visible };
   },
   // Fraction of the viewport covered by the car: render with and without it and diff.
   carCoverage: () => {

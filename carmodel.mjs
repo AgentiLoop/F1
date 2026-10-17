@@ -11,13 +11,28 @@ const WHEELS = ['front-left-wheel', 'front-right-wheel', 'rear-left-wheel', 'rea
 // Each part draws its mesh Loop-subdivided twice within SMOOTH_DISTANCE[0] m (close-up
 // and cockpit views), once within SMOOTH_DISTANCE[1] m and as authored beyond that.
 export const SMOOTH_DISTANCE = [12, 40];
+export const WHEEL_URL = new URL('./models/mclaren-wheel.glb', import.meta.url).href;
+const STEERING_WHEEL = 'mclaren-steering-wheel';
+// The model's own steering wheel (rim, centre, paddles) in the cockpit node.
+const PLAIN_WHEEL = ['Object_102', 'Object_104', 'Object_106', 'Object_108', 'Object_110'];
+// Steering wheel turn per radian of road-wheel steer (full lock 0.38 rad -> about 110°).
+export const STEERING_RATIO = 5;
+// The detailed wheel is only drawn within this many metres (it is inside the cockpit).
+const WHEEL_DISTANCE = 6;
 
 // Load the GLB once (a URL in the browser, an ArrayBuffer in node) and return its scene.
 // Each mesh becomes a LOD of smoothed copies (smooth.mjs keeps the author's hard edges)
 // and the original. Subdivided geometry is shared by every car built from the template.
-export async function loadCarTemplate(source = F222_URL) {
+// The detailed steering wheel ("McLaren Formula 1 Steering Wheel" by dhimasdc9, CC BY 4.0)
+// replaces the model's plain one; null keeps the plain wheel. Outside a browser (node
+// tests) its textures are skipped, since there is nothing to decode images with.
+export async function loadCarTemplate(source = F222_URL, wheelSource = WHEEL_URL) {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  const gltf = typeof source === 'string' ? await loader.loadAsync(source) : await loader.parseAsync(source, '');
+  const load = (src, l = loader) => typeof src === 'string' ? l.loadAsync(src) : l.parseAsync(src, '');
+  const wheelLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  if (typeof document === 'undefined') wheelLoader.register(() => ({ name: 'no-textures', loadTexture: () => Promise.resolve(null) }));
+  const [gltf, wheel] = await Promise.all([load(source),
+    wheelSource ? load(wheelSource, wheelLoader).catch(err => { console.warn('steering wheel failed to load', err); return null; }) : null]);
   const meshes = []; gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
   for (const mesh of meshes) {
     const lod = new THREE.LOD(); lod.name = mesh.name;
@@ -28,6 +43,7 @@ export async function loadCarTemplate(source = F222_URL) {
     lod.addLevel(new THREE.Mesh(smoothGeometry(mesh.geometry), mesh.material), SMOOTH_DISTANCE[0]);
     lod.addLevel(mesh, SMOOTH_DISTANCE[1]);
   }
+  if (wheel) { wheel.scene.name = STEERING_WHEEL; gltf.scene.add(wheel.scene); }
   return gltf.scene;
 }
 const meshOf = o => o.isLOD ? o.levels[0].object : o;
@@ -78,6 +94,27 @@ export function buildModelCar(template, config, { paint = 0x0d2340, accent = 0x3
   rest.rotation.z = 35 * Math.PI / 180; drsFlap.add(rest); car.add(drsFlap);
   car.updateMatrixWorld(true); rest.attach(flap);
 
+  // Steering wheel: the detailed wheel takes the plain one's place, as wide as it and
+  // facing the driver, and turns about its column (steeringWheel.rotation.x).
+  let steeringWheel = null;
+  const detail = root.getObjectByName(STEERING_WHEEL);
+  if (detail) {
+    const plain = PLAIN_WHEEL.map(n => root.getObjectByName(n)), pb = new THREE.Box3();
+    plain.forEach(o => pb.union(box(o)));
+    plain.forEach(o => o.removeFromParent());
+    detail.removeFromParent(); detail.rotation.set(0, -Math.PI / 2, 0);
+    const db = new THREE.Box3().setFromObject(detail), dc = db.getCenter(new THREE.Vector3());
+    const column = new THREE.Box3().setFromObject(detail.getObjectByName('Circle004_connector_0')).getCenter(new THREE.Vector3());
+    const s = pb.getSize(new THREE.Vector3()).z / db.getSize(new THREE.Vector3()).z, pc = pb.getCenter(new THREE.Vector3());
+    detail.scale.setScalar(s); detail.position.set(-dc.x * s, -column.y * s, -column.z * s);
+    steeringWheel = new THREE.Group(); steeringWheel.name = 'steering-wheel';
+    steeringWheel.position.set(pc.x, pc.y + (column.y - dc.y) * s, pc.z + (column.z - dc.z) * s);
+    steeringWheel.add(detail);
+    // Only drawn near the car: from further away it is hidden inside the cockpit anyway.
+    const lod = new THREE.LOD(); lod.addLevel(steeringWheel, 0); lod.addLevel(new THREE.Object3D(), WHEEL_DISTANCE);
+    car.add(lod);
+  }
+
   // The model has no driver: a helmet sits in the cockpit behind the steering wheel.
   const head = new THREE.Vector3(F - 1.53, 0.70, 0);
   const helmetMesh = new THREE.Mesh(new THREE.SphereGeometry(0.125, 32, 20), physical({ color: helmet, roughness: 0.25, clearcoat: 1 }));
@@ -94,5 +131,5 @@ export function buildModelCar(template, config, { paint = 0x0d2340, accent = 0x3
   const pivots = new Set(wheels.map(w => w.pivot));
   car.children.filter(o => !pivots.has(o)).forEach(o => body.add(o));
   car.add(body);
-  return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, eye: [head.x + 0.07, head.y + 0.07] };
+  return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, steeringWheel, eye: [head.x + 0.07, head.y + 0.07] };
 }

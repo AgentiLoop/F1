@@ -18,7 +18,7 @@ export const RACE_DEFAULTS = Object.freeze({
   // (m) are explained in aiCommand. Grid slots are
   // gridSpacing m apart.
   cornerCurvature: 1 / 300, laneRoomAhead: 200, laneRoomExit: 80, laneReturn: 150, gridSpacing: 8,
-  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 0.3, passRoom: 250, diveGap: 20, diveOverlap: 1, diveReach: 0.6, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, laneClearance: 2.6, sideGap: 3.1, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
+  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 1.2, passRoom: 250, towRange: 40, towClose: 0.5, towSpeed: 40, towBrake: 4, diveGap: 20, diveOverlap: 1, diveReach: 0.6, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, laneClearance: 2.6, sideGap: 3.1, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
   // Standing start: five red lights come on one per lightInterval seconds, then
   // go out after a random hold in [holdMin, holdMax]. Moving more than
   // jumpDistance metres before lights out is a jump start (jumpPenalty seconds).
@@ -399,7 +399,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // (otherwise one slowing just past the line was invisible to the next car
     // in until it crossed too, too late to stop).
     const others = entries.filter(other => other !== e && (pitApron(other.car) === pitApron(car) || (e.pit?.phase === 'in' && pitApron(other.car)))).map(other => {
-      return { gap: signed(other.covered - e.covered), offset: rel(other.car), s: circuit && track.progress(other.car.x, other.car.y), centre: track.offset(other.car.x, other.car.y), pitOffset: pit ? pitOff(other.car) : 0, lane: other.lane, pitIn: other.pit?.phase === 'in', index: other.index,
+      return { gap: signed(other.covered - e.covered), offset: rel(other.car), s: circuit && track.progress(other.car.x, other.car.y), centre: track.offset(other.car.x, other.car.y), pitOffset: pit ? pitOff(other.car) : 0, lane: other.lane, pitIn: other.pit?.phase === 'in', index: other.index, ax: other.car.ax,
         // Diving down the inside of this car, alongside (it must yield), or of any car.
         claim: other.dive?.rival === e.index && other.dive.overlap, diving: !!other.dive,
         // Committed to a dive on this car: it will be alongside within diveReach s.
@@ -458,12 +458,20 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // Behind a car slower than followSlow m/s (e.g. one that ran wide in a
     // hairpin and is crawling across the road) the full followGap applies.
     // (list, sideBySide: the cars and rule a pitting car uses, below.)
+    // The car this one is closing on in its tow (e.tow, below) caps it only by
+    // its closing rate (at the tow gap, followMin, in towClose seconds), and
+    // once it is pulling out beside it only while it still occupies its strip.
+    // On the stadium (lanes parallel to the centreline, 15 m of road) two
+    // cars in different lanes (laneClearance m apart) may run side by side
+    // through a hairpin; a circuit's lanes follow its racing line out to the
+    // road edge and meet it at the apex, so there the rule stands.
     const cap = (lane, gap = null, list = others, sideBySide = canMove) => list.reduce((m, x) => {
       const g = gap ?? (x.speed < o.followSlow ? o.followGap : followGap);
       if (x.claim && x.gap > -2 * o.alongside) return Math.min(m, follow(x.speed, x.gap - carLength - o.yieldGap));
       if (!(x.gap > 0 && x.gap < lookAhead)) return m;
+      if (list === others && x.index === e.tow?.rival) return e.tow.out && gap === null ? m : Math.min(m, x.speed + Math.max(0, x.gap - o.followMin) / o.towClose);
       if ((list === others && gap === null ? inStrip(x, lane) : Math.abs(x.offset - lane) < o.laneClearance) || x.lane === lane || (x.pitIn && pitSide * lane < pitSide * x.offset + o.laneClearance)) return Math.min(m, follow(x.speed, x.gap - g));
-      return !sideBySide && x.gap < 2 * o.alongside && x.index !== e.dive?.rival ? Math.min(m, follow(x.speed, x.gap - (circuit ? g : Math.max(g, o.followGap)))) : m;
+      return !sideBySide && x.gap < 2 * o.alongside && x.index !== e.dive?.rival && !(!circuit && Math.abs(x.offset - lane) >= o.laneClearance) ? Math.min(m, follow(x.speed, x.gap - (circuit ? g : Math.max(g, o.followGap)))) : m;
     }, Infinity);
     // No car alongside, or closing from behind within closeTime seconds,
     // anywhere across the strip swept from here to the lane, and no nearby car
@@ -475,6 +483,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     if (e.pit) {
       // Pit stop: follow the pit path, brake to the limit by the line and to
       // the box marks, hold the brake there, keep to the limit until its end.
+      e.tow = null;
       const p = track.progress(car.x, car.y), s = pitFrame(p, e.pit.phase === 'in');
       // Rejoin from the back straight only when no car on the circuit is
       // alongside or closing from behind; otherwise stop at the end of the lane.
@@ -544,7 +553,9 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // laneReturn metres of a corner or as its lane runs out of room ahead.
     const s = circuit && track.progress(car.x, car.y);
     const room = (lane, ahead) => { let m = Infinity; for (let d = 0; d <= ahead; d += 10) m = Math.min(m, Math.abs(e.drive.path(s + d, lane) - track.lineOffset(s + d))); return m; };
-    const target = circuit && !slow ? others.filter(x => x.gap > 0 && x.gap < lookAhead && Math.abs(x.offset) < o.laneClearance).sort((a, b) => a.gap - b.gap)[0] : null;
+    const target = !slow ? others.filter(x => x.gap > 0 && x.gap < lookAhead && Math.abs(x.offset) < o.laneClearance).sort((a, b) => a.gap - b.gap)[0] : null;
+    // A passing lane with room to run in it and nobody across the sweep to it.
+    const open = lane => free(lane) && (!circuit || room(lane, o.laneRoomAhead) >= 0.8 * o.passLane);
     // Out-braking (circuit): a car out in the passing lane on the inside of
     // the next corner, within diveGap metres of the car ahead on the line as
     // it reaches the laneReturn point, stays on the inside and brakes later
@@ -573,19 +584,45 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     }
     const yielding = others.find(x => x.committed && x.gap > -2 * o.alongside);
     if (yielding) e.lane = Math.sign(yielding.offset - rel(car)) * -o.passLane;
-    else if (circuit && e.lane && !e.dive && (toCorner < o.laneReturn || room(e.lane, o.laneRoomExit) < 0.8 * o.passLane) && free(0)) e.lane = 0;
+    else if (circuit && e.lane && !e.dive && !e.tow?.out && (toCorner < o.laneReturn || room(e.lane, o.laneRoomExit) < 0.8 * o.passLane) && free(0)) e.lane = 0;
+    // On the stadium the outside lane is only for getting round a stopped car.
+    else if (!circuit && e.lane > 0 && !slow && free(0)) e.lane = 0;
+    // Slipstream pass (e.tow {rival, lane, out}): on a straight with passRoom
+    // metres left before the braking zone, a car on the line within towRange
+    // of the car ahead on it (both above towSpeed) with a passing lane open
+    // beside it (the inside of the next corner if it can, so the out-braking
+    // rules can finish the job) closes in its tow: the follow law no longer
+    // holds it to the follow gap, only to a closing rate that reaches the tow
+    // gap (followMin) in pullOutTime seconds (the time a lane change takes to
+    // clear). Once closing that fast it pulls out into the lane and keeps the
+    // speed the tow gave it (the car it is passing no longer caps it) to draw
+    // alongside. Held to the follow gap it never built a speed surplus and
+    // pulled out at the leader's speed; equal cars then never passed. The move
+    // is over (ordinary rules again) once ahead or dropped back, at laneReturn
+    // metres before the corner, if the lane closes before it has pulled out,
+    // or if the car ahead brakes (harder than towBrake).
+    if (e.tow) {
+      const r = others.find(x => x.index === e.tow.rival);
+      if (!r || e.dive || yielding || e.finish || toCorner < o.passCutoff || r.gap < 0 || r.gap > o.towRange || r.ax < -o.towBrake || (!e.tow.out && !open(e.tow.lane))) e.tow = null;
+      else if (!e.tow.out && (r.gap < o.followMin + Math.max(0, speed - r.speed) * o.pullOutTime || (r.gap < 1.5 * o.diveGap && toCorner < o.passRoom + o.laneReturn))) { e.tow.out = true; e.lane = e.tow.lane; }
+    } else if (!e.dive && !yielding && !e.finish && e.lane === 0 && canChange && toCorner > o.passRoom && target && !target.diving && !target.pitIn
+      && target.gap < o.towRange && speed > o.towSpeed && target.speed > o.towSpeed) {
+      const inside = circuit ? insideOf(s, toCorner) : -1;
+      const lane = [inside, -inside].map(k => k * o.passLane).find(open);
+      if (lane !== undefined) e.tow = { rival: target.index, lane, out: false };
+    }
     const current = cap(e.lane);
-    // Slipstream first: on a circuit a car leaves the racing line to pass only
-    // once it has closed in the tow to within pullOutTime seconds (plus a car
-    // length) of the car ahead on the line; pulling out further back throws the
-    // tow away before it has built the closing speed the move needs.
-    // It also needs passRoom metres of straight left to draw alongside before
-    // the braking zone; nearer the corner it stays in the tow.
-    const towing = !circuit || slow || e.lane !== 0 || (!!target && target.gap < o.pullOutTime * speed + carLength && toCorner > o.passRoom);
-    if (canChange && !e.dive && !yielding) {
+    // On a circuit a car leaves the racing line for a passing lane only out
+    // of a tow (above), or when slow (e.g. stuck behind a stopped car); one
+    // already off the line may cross to the other lane. On the stadium (where
+    // the straights are too short for a tow to tell, and a car behind another
+    // loses more to its dirty air than it gains) it moves whenever a lane is
+    // clearly faster, and passes side by side through the hairpins.
+    const towing = !circuit || slow || e.lane !== 0;
+    if (canChange && !e.dive && !yielding && !e.tow?.out) {
       let best = e.lane, bestCap = current;
       for (const lane of [0, -o.passLane, o.passLane]) {
-        if (lane === e.lane || !free(lane) || (lane && !towing)) continue;
+        if (lane === e.lane || !free(lane) || (lane && !towing) || (lane > 0 && !circuit && !slow)) continue;
         if (circuit && lane && room(lane, o.laneRoomAhead) < 0.8 * o.passLane) continue;
         const c = cap(lane);
         // Hysteresis: leave the line only for a real gain; return when no worse.
