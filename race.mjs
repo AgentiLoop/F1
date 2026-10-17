@@ -630,7 +630,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     const hold = { throttle: 0, brake: 1, steer: 0 };
     // Strategy: a car the AI drives (the player's only on autopilot) boxes
     // when it decides to as it nears the line.
-    for (const e of entries) {
+    for (const e of entries) if (pit) {
       const p = track.progress(e.car.x, e.car.y);
       const near = circuit ? (s => s > pit.entry - 150 && s < pit.entry - 5)(signed(p)) : p > length - 100 || p < pit.entry - 5;
       if (pit && !e.pit && !e.recovery && !(e.player && input) && time >= lightsOut && near && wantsStop(e))
