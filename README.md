@@ -851,6 +851,18 @@ Monza closing test gives the faster car 44 against 43 (Kovač's 43.6 closes to
 0.3–0.5 s and no longer gets by in four laps) and checks the closest gap. 147
 Node tests pass.
 
+**Pit-entry follow-up (cycle 34, `race.mjs`):** the 1.3 m/s touch at Monza was
+two pitting cars entering from different racing lanes (+3 m and 0 m from the
+line, 3 laps, compound rule, seed 1). The pit-lane queue headway starts only at
+the pit entry, and before then the path strips of the two cars did not overlap,
+so the follower braked late as the paths converged. A car heading in now also
+follows any pitting car ahead with the ordinary follow law (`approach`). Monza
+seed 1: 262 contact steps → 0; Monza seeds 1–3 clean; seeded 3-lap compound-rule
+races on all 18 circuits × 2 seeds finish with every car stopping once and no
+penalty; all but Imola seed 2 have no contact. That one has an 8.4 m/s contact
+at 120 s that also occurs without this change, with no car in a pit phase, so
+it is not a pit-entry problem and is still open. New `pit-entry.test.mjs` fails on the old code.
+
 **Limits:** the remaining gap is mostly medium and fast corners at Jeddah,
 Zandvoort, Yas Marina and the Red Bull Ring (0.65–0.85 of real), and Monaco's
 slow corners are now at real speed or slightly faster. `tireMu` 2.1 is a
