@@ -14,7 +14,23 @@ export const RACE_DEFAULTS = Object.freeze({
   // AI traffic: lane offset for passing (m from the centreline), how far ahead
   // a car counts as "in the way", the follow gap and lane-change rate (m/s).
   passLane: 3, passCutoff: 60, passGain: 3, alongside: 7, lookAhead: 45, followGap: 14, followDecel: 18, laneRate: 2.2, laneClearance: 2.6,
+  // Standing start: five red lights come on one per lightInterval seconds, then
+  // go out after a random hold in [holdMin, holdMax]. Moving more than
+  // jumpDistance metres before lights out is a jump start (jumpPenalty seconds).
+  // AI reaction times are drawn from [reactionMin, reactionMax].
+  lightInterval: 1, holdMin: 0.2, holdMax: 3, jumpDistance: 0.5, jumpPenalty: 5, reactionMin: 0.18, reactionMax: 0.3,
 });
+
+// Small deterministic PRNG (mulberry32) so a seeded start is reproducible.
+function random(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 // Fictional field; pace is the autopilot corner speed (m/s), the player's is 43.
 export const DEFAULT_GRID = Object.freeze([
@@ -97,9 +113,13 @@ export function resolveCarContact(a, b, o = RACE_DEFAULTS) {
 
 // track: createStadiumTrack(); grid: opponent specs (the player is entry 0 on
 // pole, on the centreline at x = 0; opponents line up 8 m apart behind,
-// alternating either side of the centreline).
-export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {} } = {}) {
+// alternating either side of the centreline). start: false races from t = 0;
+// true or { seed } runs the standing-start light sequence first.
+export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false } = {}) {
   const o = { ...RACE_DEFAULTS, ...options };
+  const rand = random(start?.seed ?? (Math.random() * 2 ** 32));
+  const lightsOn = start ? 5 * o.lightInterval : 0;
+  const lightsOut = start ? lightsOn + o.holdMin + rand() * (o.holdMax - o.holdMin) : 0;
   const { halfStraight, radius, length } = track;
   const startLine = halfStraight + 0.8;
   const entries = [{ name: 'You', player: true, cornerSpeed: 43, brakeDecel: 26, ...player }, ...grid].map((spec, i) => {
@@ -107,7 +127,8 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     const lane = i === 0 ? 0 : (i % 2 ? -1 : 1) * 2.6;
     car.x = i ? -8 * i : 0; car.y = -(radius + lane); // pole at x = 0 (not -0)
     const p = track.progress(car.x, car.y);
-    return { ...spec, index: i, car, lane: 0, offset: lane, last: p, covered: p - startLine,
+    return { ...spec, index: i, car, lane: 0, offset: lane, last: p, covered: p - startLine, grid: p - startLine,
+      reactionTime: o.reactionMin + rand() * (o.reactionMax - o.reactionMin), reaction: null, jumpStart: false, penalty: 0,
       drive: createAutopilot({ halfStraight, radius }, { cornerSpeed: spec.cornerSpeed, brakeDecel: spec.brakeDecel }) };
   });
   const passTimes = new Map(); // first time any car reached each 10 m milestone
@@ -168,7 +189,11 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       for (const lead of entries) if (lead !== e) w = Math.max(w, wakeStrength(lead.car, e.car, o));
       e.car.wake = { drag: 1 - o.towDragLoss * w, downforce: 1 - o.dirtyAirLoss * w, strength: w };
     }
-    const commands = entries.map((e, i) => (e.command = e.player && input ? input : aiCommand(i)));
+    // Before lights out (plus its reaction time) an AI car or the player's
+    // autopilot holds the brake; the player's own inputs always pass through.
+    const hold = { throttle: 0, brake: 1, steer: 0 };
+    const commands = entries.map((e, i) => (e.command = e.player && input ? input
+      : time < lightsOut + (start ? e.reactionTime : 0) ? hold : aiCommand(i)));
     entries.forEach((e, i) => step(e.car, commands[i], FIXED_DT, surfaceAt, barrierAt));
     for (let i = 0; i < entries.length; i++)
       for (let j = i + 1; j < entries.length; j++) resolveCarContact(entries[i].car, entries[j].car, o);
@@ -177,6 +202,9 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       const p = track.progress(e.car.x, e.car.y);
       let d = p - e.last; if (d < -length / 2) d += length; else if (d > length / 2) d -= length;
       e.covered += d; e.last = p;
+      if (start && !e.jumpStart && time < lightsOut && e.covered - e.grid > o.jumpDistance) { e.jumpStart = true; e.penalty += o.jumpPenalty; }
+      // Reaction: from lights out to the first firm throttle (> 50%).
+      if (start && e.reaction === null && time >= lightsOut && commands[e.index].throttle > 0.5) e.reaction = time - lightsOut;
       const m = Math.floor(e.covered / 10);
       if (m > (e.milestone ?? -Infinity)) { e.milestone = m; e.milestoneTime = time; if (!passTimes.has(m)) passTimes.set(m, time); }
     }
@@ -186,6 +214,12 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     entries, options: o, aiCommand,
     get car() { return entries[0].car; },
     get time() { return time; },
+    // Start sequence: phase 'lights' (lit = red lights showing, 0..5) until
+    // lights out, then 'racing'; lightsOut is the race time it happened.
+    get start() {
+      return { enabled: !!start, phase: time < lightsOut ? 'lights' : 'racing', lightsOut, sinceLightsOut: time - lightsOut,
+        lit: time < lightsOut ? Math.min(5, Math.floor(time / o.lightInterval + 1e-9)) : 0 };
+    },
     // input: the player's command, or null to let the player's autopilot drive.
     advance(elapsed, input, surfaceAt, barrierAt) {
       if (!Number.isFinite(elapsed) || elapsed < 0) throw new RangeError('Elapsed time must be finite and nonnegative');
@@ -198,7 +232,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // leader is the time difference at the car's latest 10 m milestone.
     standings() {
       return [...entries].sort((a, b) => b.covered - a.covered).map((e, k) => ({
-        position: k + 1, name: e.name, player: !!e.player, index: e.index,
+        position: k + 1, name: e.name, player: !!e.player, index: e.index, penalty: e.penalty, jumpStart: e.jumpStart, reaction: e.reaction,
         lap: Math.max(0, Math.floor(e.covered / length)) + 1, covered: e.covered,
         gap: k === 0 || e.milestone === undefined ? 0 : e.milestoneTime - (passTimes.get(e.milestone) ?? e.milestoneTime),
       }));

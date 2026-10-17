@@ -60,6 +60,9 @@ contact position, has outward loft normals, and stays under 200k triangles.
 - Space: pause/resume; R: reset (restarts the race from the grid); V:
   overview/chase view; C: cockpit/chase camera; M: sound on/off (the audio
   starts on the first key press or click); O: opponents on/off (restarts).
+- Race start (with opponents): hold still while the five red lights come on;
+  go when they go out. Moving before lights out is a jump start (+5 s).
+  Add `?nostart` to the URL to skip the start sequence.
 - Buttons provide the same pause/reset/view actions. Driving keys are ignored
   while a button has focus; click the circuit to return focus to driving.
 - Losing window focus or hiding the tab pauses and releases held inputs.
@@ -116,8 +119,21 @@ The timing box shows the race position (P1 / 5) and the side panel the order
 with intervals; the status line reports car-to-car contact speed. Lap timing,
 sound and telemetry remain the player's. Rival models use the same pose code as
 the player's car (body roll/pitch/heave, wheel spin and steer). There are no
-race rules yet (start lights, flags, penalties, pit stops), no blue flags, and
-AI cars do not defend or vary their pace by tire state.
+race rules beyond the start yet (flags, pit stops, penalties other than a jump
+start), no blue flags, and AI cars do not defend or vary their pace by tire state.
+
+### Standing start (`race.mjs`, cycle 11)
+
+With opponents on, `createRace(track, { start: true | { seed } })` runs a
+standing start: one red light comes on per second (five in total), then they
+go out after a random hold of 0.2-3 s (seeded PRNG, so tests are
+reproducible). AI cars and the player's autopilot hold the brake until lights
+out plus a per-driver reaction time drawn from 0.18-0.3 s. Moving more than
+0.5 m before lights out is a jump start: a 5 s time penalty, shown in the
+status line and the race order (`+5s pen`; it is not yet applied to the
+order). The player's reaction (lights out to throttle above 50%) is shown in
+the status line. The light timing follows the familiar F1 pattern; the hold,
+reaction range, 0.5 m threshold and 5 s penalty are illustrative choices.
 
 ### Driver input (`input.mjs`, cycle 7)
 
@@ -387,6 +403,16 @@ pass a car stopped on the grid without contact. `/tmp/f1-race-smoke.mjs`
 checks in Chrome the five-car field and standings HUD, that every rival model
 is drawn at its physics position, and that O removes and restores the field.
 
+Cycle 11 start tests (`race.test.mjs`): lights come on at 1..5 s, lights out
+falls in 5.2-8 s and is reproducible per seed; no car creeps on the grid; all
+five cars react within the 0.18-0.3 s range, launch without contact above
+2 m/s and cover more than 900 m in 40 s; throttle before lights out gives a
+5 s jump-start penalty only to the player; braking until 0.25 s after lights
+out records a 0.25 s reaction and no penalty. `/tmp/f1-start-smoke.mjs` checks
+in Chrome the light build-up with the field held, the autopilot launch and
+reaction readout, a keyboard jump start with `+5s pen` in the race order, and
+a clean manual start. The other browser checks load `?nostart`.
+
 Cycle 7 input tests (`input.test.mjs`): deadzone/curve shaping and monotonicity;
 keyboard throttle ramp identical at 1/240, 1/60 and 1/30 s frames; steering
 lock, return and centre crossing exact for small and single large steps;
@@ -419,7 +445,7 @@ establish internal consistency, not real-car accuracy.
    and transient handling before making realism claims.
 5. Wheel/pedal calibration and
    force feedback, damage, kerb geometry and bumps, real circuit geometry, race
-   rules (start procedure, flags, penalties, pit stops) and smarter AI racecraft.
+   rules (flags, applied penalties, pit stops) and smarter AI racecraft.
 
 ## Repository / parity
 

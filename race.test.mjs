@@ -86,3 +86,52 @@ test('AI cars pass a car stopped on the racing line', () => {
   assert.equal(standings.at(-1).name, 'You');
   assert.ok(standings.slice(0, -1).every(s => s.lap >= 4), JSON.stringify(standings));
 });
+
+function runStart(seconds, input, seed = 7) {
+  const race = createRace(track, { start: { seed } });
+  const lit = new Map();
+  let hardestContact = 0, moved = 0;
+  for (let i = 0; i < seconds * 240; i++) {
+    race.advance(1 / 240, input?.(race) ?? null, track.surfaceAt, track.barrierAt);
+    const s = race.start;
+    if (s.phase === 'lights') {
+      if (!lit.has(s.lit)) lit.set(s.lit, race.time);
+      if (!input) moved = Math.max(moved, ...race.entries.map(e => Math.abs(e.covered - e.grid)));
+    }
+    for (const e of race.entries)
+      if (e.car.contact && Math.abs(e.car.contact.time - e.car.time) < 1e-9) hardestContact = Math.max(hardestContact, e.car.contact.speed);
+  }
+  return { race, lit, hardestContact, moved };
+}
+
+test('standing start: five lights one per second, a random hold, then a clean launch', () => {
+  const { race, lit, hardestContact, moved } = runStart(40);
+  const { lightsOut } = race.start;
+  assert.deepEqual([...lit.keys()], [0, 1, 2, 3, 4, 5]);
+  for (let k = 1; k <= 5; k++) assert.ok(Math.abs(lit.get(k) - k) < 0.01, `light ${k} at ${lit.get(k)}`);
+  assert.ok(lightsOut >= 5.2 && lightsOut <= 8, `lights out at ${lightsOut}`);
+  assert.equal(createRace(track, { start: { seed: 7 } }).start.lightsOut, lightsOut); // seeded
+  assert.notEqual(createRace(track, { start: { seed: 8 } }).start.lightsOut, lightsOut);
+  assert.ok(moved < 0.05, `cars crept ${moved} m on the grid`);
+  assert.ok(hardestContact < 2, `hardest contact ${hardestContact.toFixed(2)} m/s`);
+  const standings = race.standings();
+  assert.ok(standings.every(s => !s.jumpStart && s.penalty === 0));
+  for (const e of race.entries) {
+    assert.ok(e.reaction >= RACE_DEFAULTS.reactionMin && e.reaction <= RACE_DEFAULTS.reactionMax + 0.01, `${e.name} reaction ${e.reaction}`);
+    assert.ok(e.covered > 900, `${e.name} covered ${e.covered.toFixed(0)} m`);
+  }
+  assert.equal(race.start.phase, 'racing');
+});
+
+test('moving before lights out is a jump start with a time penalty; reacting after is not', () => {
+  const jumped = runStart(8, () => ({ throttle: 0.6 })).race;
+  assert.equal(jumped.entries[0].jumpStart, true);
+  assert.equal(jumped.entries[0].penalty, RACE_DEFAULTS.jumpPenalty);
+  assert.equal(jumped.standings().find(s => s.player).penalty, RACE_DEFAULTS.jumpPenalty);
+  assert.ok(jumped.entries.slice(1).every(e => !e.jumpStart));
+  // Hold the brake, then floor it 0.25 s after the lights go out.
+  const clean = runStart(10, race => race.start.phase === 'lights' || race.start.sinceLightsOut < 0.25 ? { brake: 1 } : { throttle: 1 }).race;
+  assert.equal(clean.entries[0].jumpStart, false);
+  assert.ok(Math.abs(clean.entries[0].reaction - 0.25) < 0.01, `reaction ${clean.entries[0].reaction}`);
+  assert.ok(clean.car.telemetry.speed > 10);
+});
