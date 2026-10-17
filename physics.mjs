@@ -7,7 +7,7 @@ export const DEFAULT_CAR = Object.freeze({
   tireMu: 1.65, loadSensitivity: 0.08, corneringStiffness: 85000,
   slidingGripRatio: 0.75, slidingFalloff: 3,
   longitudinalStiffness: 100000, wheelRadius: 0.33, wheelInertia: 1.6,
-  slipSpeedFloor: 1,
+  slipSpeedFloor: 1, relaxationLength: 0.45, relaxationSpeedFloor: 5,
   power: 560000, maxDriveForce: 13000, maxBrakeForce: 34000,
   brakeBias: 0.56, rollingResistance: 0.015,
   maxSteer: 0.38, steerRate: 1.2,
@@ -21,6 +21,7 @@ export function createCar(overrides = {}) {
     x: 0, y: 0, heading: 0, vx: 0, vy: 0, yawRate: 0,
     steer: 0, ax: 0, ay: 0, time: 0, distance: 0,
     wheelOmega: [0, 0, 0, 0],
+    slipAngle: [0, 0, 0, 0],
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [] },
   };
 }
@@ -38,11 +39,22 @@ export function wheelLoads(car, downforce) {
   return [frontLeft, front - frontLeft, rearLeft, rear - rearLeft];
 }
 
-export function tireForce(longitudinalDemand, lateralSpeed, forwardSpeed, load, grip, c, dt) {
+export const steadySlipAngle = (lateralSpeed, forwardSpeed) =>
+  Math.atan2(lateralSpeed, Math.max(Math.abs(forwardSpeed), 3));
+
+// First-order carcass lag: the force-producing slip angle approaches the
+// kinematic one over relaxationLength metres of travel. Exact exponential
+// update stays stable for any dt; a speed floor keeps it responsive near rest.
+export function relaxSlipAngle(previous, steady, travelSpeed, c, dt) {
+  const speed = Math.max(Math.abs(travelSpeed), c.relaxationSpeedFloor);
+  return steady + (previous - steady) * Math.exp(-speed * dt / c.relaxationLength);
+}
+
+export function tireForce(longitudinalDemand, lateralSpeed, forwardSpeed, load, grip, c, dt,
+  slipAngle = steadySlipAngle(lateralSpeed, forwardSpeed)) {
   const referenceLoad = c.mass * 9.81 / 4;
   const mu = c.tireMu * grip * Math.pow(Math.max(load, 1) / referenceLoad, -c.loadSensitivity);
   const capacity = mu * load;
-  const slipAngle = Math.atan2(lateralSpeed, Math.max(Math.abs(forwardSpeed), 3));
   if (capacity <= 0) return { fx: 0, fy: 0, capacity: 0, utilization: 0, slipAngle,
     combinedDemand: 0, sliding: false };
   // Combine unsaturated demands before shaping either component: lockup or
@@ -118,10 +130,15 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
     const worldX = car.x + x * cos - y * sin;
     const worldY = car.y + x * sin + y * cos;
     const grip = clamp(surfaceAt(worldX, worldY), 0, 2);
-    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip, c, dt);
+    const kinematicSlip = steadySlipAngle(wheelV, wheelU);
+    car.slipAngle[i] = relaxSlipAngle(car.slipAngle[i], kinematicSlip, Math.hypot(wheelU, wheelV), c, dt);
+    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip, c, dt, car.slipAngle[i]);
+    tire.kinematicSlipAngle = kinematicSlip;
     // Include contact translation and yaw in the low-speed lateral bound.
     const lateralLimit = Math.abs(wheelV) / (dt * inverseMass);
-    tire.fy = clamp(tire.fy, -lateralLimit, lateralLimit);
+    // Passivity: a lagging carcass may not push the contact along its slip
+    // velocity (stored-spring energy is not tracked, so it is not released).
+    tire.fy = tire.fy * wheelV > 0 ? 0 : clamp(tire.fy, -lateralLimit, lateralLimit);
     tire.utilization = tire.capacity > 0 ? Math.hypot(tire.fx, tire.fy) / tire.capacity : 0;
     const freeOmega = omega + dt * (torque - r * tire.fx) / inertia;
     car.wheelOmega[i] = Math.sign(freeOmega) * Math.max(0, Math.abs(freeOmega) - dt * resistanceTorque / inertia);

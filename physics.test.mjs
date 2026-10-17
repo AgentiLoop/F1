@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, tireForce, Simulation, FIXED_DT } from './physics.mjs';
+import { createCar, step, wheelLoads, tireForce, relaxSlipAngle, Simulation, FIXED_DT } from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
   for (let i = 0; i < Math.round(seconds / FIXED_DT); i++) step(car, input, FIXED_DT, surface);
@@ -357,4 +357,56 @@ test('grip discontinuities and sustained sliding remain passive without propulsi
       assert.ok(w.utilization <= 1 + 1e-9);
     }
   }
+});
+
+test('slip relaxation decays by e per relaxation length independent of timestep', () => {
+  const c = createCar().config;
+  for (const dt of [1 / 240, 1 / 960]) {
+    let alpha = 0;
+    const speed = 40, steps = 30;
+    // Travel exactly one relaxation length in `steps` substeps.
+    const h = c.relaxationLength / speed / steps * (dt * 240);
+    for (let i = 0; i < steps / (dt * 240); i++) alpha = relaxSlipAngle(alpha, 0.1, speed, c, h);
+    near(alpha, 0.1 * (1 - Math.exp(-1)), 1e-12);
+  }
+  // Near rest the floor speed sets the response so the state cannot freeze.
+  near(relaxSlipAngle(0, 0.1, 0, c, 1), relaxSlipAngle(0, 0.1, c.relaxationSpeedFloor, c, 1));
+});
+
+const stepSteer = (overrides, dt = FIXED_DT, speed = 50) => {
+  const car = rollingCar(speed, { dragArea: 0, rollingResistance: 0, ...overrides });
+  car.steer = 0.05;
+  const frontForce = [];
+  for (let i = 0; i < Math.round(1.5 / dt); i++) {
+    step(car, { steer: 0.05 / car.config.maxSteer }, dt);
+    frontForce.push(car.telemetry.wheels[0].fy + car.telemetry.wheels[1].fy);
+  }
+  return { car, frontForce };
+};
+
+test('step steer builds front force over the relaxation length', () => {
+  const lagged = stepSteer({});
+  const instant = stepSteer({ relaxationLength: 1e-6 });
+  // One 240 Hz step covers 0.21 m at 50 m/s: about 37% of the 0.45 m response.
+  const ratio = lagged.frontForce[0] / instant.frontForce[0];
+  assert.ok(ratio > 0.3 && ratio < 0.45, `first-step ratio ${ratio}`);
+  assert.ok(lagged.frontForce[4] > 0.9 * instant.frontForce[4]);
+  // Transient only: the settled yaw response matches the instantaneous tire.
+  assert.ok(Math.abs(lagged.car.yawRate - instant.car.yawRate) / Math.abs(instant.car.yawRate) < 0.02);
+});
+
+test('relaxation lag time scales inversely with speed', () => {
+  const riseTime = speed => {
+    const { frontForce } = stepSteer({}, FIXED_DT / 4, speed);
+    const instant = stepSteer({ relaxationLength: 1e-6 }, FIXED_DT / 4, speed).frontForce;
+    return frontForce.findIndex((f, i) => f >= 0.632 * instant[i]) * FIXED_DT / 4;
+  };
+  const slow = riseTime(15), fast = riseTime(60);
+  assert.ok(slow > fast * 2.5 && slow < fast * 5, `${slow} vs ${fast}`);
+});
+
+test('step steer with relaxation converges as timestep is reduced', () => {
+  const normal = stepSteer({}, 1 / 240).car, fine = stepSteer({}, 1 / 960).car;
+  assert.ok(Math.abs(normal.yawRate - fine.yawRate) / Math.abs(fine.yawRate) < 0.01);
+  assert.ok(Math.abs(normal.y - fine.y) / Math.abs(fine.y) < 0.02);
 });
