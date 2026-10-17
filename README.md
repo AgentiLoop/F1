@@ -53,6 +53,9 @@ contact position, has outward loft normals, and stays under 200k triangles.
 ## Controls
 
 - W / Up: throttle; S / Down: brake.
+- Q: select reverse; E: select forward. Hold the direction key while stopped,
+  braking and off throttle, then release the brake and use W / Up (or gamepad
+  RT) to drive in the selected direction. The HUD shows R for reverse.
 - A / Left and D / Right: steering.
 - Gamepad (browser "standard" layout, e.g. Xbox/PlayStation pads): right
   trigger throttle, left trigger brake, left stick steering. P toggles
@@ -86,7 +89,32 @@ the walls; the car is pushed out by the deepest penetration and receives one
 impulse at the depth-weighted centre of the penetrating corners: 25%
 restitution along the wall normal and Coulomb scrub (friction 0.5) along it,
 both coupled to yaw. The status line reports the closing speed of the last
-impact. There is no damage or reset penalty. Use Reset if stranded.
+impact. There is no damage or reset penalty. Use reverse to back away when
+there is room behind; Reset remains available if stranded.
+
+### Reverse recovery (cycle 18)
+
+In manual mode (P turns autopilot off), stop, release the throttle and hold
+brake + Q until the HUD shows **R**. Release the brake and use the normal
+throttle to back up. Stop and hold brake + E to return to first gear. Q/E
+also work alongside gamepad pedals; there is no gamepad-only gear selector.
+Pressing P while reversing makes the player brake and select forward before
+handing control back to the path-following autopilot.
+
+`physics.mjs` represents reverse as `car.gear === -1`. An explicit
+`input.reverse: true` requests reverse, `false` requests forward, and an
+omitted request preserves the selected direction. A direction change requires
+chassis speed and every wheel's tangential speed below 0.2 m/s, brake above
+50%, no throttle and no shift already in progress. It uses the existing shift
+torque interruption. Forward automatic shifting is disabled in reverse.
+
+The illustrative overall reverse ratio is 45:1, not measured gearbox data.
+Engine speed is measured in the selected drive direction; signed rear-wheel
+torque drives backwards through the tyre/contact model rather than reversing
+chassis velocity directly. Engine braking, wheel brakes and fuel consumption
+remain active; ERS deployment is disabled in reverse. There is no neutral or
+manual clutch simulation. AI drivers still do not choose reverse or check a
+backing-up path; stuck AI cars retain their retirement behaviour.
 
 ### Opponents and racing (`race.mjs`, cycle 10)
 
@@ -367,7 +395,7 @@ classification and fuel. What differs:
   per-lap figure. The autopilot burnt about 0.30 kg/km at Monza, Silverstone,
   Spa and the Red Bull Ring.
 * **Retirement:** an AI car that stays below 1 m/s for `retireAfter` (10 s)
-  after the start, outside the pits, retires (the cars have no reverse gear).
+  after the start, outside the pits, retires (AI drivers do not use reverse).
   It is classified DNF after the running cars, and the race can end without it.
   Retirement applies on the stadium track too.
 
@@ -623,7 +651,7 @@ with load, slip or speed; there is no longitudinal relaxation.
 
 ## Verification
 
-Deterministic tests (101 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
+Deterministic tests (118 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
 stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 
 * Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
@@ -760,6 +788,16 @@ below 1), recovery after brake release, reset clearing, and compact layout.
 All passed without JavaScript page errors. Temporary harnesses and screenshots
 are under `/tmp/f1-*`; they are not repository tests. Numerical regression checks
 establish internal consistency, not real-car accuracy.
+
+Cycle 18 reverse tests (`reverse.test.mjs`, five tests): direction-selection
+interlocks, shift torque cut, rear-wheel reverse drive, fuel use/starvation,
+no ERS deployment, rev limiter, lifting/braking to rest, forward reselection,
+backing away from a nose-on wall, reversed steering yaw, zero-grip wheelspin,
+and 240/960 Hz straight-line convergence within 3% in the tested scenario.
+All 118 Node tests pass. `/tmp/f1-reverse-smoke.mjs` checked manual reverse,
+blocked direction changes while driving, the gear/status HUD, forward selection
+and autopilot handover in Chrome on the stadium and Monza, with no page errors.
+The temporary browser harness is not a repository test.
 
 ## Next realism milestones
 
