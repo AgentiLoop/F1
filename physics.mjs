@@ -5,6 +5,8 @@ export const DEFAULT_CAR = Object.freeze({
   cgHeight: 0.3, frontWeight: 0.46, frontAero: 0.45,
   airDensity: 1.225, downforceArea: 5.0, dragArea: 1.25,
   tireMu: 1.65, loadSensitivity: 0.08, corneringStiffness: 85000,
+  longitudinalStiffness: 100000, wheelRadius: 0.33, wheelInertia: 1.6,
+  slipSpeedFloor: 1,
   power: 560000, maxDriveForce: 13000, maxBrakeForce: 34000,
   brakeBias: 0.56, rollingResistance: 0.015,
   maxSteer: 0.38, steerRate: 1.2,
@@ -17,6 +19,7 @@ export function createCar(overrides = {}) {
     config: { ...DEFAULT_CAR, ...overrides },
     x: 0, y: 0, heading: 0, vx: 0, vy: 0, yawRate: 0,
     steer: 0, ax: 0, ay: 0, time: 0, distance: 0,
+    wheelOmega: [0, 0, 0, 0],
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [] },
   };
 }
@@ -70,7 +73,10 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
   const frontX = c.wheelbase * (1 - c.frontWeight);
   const rearX = -c.wheelbase * c.frontWeight;
   const positions = [[frontX, c.track / 2], [frontX, -c.track / 2], [rearX, c.track / 2], [rearX, -c.track / 2]];
-  const drive = throttle * Math.min(c.maxDriveForce, c.power / Math.max(Math.abs(u), 1));
+  // Equal rear torque, power-limited at the wheels rather than chassis speed.
+  const maxTorque = throttle * c.maxDriveForce * c.wheelRadius / 2;
+  const driveTorque = Math.min(maxTorque, throttle * c.power / Math.max(
+    Math.abs(car.wheelOmega[2]) + Math.abs(car.wheelOmega[3]) + 2 * dt * maxTorque / c.wheelInertia, 1));
   let fx = 0;
   let fy = 0;
   let moment = 0;
@@ -83,19 +89,38 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
     const wheelU = contactU * ca + contactV * sa;
     const wheelV = -contactU * sa + contactV * ca;
     const brakeForce = brake * c.maxBrakeForce * (front ? c.brakeBias : 1 - c.brakeBias) / 2;
-    const rolling = c.rollingResistance * loads[i];
-    // Force-command brakes: no wheel rotation, locking, or ABS is simulated yet.
-    const resistance = Math.sign(wheelU) * Math.min(brakeForce + rolling, Math.abs(wheelU) * c.mass / (4 * dt));
+    const resistanceTorque = (brakeForce + c.rollingResistance * loads[i]) * c.wheelRadius;
+    const torque = front ? 0 : driveTorque;
+    const omega = car.wheelOmega[i];
+    const r = c.wheelRadius, inertia = c.wheelInertia;
+    // Conservative diagonal body response for simultaneous contact impulses.
+    // Implicit linear slip avoids explicit wheel-speed oscillations near rest.
+    const inverseMass = 4 / c.mass + 4 * (x * x + y * y) / c.yawInertia;
+    const stiffness = c.longitudinalStiffness / Math.max(Math.abs(wheelU), c.slipSpeedFloor);
+    let demand = -stiffness * wheelU / (1 + stiffness * dt * inverseMass);
+    const lockedTorque = omega * inertia / dt + torque - r * demand;
+    if (Math.abs(lockedTorque) > resistanceTorque) {
+      demand = stiffness * (r * (omega + dt * (torque - Math.sign(lockedTorque) * resistanceTorque) / inertia) - wheelU)
+        / (1 + stiffness * dt * (inverseMass + r * r / inertia));
+    }
     const worldX = car.x + x * cos - y * sin;
     const worldY = car.y + x * sin + y * cos;
     const grip = clamp(surfaceAt(worldX, worldY), 0, 2);
-    const tire = tireForce((front ? 0 : drive / 2) - resistance, wheelV, wheelU, loads[i], grip, c, dt);
+    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip, c, dt);
+    // Include contact translation and yaw in the low-speed lateral bound.
+    const lateralLimit = Math.abs(wheelV) / (dt * inverseMass);
+    tire.fy = clamp(tire.fy, -lateralLimit, lateralLimit);
+    tire.utilization = tire.capacity > 0 ? Math.hypot(tire.fx, tire.fy) / tire.capacity : 0;
+    const freeOmega = omega + dt * (torque - r * tire.fx) / inertia;
+    car.wheelOmega[i] = Math.sign(freeOmega) * Math.max(0, Math.abs(freeOmega) - dt * resistanceTorque / inertia);
     const bodyFx = tire.fx * ca - tire.fy * sa;
     const bodyFy = tire.fx * sa + tire.fy * ca;
     fx += bodyFx;
     fy += bodyFy;
     moment += x * bodyFy - y * bodyFx;
-    return { ...tire, load: loads[i], grip, x: worldX, y: worldY, steer: angle };
+    return { ...tire, load: loads[i], grip, x: worldX, y: worldY, steer: angle,
+      omega: car.wheelOmega[i], driveTorque: torque,
+      resistanceTorque: (freeOmega - car.wheelOmega[i]) * inertia / dt };
   });
   // Apply drag to the post-contact velocity so braking plus drag cannot reverse it.
   const nextU = u + fx / c.mass * dt;
@@ -110,6 +135,15 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
   car.vx += (fx * cos - fy * sin) / c.mass * dt;
   car.vy += (fx * sin + fy * cos) / c.mass * dt;
   car.yawRate += moment / c.yawInertia * dt;
+  const finalU = car.vx * cos + car.vy * sin;
+  const finalV = -car.vx * sin + car.vy * cos;
+  wheels.forEach((wheel, i) => {
+    const [x, y] = positions[i];
+    const forwardSpeed = (finalU - car.yawRate * y) * Math.cos(wheel.steer)
+      + (finalV + car.yawRate * x) * Math.sin(wheel.steer);
+    wheel.slipRatio = (c.wheelRadius * wheel.omega - forwardSpeed) / Math.max(Math.abs(forwardSpeed), c.slipSpeedFloor);
+    wheel.locked = brake > 0 && Math.abs(forwardSpeed) > 1 && Math.abs(wheel.omega) < 1e-8;
+  });
   car.heading += car.yawRate * dt;
   car.x += car.vx * dt;
   car.y += car.vy * dt;
