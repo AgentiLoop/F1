@@ -762,6 +762,33 @@ light touches over 54 starts in the best variant tried). So the simultaneous lau
 under 8 m/s on lap 1, with no contact. It fails on the previous commit. All
 139 Node tests pass.
 
+**Spa and COTA (cycle 30).** The queues that remained at La Source and COTA
+turn 1 came from a third rule. A car still crossing to its lane (for example
+off its grid slot) keeps the full 14 m gap, and "crossing" was judged from
+where the car was: more than 1 m from its lane. In a hairpin a car held below
+its plan speed by the car ahead runs up to about 2 m inside its line, and a
+passing lane is clamped at the road edge (at La Source the outside lane is
+1.8 m off the line, not 3 m). Such a car counted as crossing, kept 14 m to a
+car 8-9 m ahead and slowed further, and the cars behind followed it down to
+1-2 m/s. Crossing is now judged from the car's target offset (still short of
+its lane), not its position. Lap 1, 10 seeds per circuit:
+
+| | before | after |
+|---|---|---|
+| Spa: slowest car / time under 8 m/s | 1.0 m/s / 21.0 s | 6.9 m/s / 0.9 s |
+| COTA: slowest car / time under 8 m/s | 2.3 m/s / 18.9 s | 7.2 m/s / 7.3 s |
+| Hungaroring: slowest car | 6.1 m/s | 12.7 m/s |
+| contacts, 180 starts on 18 circuits | 0 | 0 |
+
+3-lap fields (18 circuits, 2 seeds): no contacts, 4 passes. All 90
+compound-rule stops clean. Pace pairs: 22 of 54, no contact. The stadium race
+is identical. A new test checks Spa seeds 2 and 6 and COTA seed 8 stay above
+5 m/s on lap 1 without contact; it fails on the previous commit. All 142 Node
+tests pass, and the Red Bull Ring browser race check passes. (At Spa the same
+browser check's "every car above 15 m/s at about 12 s" step catches the field
+inside La Source, whose planned apex speed is about 12 m/s, so it does not
+apply there.)
+
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
 Pick a circuit from the menu in the header, or open `?track=<key>`. The keys
