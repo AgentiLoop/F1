@@ -6,11 +6,15 @@ import { clamp } from './physics.mjs';
 // corners with downforce are flat out; a backward pass then limits each point
 // to what braking (brakeGrip·μ·(g + q·v²) plus drag) can reach from the next.
 // latGrip/brakeGrip < 1 leave margin for load sensitivity and slip.
+// Steering adds yaw-rate feedback: yawGain × wheelbase × (pursuit curvature −
+// yawRate/speed) turns in harder when the car understeers off the arc (at
+// speed the downforce is rear-biased), and a cross-track term pulls it back
+// to the line.
 // A per-call offset from the line (traffic) is kept edgeMargin metres inside
 // the road edge.
 export function createCircuitAutopilot(track, tuning = {}) {
   const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100, edgeMargin: 2, recoverySpeed: 8, coastThrottle: 0.15, coastSpeed: 15,
-    slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 40, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ...tuning };
+    slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ...tuning };
   const { lineCurvature: curvature, lineStep } = track.samples, n = curvature.length, step = track.length / n;
   let plan = null;
   function speedPlan(c) {
@@ -49,7 +53,8 @@ export function createCircuitAutopilot(track, tuning = {}) {
     turn = Math.abs(alpha) > Math.PI / 2 ? turn || across : Math.abs(alpha) < Math.PI / 3 ? 0 : turn;
     const turning = turn !== 0;
     const steerAngle = turning ? turn * c.maxSteer : Math.atan(2 * c.wheelbase * Math.sin(alpha) / ld)
-      + t.crossTrackGain * drift * Math.min(1, (t.crossTrackSpeed / Math.max(speed, 1)) ** 2);
+      + t.crossTrackGain * drift * Math.min(1, (t.crossTrackSpeed / Math.max(speed, 1)) ** 2)
+      + (speed > 5 ? t.yawGain * c.wheelbase * (2 * Math.sin(alpha) / ld - car.yawRate / speed) : 0);
     // Target: the plan's lowest speed over the next `preview` seconds of travel.
     let target = at(s);
     for (let d = step; d <= speed * t.preview; d += step) target = Math.min(target, at(s + d));

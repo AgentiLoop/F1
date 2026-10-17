@@ -72,6 +72,35 @@ test('the circuit autopilot laps Monza on the road at a plausible pace', () => {
   assert.ok(top * 3.6 > 290, `top speed ${(top * 3.6).toFixed(0)} km/h`);
 });
 
+test('the circuit autopilot holds the line through Spa\'s Blanchimont at ~300 km/h and its lap stays within track limits', () => {
+  const track = createCircuitTrack(CIRCUITS.spa), sim = createTimeTrial(track), timer = createLapTimer(track, { lineProgress: 0 });
+  let maxOffset = 0;
+  for (let i = 0; i < 60 * 150 && !timer.state.lastLap; i++) {
+    sim.advance(1 / 60, null);
+    timer.update(sim.car);
+    if (timer.state.started) maxOffset = Math.max(maxOffset, Math.abs(track.offset(sim.car.x, sim.car.y)));
+  }
+  assert.ok(timer.state.lastLap?.valid, 'lap within track limits');
+  assert.ok(maxOffset < track.roadWidth / 2, `max offset ${maxOffset.toFixed(2)} m`);
+});
+
+test('yaw-rate feedback steers harder when the car turns less than the pursuit arc, and adds nothing on the arc', () => {
+  const track = createCircuitTrack(CIRCUITS.silverstone);
+  const s = 1000, car = createCar(), speed = 60;
+  car.heading = track.heading(s) - 0.05;
+  [car.x, car.y] = track.point(s, track.lineOffset(s));
+  [car.vx, car.vy] = [speed * Math.cos(car.heading), speed * Math.sin(car.heading)];
+  car.telemetry.speed = speed;
+  const steer = gain => createCircuitAutopilot(track, { yawGain: gain })(car).steer;
+  car.yawRate = 0;
+  assert.ok(Math.abs(steer(2)) > Math.abs(steer(0)) + 0.01, `${steer(2)} vs ${steer(0)}`);
+  // On the arc the yaw rate equals speed × pursuit curvature: no correction.
+  const ld = Math.max(8, speed * 0.45), [px, py] = track.point(s + ld, track.lineOffset(s + ld));
+  const a = Math.atan2(py - car.y, px - car.x) - car.heading;
+  car.yawRate = speed * 2 * Math.sin(Math.atan2(Math.sin(a), Math.cos(a))) / ld;
+  assert.ok(Math.abs(steer(2) - steer(0)) < 1e-9);
+});
+
 test('an offset from the racing line is kept edgeMargin inside the road edge; no offset follows the line', () => {
   const track = createCircuitTrack(CIRCUITS.silverstone), drive = createCircuitAutopilot(track), edge = track.roadWidth / 2 - 2;
   for (let s = 0; s < track.length; s += 37) {
