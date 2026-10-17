@@ -13,10 +13,10 @@
 <header><div><h1><span>AgentiLoop</span> RACING</h1><div class="subtitle">F1 DYNAMICS SIMULATOR · 240 Hz PHYSICS</div></div><nav aria-label="Simulation controls"><button id="autopilot" aria-pressed="true">Autopilot: on</button><button id="pause" aria-pressed="false">Pause</button><button id="view" aria-pressed="false">Overview</button><button id="reset">Reset car</button></nav></header>
 <main><section class="scene" aria-label="Driving viewport"><canvas id="track" role="img" aria-label="3D view of an open-wheel race car on a stadium-shaped test circuit"></canvas><div class="tag"><strong>LIVE</strong> &nbsp; THREE.JS 3D · 240 Hz PHYSICS / SI UNITS</div><div id="status" role="status">Ready · W or ↑ to accelerate</div></section><aside aria-label="Vehicle telemetry">
 <div id="pause-state" role="status"></div><div class="label">Ground speed</div><div><span class="speed" id="speed">0</span> <span class="unit">km/h</span></div>
-<div class="section stats"><div><div class="label">Longitudinal</div><div class="number" id="long">0.00 g</div></div><div><div class="label">Lateral</div><div class="number" id="lat">0.00 g</div></div><div><div class="label">Downforce</div><div class="number" id="aero">0.0 kN</div></div><div><div class="label">Distance</div><div class="number" id="distance">0 m</div></div><div><div class="label">Sim time</div><div class="number" id="time">0.0 s</div></div><div><div class="label">Steering</div><div class="number" id="steer">0.0°</div></div></div>
+<div class="section stats"><div><div class="label">Longitudinal</div><div class="number" id="long">0.00 g</div></div><div><div class="label">Lateral</div><div class="number" id="lat">0.00 g</div></div><div><div class="label">Downforce</div><div class="number" id="aero">0.0 kN</div></div><div><div class="label">Distance</div><div class="number" id="distance">0 m</div></div><div><div class="label">Sim time</div><div class="number" id="time">0.0 s</div></div><div><div class="label">Steering</div><div class="number" id="steer">0.0°</div></div><div><div class="label">Roll / pitch</div><div class="number" id="attitude">0.00° / 0.00°</div></div><div><div class="label">Aero squat</div><div class="number" id="heave">0 mm</div></div></div>
 <div class="section"><div class="label">Tire force / peak grip</div><div class="wheels" id="wheels"></div><p class="note">FL / FR / RL / RR · normal load in kN.<br>Bars: force / peak capacity, not remaining grip. SLIDE: combined demand beyond the illustrative force peak; force falls toward 75% of peak. Slip: signed longitudinal slip; + is wheelspin when moving forward. LOCK: stopped wheel above 1 m/s. α: force-producing (relaxed) / kinematic slip angle; the carcass catches up over 0.45 m of travel. No ABS or traction control.</p></div>
 <div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview<br><kbd>P</kbd> Autopilot on / off</div>
-<p class="note">Illustrative, uncalibrated dynamics. Keyboard steering is speed-scaled. No suspension travel, tire temperature, collisions, or race rules yet. This is a handling testbed, not a validated F1 simulator.</p>
+<p class="note">Illustrative, uncalibrated dynamics. Keyboard steering is speed-scaled. Body roll, pitch and aero squat are damped spring modes for display; wheel loads are still quasi-static. No tire temperature, collisions, or race rules yet. This is a handling testbed, not a validated F1 simulator.</p>
 </aside></main>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
 <script type="module">
@@ -109,6 +109,8 @@ const forward = new THREE.Vector3(), chase = new THREE.Vector3(), look = new THR
 function placeScene(dt) {
   const c = sim.car, g = model.group;
   g.position.set(c.x, 0, -c.y); g.rotation.y = c.heading;
+  // Physics roll is left side up (left = -z), pitch is nose down, heave is downward.
+  model.body.rotation.set(c.body.roll, 0, -c.body.pitch); model.body.position.y = -c.body.heave;
   model.wheels.forEach((w, i) => {
     wheelAngle[i] = (wheelAngle[i] + c.wheelOmega[i] * dt) % (2 * Math.PI);
     w.spin.rotation.z = -wheelAngle[i];
@@ -139,6 +141,8 @@ function render(dt = 0) {
   $('distance').textContent = `${c.distance.toFixed(0)} m`;
   $('time').textContent = `${c.time.toFixed(1)} s`;
   $('steer').textContent = `${(c.steer * 180 / Math.PI).toFixed(1)}°`;
+  $('attitude').textContent = `${(c.body.roll * 180 / Math.PI).toFixed(2)}° / ${(c.body.pitch * 180 / Math.PI).toFixed(2)}°`;
+  $('heave').textContent = `${(c.body.heave * 1000).toFixed(0)} mm`;
   ['FL', 'FR', 'RL', 'RR'].forEach((name, i) => {
     const wheel = c.telemetry.wheels[i];
     $(`load-${name}`).textContent = ((wheel?.load ?? 0) / 1000).toFixed(1);
@@ -175,7 +179,7 @@ window.f1Lab = {
     const px = Math.round((p.x + 1) / 2 * gl.drawingBufferWidth), py = Math.round((p.y + 1) / 2 * gl.drawingBufferHeight);
     const rgba = new Uint8Array(4); gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
     return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, carNdc: [p.x, p.y, p.z], carPixel: [...rgba],
-      steer: model.wheels[0].pivot.rotation.y, spin: model.wheels.map(w => w.spin.rotation.z), camera: camera.position.toArray() };
+      steer: model.wheels[0].pivot.rotation.y, spin: model.wheels.map(w => w.spin.rotation.z), body: [model.body.rotation.x, model.body.rotation.z, model.body.position.y], camera: camera.position.toArray() };
   },
   // Fraction of the viewport covered by the car: render with and without it and diff.
   carCoverage: () => {

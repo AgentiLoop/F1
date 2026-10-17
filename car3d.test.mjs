@@ -51,3 +51,23 @@ test('mesh is detailed but light enough for 60 fps', () => {
   group.traverse(o => { if (o.isMesh) { meshes++; const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3; } });
   assert.ok(meshes > 60 && tris > 15000 && tris < 200000, `${meshes} meshes, ${tris} triangles`);
 });
+
+test('sprung body rolls, pitches and heaves without moving the planted wheels', () => {
+  const car = buildF1Car(DEFAULT_CAR);
+  assert.ok(car.wheels.every(w => w.pivot.parent === car.group), 'wheels are outside the sprung body');
+  car.group.updateMatrixWorld(true);
+  const tiresBefore = car.wheels.map(w => new THREE.Box3().setFromObject(w.spin).min.y);
+  const bodyBox = () => new THREE.Box3().setFromObject(car.body);
+  const level = bodyBox();
+  // 1° roll (left side up), 1° nose-down pitch and 15 mm of aero squat, as index.html applies them.
+  const roll = Math.PI / 180, pitch = Math.PI / 180;
+  car.body.rotation.set(roll, 0, -pitch); car.body.position.y = -0.015; car.group.updateMatrixWorld(true);
+  const moved = bodyBox();
+  assert.ok(Math.abs(moved.max.y - level.max.y) > 0.005, 'body attitude changes its extent');
+  const tiresAfter = car.wheels.map(w => new THREE.Box3().setFromObject(w.spin).min.y);
+  tiresAfter.forEach((y, i) => assert.ok(Math.abs(y - tiresBefore[i]) < 1e-9, `tire ${i} stays on the ground`));
+  // Nose-down pitch lowers the front wing, left-side-up roll raises the left (-z) sidepod.
+  const point = (x, y, z) => car.body.localToWorld(new THREE.Vector3(x, y, z));
+  assert.ok(point(2.5, 0.1, 0).y < 0.1 - 0.015, 'nose dips');
+  assert.ok(point(0, 0.3, -0.6).y > point(0, 0.3, 0.6).y, 'left side rises');
+});

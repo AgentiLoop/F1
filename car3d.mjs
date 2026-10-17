@@ -238,5 +238,11 @@ export function buildF1Car(config) {
     }
     wheels.push({ pivot, spin, front });
   });
-  return { group: car, wheels };
+  // Sprung body: everything but the wheel assemblies, so it can roll, pitch
+  // and heave about the ground-level origin while the tires stay planted.
+  const body = new THREE.Group(); body.name = 'sprung-body';
+  const pivots = new Set(wheels.map(w => w.pivot));
+  car.children.filter(o => !pivots.has(o)).forEach(o => body.add(o));
+  car.add(body);
+  return { group: car, body, wheels };
 }
