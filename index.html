@@ -28,6 +28,7 @@ import { RoomEnvironment } from './vendor/RoomEnvironment.js';
 import { DEFAULT_CAR, TIRE_COMPOUNDS } from './physics.mjs';
 import { createRace, DEFAULT_GRID } from './race.mjs';
 import { buildF1Car } from './car3d.mjs';
+import { loadCarTemplate, buildModelCar } from './carmodel.mjs';
 import { buildWorld, buildCircuitWorld } from './world3d.mjs';
 import { createStadiumTrack } from './track.mjs';
 import { createCircuitTrack } from './circuit.mjs';
@@ -167,12 +168,16 @@ const world = circuitKey ? buildCircuitWorld(track, { boxColors }) : buildWorld(
 scene.add(world);
 // Real circuits span kilometres: see the far side of the layout from the overview.
 if (circuitKey) camera.far = 2 * world.userData.extent + 3000;
-const model = buildF1Car(DEFAULT_CAR);
+// Photo-real CC BY model (models/CREDITS.md); ?car=procedural, or a failed load, uses the built-in car.
+const carTemplate = new URLSearchParams(location.search).get('car') === 'procedural' ? null
+  : await loadCarTemplate().catch(err => { console.warn('car model failed to load, using procedural car', err); return null; });
+const buildCar = livery => carTemplate ? buildModelCar(carTemplate, DEFAULT_CAR, livery) : buildF1Car(DEFAULT_CAR, livery);
+const model = buildCar();
 scene.add(model.group);
 const wheelAngle = [0, 0, 0, 0];
 // One model per AI opponent, in its livery (helmets match the accent).
 const rivals = DEFAULT_GRID.map(spec => {
-  const m = buildF1Car(DEFAULT_CAR, { paint: spec.color, accent: spec.accent, helmet: spec.accent });
+  const m = buildCar({ paint: spec.color, accent: spec.accent, helmet: spec.accent });
   scene.add(m.group); return { model: m, wheelAngle: [0, 0, 0, 0] };
 });
 const hex = n => `#${n.toString(16).padStart(6, '0')}`;
@@ -225,7 +230,7 @@ function placeScene(dt) {
     head.z += (clamp(c.ay / 9.81 * 0.006, 0.03) - head.z) * k;
     camera.fov = 64; camera.near = 0.03;
     g.updateMatrixWorld(true);
-    camera.position.copy(model.body.localToWorld(look.set(-0.17 + head.x, 0.8, head.z)));
+    camera.position.copy(model.body.localToWorld(look.set(model.eye[0] + head.x, model.eye[1], head.z)));
     model.body.getWorldQuaternion(camera.quaternion).multiply(eyeTilt);
   } else {
     camera.near = 0.1;
