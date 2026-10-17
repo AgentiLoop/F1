@@ -113,8 +113,34 @@ Engine speed is measured in the selected drive direction; signed rear-wheel
 torque drives backwards through the tyre/contact model rather than reversing
 chassis velocity directly. Engine braking, wheel brakes and fuel consumption
 remain active; ERS deployment is disabled in reverse. There is no neutral or
-manual clutch simulation. AI drivers still do not choose reverse or check a
-backing-up path; stuck AI cars retain their retirement behaviour.
+manual clutch simulation.
+
+### AI wall recovery (cycle 19)
+
+An AI car stopped (below 1 m/s, out of the pits, not finished) for
+`recoveryDelay` (2 s) with a barrier just ahead of its nose (probed 0.5 m past
+the body front, normal facing the car) tries to back out instead of waiting to
+retire. It brakes and requests reverse through the same physics interlock as the
+player, then reverses at up to `recoverySpeed` (2 m/s), steering so the nose
+swings towards the direction of travel. It selects forward once it has moved at
+least `recoveryMinDistance` (3 m) and points within `recoveryAlign` (0.35 rad)
+of the track, or a barrier is behind it, or it has moved `recoveryDistance`
+(20 m). Then the normal AI takes over again.
+
+Before each reversing step it sweeps the car's footprint up to 2 m back along
+the steered arc. A barrier on that path, or another car (or where that car will
+be in the next 2 s at its current velocity) within the combined footprint radii
+plus 1 m, holds the brakes. There is no teleporting or reset. A car gets
+`recoveryAttempts` (2) tries; a try that has not finished in `recoveryTimeout`
+(20 s) retires the car (DNF), as does staying stuck afterwards. Fuel-starved
+cars, cars pitting or finished, and the player's car (manual or autopilot) never
+reverse automatically. A queue behind a stopped car is not a wall, so ordinary
+traffic never triggers it.
+
+All thresholds are illustrative choices, not team or marshal procedure. The
+recovery only handles a nose-on barrier: cars beached sideways, in gravel or
+pointing along a wall still retire, there is no marshal assistance, and the
+2 s traffic look-ahead assumes constant velocity.
 
 ### Opponents and racing (`race.mjs`, cycle 10)
 
@@ -395,7 +421,8 @@ classification and fuel. What differs:
   per-lap figure. The autopilot burnt about 0.30 kg/km at Monza, Silverstone,
   Spa and the Red Bull Ring.
 * **Retirement:** an AI car that stays below 1 m/s for `retireAfter` (10 s)
-  after the start, outside the pits, retires (AI drivers do not use reverse).
+  after the start, outside the pits, retires, unless it is facing a barrier and
+  can back out (see AI wall recovery).
   It is classified DNF after the running cars, and the race can end without it.
   Retirement applies on the stadium track too.
 
@@ -799,6 +826,17 @@ blocked direction changes while driving, the gear/status HUD, forward selection
 and autopilot handover in Chrome on the stadium and Monza, with no page errors.
 The temporary browser harness is not a repository test.
 
+Cycle 19 AI wall recovery tests (`recovery.test.mjs`, four tests): a nose-on
+stadium beaching that reverses, selects forward and covers more than 800 m;
+a car parked behind that blocks the reverse with no contact (the beached car
+holds the brakes and retires); fuel-starved and manually driven cars never
+reverse; and Monza escapes from both walls. Three of the four fail against the
+cycle 18 race code. All 122 Node tests pass. Ad hoc checks: 30 of 30 nose-on
+wall placements at Monza, Silverstone, Spa, Interlagos and the Hungaroring
+recovered with no wall impact; seeded stadium (10 laps, compound rule), Monza
+and Silverstone races finished with no retirements and never triggered
+recovery.
+
 ## Next realism milestones
 
 1. Fitted (e.g. Pacejka) curves replacing the
@@ -811,7 +849,8 @@ The temporary browser harness is not a repository test.
    and transient handling before making realism claims.
 5. Wheel/pedal calibration and
    force feedback, damage, kerb geometry and bumps, race
-   rules (safety car, blue flags), undercut/overcut strategy and smarter AI racecraft.
+   rules (safety car, blue flags), undercut/overcut strategy, smarter AI racecraft
+   and recovery from side-on or gravel beachings (marshals).
 6. Real circuits: elevation, camber and surveyed track widths, a minimum-time
    racing line, pit lanes (and the compound rule) on real layouts, AI that can
    overtake there, and car calibration so lap times can be compared with real
