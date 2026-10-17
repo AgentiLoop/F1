@@ -611,6 +611,93 @@ illustrative, not FIA zone maps or wind-tunnel data.
   solution. The ICE is taken at constant peak power in the forward pass. The
   50% store reserve is a chosen value. There is no overtake or defend mode
   yet.
+### Pit lanes on real circuits (`circuit.mjs`, `race.mjs`, `world3d.mjs`, cycle 26)
+
+Races on real circuits had no pit lane, so there were no pit stops, no
+two-compound rule and no strategy. The traced layouts carry no pit lane, so
+one is laid out beside the start/finish straight. It is a plausible lane, not
+the circuit's real one.
+
+* **Layout** (`circuitPitLane` in `circuit.mjs`): the stadium's cross-section,
+  measured from the centreline. The apron runs from 7.7 to 17.5 m off the
+  centreline (inside the 18.5 m wall), with the fast lane at 11 m, the box marks
+  at 15 m and an 80 km/h limit. Positions are in lap progress measured either
+  side of the line. The entry is 300 m before the line, then 120 m to the
+  limit line, 260 m of boxes (five, 30 m apart, centred), 40 m to the merge
+  zone and 130 m of merge zone to the exit.
+* **Choosing a side:** each side is checked every 10 m, up to 700 m either
+  side of the line. A side has room where a point just past the apron is still
+  nearest this part of the circuit, and a bend towards the pits leaves at least
+  20 m inside the apron. The layout slides as little as possible to fit; the
+  side needing the smaller slide gets it, and the left wins a tie. Every one of
+  the 18 circuits gets a lane: 16 on the left (entry 300 m before the line, Yas
+  Marina 320 m), Montreal and Miami on the right (entries 230 and 330 m).
+  `track.pit.side` is +1 for the left. `createCircuitTrack({ pitLane: false })`
+  turns the lane off.
+* **Surface:** between the entry and the exit, everything from the road edge
+  out to the apron's far side is `pit` (full grip). That covers the entry and
+  exit roads, so a car crossing to the lane is not on runoff.
+* **Race logic** (`race.mjs`): the stadium code now works in a pit frame. A
+  car's offset is multiplied by `pit.side`, so the pit side is always negative,
+  and positions are signed lap progress. On a circuit the pit path is a
+  centreline offset. It blends from the racing line (plus the lane the car was
+  in) into the fast lane, across to the box and back, then out to the racing
+  line. The circuit autopilot follows a path function as given, without the
+  road-edge clamp.
+  * Only cars on the apron beside the pit lane count as separate pit traffic.
+    On the stadium that was any car past the white line; on a circuit it would
+    have included a car running wide anywhere on the pit side.
+  * In the pit lane, cars compare lanes as centreline offsets. The racing
+    line's offset changes along the lane (Monaco's by about 2 m in 10 m), so
+    offsets from it did not line up. A car leaving its box saw a parked car
+    in the next box as in its lane and stopped behind it. The "nobody side by
+    side near a corner" rule is also off in the pit lane.
+* **Circuit-only driving changes:**
+  * A planned stop is decided 150 to 5 m before the entry.
+  * The pit-lane queue headway applies only from the entry. Before that, at
+    Catalunya's final chicane, it slowed a car following a pitting car to
+    9 m/s and ran it wide onto the runoff.
+  * The pit path's own bends are taken at no more than `pitCornerAccel`
+    (12 m/s²) laterally, braking at `pitDecel` over `pitPreview` (150 m).
+  * The approach aims `pitLimitMargin` (1.5 m/s) under the limit. The circuit
+    autopilot brakes only when over 1 m/s above its target, and holds 15%
+    throttle below that, so cars crossed the line at 83–84 km/h and took the
+    5 s speeding penalty.
+  * The rejoin is at least `mergeSlope` (6) m long per metre across to the
+    racing line. The line can be on the far side of the road, 17 m from the
+    fast lane, and a 40 m merge left the car 0.85 rad off the track heading.
+  * A car waiting for a gap waits 10 m into the merge zone, not 8 m before
+    the exit, so the rest of the zone is left for the rejoin.
+* **Scenery** (`buildCircuitWorld(track, { boxColors })`): an asphalt apron
+  from the road edge to the far side between entry and exit, and a white line
+  along the fast lane between the limit lines. Also the speed-limit lines, box
+  marks in each car's colour (the player's first, green), and a garage behind
+  the wall at each box where there is room. There are no hoardings along the
+  lane. The grandstand now goes across the straight from the pits when it fits.
+* **Results:** a 3-lap race with the compound rule on all 18 circuits (seed 1,
+  five cars). Every race finished, with 90 stops, every car on two compounds,
+  no contact, no time off the road, no wall hits, no spins and no penalties.
+  Cars stood still for 2.6–8.8 s (median 4.3 s), longer when held for a safe
+  release. Time-trial laps are unchanged (Monza 94.90 s, Monaco 91.05 s, Spa
+  125.37 s on the second lap), and a seeded 4-lap stadium race gives the same
+  times as before to 0.1 ms.
+* **Tests:** two new tests. Every circuit has a pit lane spanning the line,
+  with the box marks on `pit` surface, nearest their own part of the circuit
+  and inside the walls. In a 2-lap Red Bull Ring race the whole field stops
+  once, with no penalty, contact or time off the road. The 1-lap circuit race
+  test now expects a pit lane (and still no compound rule for one lap). All 138
+  tests pass.
+* **Browser check:** `?track=red-bull-ring&race&laps=2&nostart` on autopilot.
+  The player's car stopped on `pit` surface 14.4 m off the centreline, with
+  the HUD showing "Pit stop · fitting Hard". It rejoined on hards with no
+  penalty, and there were no page errors.
+* **Assumptions and limits:** the lane's side and position are chosen, not
+  real. There is no pit wall or separate pit building geometry, and the
+  apron is flat on the circuit's plane. The stop decision window and the
+  margins above are tuned values. A queue of cars through the Red Bull Ring's
+  turn 1 hairpin on lap 1 still slows some cars below 5 km/h; this happened
+  before this change too (same seeds at the previous commit).
+
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
 Pick a circuit from the menu in the header, or open `?track=<key>`. The keys
@@ -619,7 +706,8 @@ are `monza`, `silverstone`, `spa`, `interlagos`, `red-bull-ring`,
 `montreal`, `yas-marina`, `imola`, `mexico`, `jeddah`, `miami` and `shanghai`.
 A real circuit opens as a solo time trial: the car starts 150 m before the
 line and the lap timer starts when it crosses. **O** (or `?race`) brings in the
-AI field for a race (cycle 17, below). There is no pit lane on real circuits yet.
+AI field for a race (cycle 17, below), with a pit lane beside the start/finish
+straight (cycle 26, below).
 
 * **Layouts:** traced centrelines from
   [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT,
@@ -681,8 +769,8 @@ classification and fuel. What differs:
 * **Pace:** each AI driver's corner and braking grip margins scale with its
   spec relative to the player's: latGrip = 0.74 × cornerSpeed / 43 and
   brakeGrip = 0.62 × brakeDecel / 26.
-* **No pit lane:** the two-compound rule is switched off and pit requests are
-  ignored.
+* **Pit lane:** since cycle 26 (below); before that the two-compound rule was
+  off on circuits and pit requests were ignored.
 * **Fuel:** `fuelPerKm` (0.32 kg per km of lap) instead of the stadium's
   per-lap figure. The autopilot burnt about 0.30 kg/km at Monza, Silverstone,
   Spa and the Red Bull Ring.

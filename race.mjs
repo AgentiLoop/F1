@@ -41,6 +41,11 @@ export const RACE_DEFAULTS = Object.freeze({
   // kg (the sample a car must still hold after the flag). No refuelling.
   // On a real circuit the burn is fuelPerKm kg per km of lap length instead.
   fuelPerLap: 0.38, fuelPerKm: 0.32, fuelMargin: 0.03, fuelReserve: 1,
+  // On a circuit a pitting car also slows for the pit path's own bends: at
+  // most pitCornerAccel (m/s²) laterally, looking pitPreview m ahead; it
+  // approaches the speed-limit line pitLimitMargin m/s under the limit and
+  // rejoins over at least mergeSlope m per metre across to the racing line.
+  pitCornerAccel: 12, pitPreview: 150, pitLimitMargin: 1.5, mergeSlope: 6,
   pitDecel: 14, boxDecel: 5, stopTimeMin: 2.1, stopTimeMax: 3.2, boxWindow: 3, pitSpeedingPenalty: 5, pitWear: 0.6, pitGap: 8, pitHeadway: 1.2, queueDistance: 200,
   // DRS (after the 2011-25 sporting rules; zone placement illustrative): a car
   // within drsGap s of the car ahead at a zone's detection point may open its
@@ -196,7 +201,8 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
   const lightsOn = start ? 5 * o.lightInterval : 0;
   const lightsOut = start ? lightsOn + o.holdMin + rand() * (o.holdMax - o.holdMin) : 0;
   // A real circuit (circuit.mjs) has its start/finish line at s = 0, lanes
-  // measured from its racing line and (so far) no pit lane.
+  // measured from its racing line and a pit lane beside the start/finish
+  // straight (circuit.mjs; null where there is no room: no stops there).
   const { halfStraight, radius, length, pit } = track, circuit = track.kind === 'circuit';
   const startLine = circuit ? 0 : halfStraight + 0.8, straight = circuit ? 0 : 2 * halfStraight, rule = compoundRule && laps >= 2 && !!pit;
   // Distance along the lap to a car `d` metres of covered distance ahead (ignores laps), and the same in (-length/2, length/2].
@@ -259,32 +265,56 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     return into < straight ? { toCorner: straight - into, fromCorner: into } : { toCorner: 0, fromCorner: 0 };
   }
 
+  // Pit frame: a car's offset with the pit side negative (pit.side flips a
+  // circuit's right-hand pits), and the lap progress the pit layout is in
+  // (a circuit's is signed about the line; on the stadium, a car heading
+  // in counts the last hairpin as before the start of the straight).
+  const pitSide = pit?.side ?? 1, pitOff = car => pitSide * track.offset(car.x, car.y);
+  const pitFrame = (p, phaseIn = false) => circuit ? signed(p) : phaseIn && p > straight ? p - length : p;
   // Lap progress along the main straight (null elsewhere, or without a pit
   // lane), and whether a car is in the speed-limited pit lane (between the
   // lines, beyond the white line).
-  const pitS = car => { if (!pit) return null; const p = track.progress(car.x, car.y); return car.y < 0 && p <= straight ? p : null; };
-  const inPitLane = (car, s = pitS(car)) => s !== null && s >= pit.limitStart && s <= pit.limitEnd && track.offset(car.x, car.y) < -pit.inner;
+  const pitS = car => {
+    if (!pit) return null;
+    const p = track.progress(car.x, car.y);
+    if (circuit) { const s = signed(p); return s >= pit.entry && s <= pit.exit ? s : null; }
+    return car.y < 0 && p <= straight ? p : null;
+  };
+  const inPitLane = (car, s = pitS(car)) => s !== null && s >= pit.limitStart && s <= pit.limitEnd && pitOff(car) < -pit.inner;
+  // On the pit apron side of the white line (on a circuit, only beside the pit lane).
+  const pitApron = car => !!pit && pitOff(car) < -pit.inner && (!circuit || pitS(car) !== null);
   // The compound a car fits at its next stop.
   const nextCompound = e => e.pitRequest ?? e.tyres[e.stops.length + 1] ?? (e.car.compound === 'hard' ? 'medium' : 'hard');
   // Path offset of a stopping car at lap progress s: from its line into the
   // fast lane, across to its box and back, then (from mergeAt, once the
-  // rejoin is clear) out to the racing line.
-  const pitPath = e => s => {
-    const { from, phase, mergeAt, mergeLength } = e.pit;
-    if (s > straight && phase === 'in') return from;
-    return from + (pit.lane - from) * blend(s, pit.entry, pit.limitStart - 10)
-      + (pit.boxOffset - pit.lane) * (blend(s, e.box - 18, e.box - 1) - blend(s, e.box + 1, e.box + 18))
-      - (mergeAt === undefined ? 0 : pit.lane * blend(s, mergeAt, mergeAt + mergeLength));
+  // rejoin is clear) out to the racing line. On a circuit the path is a
+  // centreline offset at lap progress q, blending from the racing line
+  // (plus the lane the car was in) into the pit lane and back.
+  const pitPath = e => {
+    const swing = s => (pit.boxOffset - pit.lane) * (blend(s, e.box - 18, e.box - 1) - blend(s, e.box + 1, e.box + 18));
+    if (circuit) return q => {
+      const { from, phase, mergeAt, mergeLength } = e.pit, s = signed(q), line = track.lineOffset(q);
+      if (phase === 'in' && s > pit.exit) return line + from;
+      const merged = mergeAt === undefined ? 0 : blend(s, mergeAt, mergeAt + mergeLength), into = blend(s, pit.entry, pit.limitStart - 10);
+      return (line + from) * (1 - into) + (pitSide * (pit.lane + swing(s)) * (1 - merged) + line * merged) * into;
+    };
+    return s => {
+      const { from, phase, mergeAt, mergeLength } = e.pit;
+      if (s > straight && phase === 'in') return from;
+      return from + (pit.lane - from) * blend(s, pit.entry, pit.limitStart - 10)
+        + swing(s)
+        - (mergeAt === undefined ? 0 : pit.lane * blend(s, mergeAt, mergeAt + mergeLength));
+    };
   };
   // A car on the circuit (not in the pit lane) alongside, or closing from
   // behind within closeTime, of a car at covered distance `covered` and `speed`.
   const traffic = (e, near) => entries.some(x => {
-    if (x === e || track.offset(x.car.x, x.car.y) < -pit.inner) return false;
+    if (x === e || pitApron(x.car)) return false;
     const gap = signed(x.covered - e.covered);
     return near(gap, x.car.telemetry.speed);
   });
-  // Box this lap? Called as a car nears the line, from 100 m before it to the
-  // pit entry: a player request, the planned stop lap, or worn-out tread.
+  // Box this lap? Called as a car nears the pit entry (stadium: from 100 m
+  // before the line; circuit: from 150 m before the entry): a player request, the planned stop lap, or worn-out tread.
   function wantsStop(e) {
     const lap = Math.round(e.covered / length), remaining = laps ? laps - lap : Infinity;
     if (!pit || remaining < 1 || e.finish || flagTime !== null) return false;
@@ -312,7 +342,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       // lane or is pulling out of a box behind.
       const unsafe = entries.some(x => {
         if (x === e || x.pit?.phase === 'service') return false;
-        const xs = pitS(x.car), xo = track.offset(x.car.x, x.car.y);
+        const xs = pitS(x.car), xo = pitOff(x.car);
         const leaving = x.pit?.phase === 'out' && xs !== null && xs < x.box + 20;
         return xs !== null && xs > e.box - 50 && xs < e.box + 6 && xo < -pit.inner && (leaving || (xo > pit.boxOffset + 1.5 && x.car.telemetry.speed > 1));
       });
@@ -323,7 +353,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       }
       return;
     }
-    if (lane && !e.pitVisit.served && speed < 0.3 && Math.abs(s - e.box) <= o.boxWindow && Math.abs(track.offset(car.x, car.y) - pit.boxOffset) < 1.5) {
+    if (lane && !e.pitVisit.served && speed < 0.3 && Math.abs(s - e.box) <= o.boxWindow && Math.abs(pitOff(car) - pit.boxOffset) < 1.5) {
       e.pitVisit.served = true;
       e.pit = { from: 0, ...p, phase: 'service', compound: p?.compound ?? nextCompound(e), begin: time,
         end: time + o.stopTimeMin + rand() * (o.stopTimeMax - o.stopTimeMin), lap: Math.max(0, Math.floor(e.covered / length)) + 1 };
@@ -331,9 +361,9 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     }
     if (p?.phase === 'in' && s !== null && s > e.box + o.boxWindow) p.phase = 'out'; // missed the box
     if (p?.phase === 'out') {
-      const progress = track.progress(car.x, car.y);
+      const progress = pitFrame(track.progress(car.x, car.y));
       // Over once merged (AI), or back on the circuit or past the exit (driving).
-      const back = e.manual && track.offset(car.x, car.y) > -pit.inner && progress > pit.limitEnd;
+      const back = e.manual && pitOff(car) > -pit.inner && progress > pit.limitEnd;
       if (p.mergeAt !== undefined ? progress >= p.mergeAt + p.mergeLength || progress < pit.entry : back || progress >= pit.exit || progress < pit.entry) { e.pit = null; e.lane = e.offset = 0; }
     }
   }
@@ -352,16 +382,15 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // and by the tires: the compound, the coldest (e.g. on an out lap) and the most worn.
     // A circuit AI's corner-speed margin is the player autopilot's, which already
     // copes with tires at their starting temperature, so only grip lost below
-    // that counts there (no pit lane, so no out laps on circuits yet).
+    // that counts there (e.g. on an out lap on a set fitted at blanket temperature).
     const temp = Math.min(...car.tireTemp.map(t => tireTempGrip(car.config, t)))
       / (circuit ? tireTempGrip(car.config, { surface: car.config.tireStartTemp, carcass: car.config.tireStartTemp }) : 1);
     const grip = (1 - (1 - car.wake.downforce) * 0.45) * TIRE_COMPOUNDS[car.compound].grip
       * Math.min(1, temp) * tireWearGrip(car.config, Math.max(...car.tireWear));
     const lookAhead = Math.max(o.lookAhead, o.followGap + 1.5 * speed * speed / (2 * o.followDecel));
     // Cars on the other side of the pit-lane line are separate traffic.
-    const side = x => !!pit && track.offset(x.car.x, x.car.y) < -pit.inner;
-    const others = entries.filter(other => other !== e && side(other) === side(e)).map(other => {
-      return { gap: signed(other.covered - e.covered), offset: rel(other.car), lane: other.lane, pitIn: other.pit?.phase === 'in', index: other.index,
+    const others = entries.filter(other => other !== e && pitApron(other.car) === pitApron(car)).map(other => {
+      return { gap: signed(other.covered - e.covered), offset: rel(other.car), pitOffset: pit ? pitOff(other.car) : 0, lane: other.lane, pitIn: other.pit?.phase === 'in', index: other.index,
         // Diving down the inside of this car, alongside (it must yield), or of any car.
         claim: other.dive?.rival === e.index && other.dive.overlap, diving: !!other.dive,
         // Anticipate a braking car: its speed a moment (anticipation s) from now.
@@ -399,12 +428,13 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // alongside on its inside under a dive yields to it (backs out behind).
     // Behind a car slower than followSlow m/s (e.g. one that ran wide in a
     // hairpin and is crawling across the road) the full followGap applies.
-    const cap = (lane, gap = null) => others.reduce((m, x) => {
+    // (list, sideBySide: the cars and rule a pitting car uses, below.)
+    const cap = (lane, gap = null, list = others, sideBySide = canMove) => list.reduce((m, x) => {
       const g = gap ?? (x.speed < o.followSlow ? o.followGap : followGap);
       if (x.claim && x.gap > -2 * o.alongside) return Math.min(m, follow(x.speed, x.gap - carLength - o.yieldGap));
       if (!(x.gap > 0 && x.gap < lookAhead)) return m;
-      if (Math.abs(x.offset - lane) < o.laneClearance || x.lane === lane || (x.pitIn && lane < x.offset + o.laneClearance)) return Math.min(m, follow(x.speed, x.gap - g));
-      return !canMove && x.gap < 2 * o.alongside && x.index !== e.dive?.rival ? Math.min(m, follow(x.speed, x.gap - Math.max(g, o.followGap))) : m;
+      if (Math.abs(x.offset - lane) < o.laneClearance || x.lane === lane || (x.pitIn && pitSide * lane < pitSide * x.offset + o.laneClearance)) return Math.min(m, follow(x.speed, x.gap - g));
+      return !sideBySide && x.gap < 2 * o.alongside && x.index !== e.dive?.rival ? Math.min(m, follow(x.speed, x.gap - Math.max(g, o.followGap))) : m;
     }, Infinity);
     // No car alongside, or closing from behind within closeTime seconds,
     // anywhere across the strip swept from here to the lane, and no nearby car
@@ -416,26 +446,55 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     if (e.pit) {
       // Pit stop: follow the pit path, brake to the limit by the line and to
       // the box marks, hold the brake there, keep to the limit until its end.
-      const p = track.progress(car.x, car.y), s = p > straight && e.pit.phase === 'in' ? p - length : p;
+      const p = track.progress(car.x, car.y), s = pitFrame(p, e.pit.phase === 'in');
       // Rejoin from the back straight only when no car on the circuit is
       // alongside or closing from behind; otherwise stop at the end of the lane.
       if (e.pit.phase === 'out' && e.pit.mergeAt === undefined && s > pit.mergeStart
         && !traffic(e, (gap, v) => gap < o.alongside && -gap < o.alongside + Math.max(0, v - speed) * o.mergeTime)) {
-        e.pit.mergeAt = s; e.pit.mergeLength = Math.max(40, 1.8 * speed);
+        // (On a circuit the rejoin is at least mergeSlope m long per metre
+        // across to the racing line, which may be on the far side of the road.)
+        e.pit.mergeAt = s; e.pit.mergeLength = Math.max(40, 1.8 * speed, circuit ? o.mergeSlope * Math.abs(pitSide * pit.lane - track.lineOffset(p)) : 0);
       }
       const path = pitPath(e);
-      e.offset = e.lane = path(Math.max(0, s));
-      const limit = s < pit.limitStart ? Math.sqrt(pit.speedLimit ** 2 + 2 * o.pitDecel * Math.max(0, pit.limitStart - 15 - s)) : s <= pit.limitEnd ? pit.speedLimit : Infinity;
+      e.offset = e.lane = circuit ? path(p) - track.lineOffset(p) : path(Math.max(0, s));
+      // (On a circuit the approach aims pitLimitMargin m/s under the limit:
+      // the circuit autopilot only brakes over 1 m/s above its target, and
+      // holds a light throttle below that.)
+      const lineSpeed = pit.speedLimit - (circuit ? o.pitLimitMargin : 0);
+      const limit = s < pit.limitStart ? Math.sqrt(lineSpeed ** 2 + 2 * o.pitDecel * Math.max(0, pit.limitStart - 15 - s)) : s <= pit.limitEnd ? pit.speedLimit : Infinity;
       if (e.pit.phase === 'in' && s > e.box - 1 && speed < 4) return { throttle: 0, brake: 1, steer: 0 };
       const boxCap = e.pit.phase === 'in' ? Math.sqrt(2 * o.boxDecel * Math.max(0, e.box - s))
-        : e.pit.mergeAt === undefined ? Math.sqrt(2 * o.boxDecel * Math.max(0, pit.exit - 8 - s)) : Infinity;
-      const occupied = Math.max(o.creepSpeed, cap(track.offset(car.x, car.y), car.config.bodyFront + car.config.bodyRear + 1));
+        // Waiting to rejoin: on a circuit just into the merge zone, leaving the
+        // rest of it for the (longer) rejoin before the exit.
+        : e.pit.mergeAt === undefined ? Math.sqrt(2 * o.boxDecel * Math.max(0, (circuit ? pit.mergeStart + 10 : pit.exit - 8) - s)) : Infinity;
+      // On a circuit the pit path's own bends (the swing into the lane, a
+      // curving straight) are taken at no more than pitCornerAccel laterally,
+      // braking for them at pitDecel (from three-point curvature every 5 m).
+      let bendCap = Infinity;
+      if (circuit) {
+        const at = d => track.point(p + d, path(p + d));
+        for (let d = 0, a = at(-5), b = at(0); d <= o.pitPreview; d += 5) {
+          const c = at(d + 5), k = 2 * Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+            / (Math.hypot(b[0] - a[0], b[1] - a[1]) * Math.hypot(c[0] - b[0], c[1] - b[1]) * Math.hypot(c[0] - a[0], c[1] - a[1]) || Infinity);
+          bendCap = Math.min(bendCap, Math.sqrt(o.pitCornerAccel / Math.max(k, 1e-6) + 2 * o.pitDecel * d));
+          a = b; b = c;
+        }
+      }
+      // On a circuit, lanes along the pit lane are compared as centreline
+      // offsets (the racing line's offset changes along it, so offsets from
+      // it do not line up between cars), and a car beside a parked one is not
+      // side by side in a corner (that rule is for the circuit itself).
+      const pitList = circuit ? others.map(x => ({ ...x, offset: pitSide * x.pitOffset, lane: NaN })) : others;
+      const here = track.offset(car.x, car.y), along = circuit ? path(p) : e.offset;
+      const occupied = Math.max(o.creepSpeed, cap(here, car.config.bodyFront + car.config.bodyRear + 1, pitList, circuit || canMove));
       // Single file into and down the pit lane behind any car ahead heading
       // there (not one already parked in its box), at a constant time headway
       // (pitHeadway s plus pitGap m), which keeps a queue from concertinaing.
-      const queue = others.reduce((m, x) => x.gap > 0 && x.gap < lookAhead && (x.pitIn || x.offset < -pit.inner) && x.offset > pit.boxOffset + 1.5
+      // (On a circuit only from the pit entry: before it the car is still racing
+      // through the last corners, where ordinary following applies.)
+      const queue = circuit && s < pit.entry ? Infinity : others.reduce((m, x) => x.gap > 0 && x.gap < lookAhead && (x.pitIn || x.pitOffset < -pit.inner) && x.pitOffset > pit.boxOffset + 1.5
         ? Math.min(m, Math.max(0, x.gap - o.pitGap) / o.pitHeadway) : m, Infinity);
-      return e.drive(car, { offset: path, maxSpeed: Math.min(cap(e.offset), occupied, queue, limit, boxCap), grip });
+      return e.drive(car, { offset: path, maxSpeed: Math.min(cap(along, null, pitList, circuit || canMove), occupied, queue, limit, boxCap, bendCap), grip });
     }
     // On a circuit a passing lane is only offered where the road edge leaves
     // it at least 80% of passLane from the racing line for laneRoomAhead
@@ -568,7 +627,8 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // when it decides to as it nears the line.
     for (const e of entries) {
       const p = track.progress(e.car.x, e.car.y);
-      if (pit && !e.pit && !e.recovery && !(e.player && input) && time >= lightsOut && (p > length - 100 || p < pit.entry - 5) && wantsStop(e))
+      const near = circuit ? (s => s > pit.entry - 150 && s < pit.entry - 5)(signed(p)) : p > length - 100 || p < pit.entry - 5;
+      if (pit && !e.pit && !e.recovery && !(e.player && input) && time >= lightsOut && near && wantsStop(e))
         e.pit = { phase: 'in', compound: nextCompound(e), from: e.offset };
     }
     for (const e of entries) e.manual = !!(e.player && input);

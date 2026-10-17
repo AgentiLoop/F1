@@ -255,7 +255,7 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
 // wallOffset (left out where another part of the circuit runs closer), a
 // start/finish line and light gantry at s = 0, a grandstand beside it,
 // hoardings, trees off the circuit and a hill ring sized to the layout.
-export function buildCircuitWorld(track) {
+export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const world = new THREE.Group(), half = track.roadWidth / 2, wallAt = track.wallOffset;
   const { x: X, y: Y, s: S, heading: H, kerb } = track.samples, n = X.length;
   const pts = Array.from({ length: n + 1 }, (_, k) => { const i = k % n; return { x: X[i], y: Y[i], nx: -Math.sin(H[i]), ny: Math.cos(H[i]), s: k < n ? S[i] : track.length, i }; });
@@ -345,7 +345,8 @@ export function buildCircuitWorld(track) {
   const crowdMat = new THREE.MeshStandardMaterial({ map: crowd, roughness: 0.9 });
   const stepMats = [concrete, concrete, crowdMat, concrete, concrete, crowdMat];
   const room = side => [-120, -60, 0].every(d => { const [x, y] = track.point(d, side * (wallAt + 20)); return Math.abs(track.offset(x, y)) > wallAt + 10; });
-  const standSide = room(-1) ? -1 : room(1) ? 1 : 0;
+  // Across the straight from the pit lane where there is room for it.
+  const pit = track.pit, standSide = [pit ? pit.side : -1, pit ? -pit.side : 1].find(room) ?? 0;
   if (standSide) {
     const stand = new THREE.Group(); stand.position.copy(start.position); stand.rotation.y = H[0]; world.add(stand);
     const z0 = wallAt + 6;
@@ -358,7 +359,37 @@ export function buildCircuitWorld(track) {
     for (let i = 0; i < 7; i++) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.35, 14, 0.35), steel); c.position.set(-114.4 + i * 18.13, 7, standSide * (z0 - 1.6)); stand.add(c); }
   }
 
-  // Hoardings every ~36 m both sides, facing the track.
+  // Pit lane (circuit.mjs layout; pit-frame offsets are negative towards the
+  // pits, centreline offset = side × that): asphalt from the road edge out to
+  // the apron's far side between entry and exit, a white line along the fast
+  // lane's inner edge, the speed-limit lines, the box marks (the field's
+  // boxes, the player's first) and a garage behind the wall at each box.
+  if (pit) {
+    const strip = (a, b) => Array.from({ length: Math.round((b - a) / 2) + 1 }, (_, k) => {
+      const s = a + (b - a) * k / Math.round((b - a) / 2), [x, y] = track.point(s), h = track.heading(s);
+      return { x, y, nx: -Math.sin(h), ny: Math.cos(h), s: s - a };
+    });
+    // Ribbon offsets are positive to the left: centreline offset −(side × f).
+    const r = f => -pit.side * f;
+    world.add(ribbon(strip(pit.entry, pit.exit), r(-half), r(-pit.outer), 0.006, std({ map: asphalt, roughness: 0.9 }), 30));
+    world.add(ribbon(strip(pit.limitStart, pit.limitEnd), r(-pit.inner), r(-pit.inner - 0.25), 0.009, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
+    const flat = (s, f, length, width, color, y = 0.01) => {
+      const [x, z] = track.point(s, pit.side * f), m = new THREE.Mesh(new THREE.PlaneGeometry(length, width), std({ color, roughness: 0.6 }));
+      m.rotation.set(-Math.PI / 2, 0, track.heading(s)); m.position.set(x, y, -z); m.receiveShadow = true; world.add(m);
+    };
+    for (const s of [pit.limitStart, pit.limitEnd]) flat(s, -(pit.inner + pit.outer) / 2, 0.4, pit.outer - pit.inner, 0xf2f2ee);
+    const garageAt = -(wallAt + 4.5), concreteGarage = std({ color: 0xd9dcd6, roughness: 0.7 });
+    for (let i = 0; i < Math.max(boxColors.length, 5); i++) {
+      const s = pit.boxStart + pit.boxSpacing * i;
+      flat(s, pit.boxOffset, 7, 3, 0xf2f2ee); flat(s, pit.boxOffset, 6.6, 2.6, boxColors[i] ?? 0x3a4450, 0.012);
+      const [x, y] = track.point(s, pit.side * garageAt);
+      if (standSide === -pit.side || Math.abs(track.offset(x, y)) < wallAt + 3) continue;
+      const g = new THREE.Mesh(new THREE.BoxGeometry(pit.boxSpacing - 0.5, 6, 7), concreteGarage);
+      g.position.set(x, 3, -y); g.rotation.y = track.heading(s); g.castShadow = g.receiveShadow = true; world.add(g);
+    }
+  }
+
+  // Hoardings every ~36 m both sides, facing the track (none along the pit lane).
   const logo = (w, h) => { const t = texture(1, () => {}); const cv = t.image; cv.width = w; cv.height = h; drawLogo(cv.getContext('2d'), w, h, true); t.needsUpdate = true; return t; };
   const logoMat = new THREE.MeshStandardMaterial({ map: logo(1024, 128), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.08 });
   logoMat.emissiveMap = logoMat.map;
@@ -367,6 +398,8 @@ export function buildCircuitWorld(track) {
   for (const side of [-1, 1]) pts.forEach((p, k) => {
     if (k % 18 !== 9 || k === n) return;
     const off = side * (half + 10.5);
+    const s = p.s > track.length / 2 ? p.s - track.length : p.s;
+    if (pit && Math.sign(off) === pit.side && s > pit.entry - 10 && s < pit.exit + 10) return;
     if (Math.abs(track.offset(p.x + p.nx * off, p.y + p.ny * off)) > half + 10) boardSpots.push([p, off]);
   });
   const boards = new THREE.InstancedMesh(new THREE.BoxGeometry(8, 1, 0.12), [boardBack, boardBack, boardBack, boardBack, logoMat, boardBack], boardSpots.length);

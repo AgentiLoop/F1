@@ -131,11 +131,12 @@ test('the circuit autopilot turns a spun car round instead of driving the wrong 
   assert.ok(s > s0 + 100 && sim.car.telemetry.speed > 30, `progress ${s.toFixed(0)} m at ${sim.car.telemetry.speed.toFixed(1)} m/s`);
 });
 
-test('a race on a real circuit: grid behind the line, no pit lane, fuel for the distance, a clean finish', () => {
+test('a race on a real circuit: grid behind the line, fuel for the distance, a clean finish', () => {
   const track = createCircuitTrack(CIRCUITS['red-bull-ring']);
   const race = createRace(track, { grid: DEFAULT_GRID, start: { seed: 3 }, laps: 1, compoundRule: true });
-  assert.equal(race.pit, null); assert.equal(race.compoundRule, false);
-  race.requestPit('soft'); assert.equal(race.entries[0].pitRequest, null);
+  // A pit lane, but a one-lap race has no compound rule.
+  assert.ok(race.pit); assert.equal(race.compoundRule, false);
+  race.requestPit('soft'); assert.equal(race.entries[0].pitRequest, 'soft'); race.requestPit(null);
   race.entries.forEach((e, i) => {
     assert.ok(Math.abs(e.covered + 0.8 + RACE_DEFAULTS.gridSpacing * i) < 0.5, `slot ${i}: ${e.covered.toFixed(2)} m`);
     assert.ok(Math.abs(e.car.fuel - (RACE_DEFAULTS.fuelPerKm * track.length / 1000 * (1 + RACE_DEFAULTS.fuelMargin) + RACE_DEFAULTS.fuelReserve)) < 1e-9);
@@ -151,4 +152,44 @@ test('a race on a real circuit: grid behind the line, no pit lane, fuel for the 
   assert.ok(rows[0].time > 75 && rows[0].time < 100, `winner ${rows[0].time.toFixed(2)} s`);
   assert.ok(contact < 3, `contact ${contact.toFixed(1)} m/s`);
   assert.ok(maxOff < track.roadWidth / 2 + 1.5, `max offset ${maxOff.toFixed(1)} m`);
+});
+
+test('every circuit gets a pit lane beside the start/finish straight, with pit surface off the road', () => {
+  for (const [key, spec] of Object.entries(CIRCUITS)) {
+    const track = createCircuitTrack(spec), pit = track.pit;
+    assert.ok(pit, `${key}: no pit lane`);
+    assert.ok(pit.entry < pit.limitStart && pit.limitStart < pit.boxStart && pit.boxStart + 4 * pit.boxSpacing < pit.limitEnd && pit.limitEnd < pit.mergeStart && pit.mergeStart < pit.exit, key);
+    assert.ok(pit.entry < 0 && pit.exit > 0, `${key}: the lane spans the line`);
+    for (const s of [pit.limitStart, pit.boxStart, 0, pit.limitEnd]) {
+      const [x, y] = track.point(s, pit.side * pit.boxOffset);
+      assert.equal(track.surface(x, y), 'pit', `${key} at ${s}`);
+      assert.ok(Math.abs(track.offset(x, y) - pit.side * pit.boxOffset) < 0.5, `${key}: the box marks are nearest this part of the circuit`);
+      assert.equal(track.barrierAt(x, y), null);
+    }
+    const [x, y] = track.point(-1000, pit.side * pit.boxOffset);
+    assert.notEqual(track.surface(x, y), 'pit', `${key}: no pit surface away from the lane`);
+  }
+  assert.equal(createCircuitTrack({ ...CIRCUITS.monza, pitLane: false }).pit, null);
+});
+
+test('circuit pit stops: the field stops under the compound rule without speeding, contact or running off', () => {
+  const track = createCircuitTrack(CIRCUITS['red-bull-ring']), pit = track.pit;
+  const race = createRace(track, { grid: DEFAULT_GRID, start: { seed: 2 }, laps: 2, compoundRule: true });
+  assert.equal(race.compoundRule, true);
+  let contact = 0, off = 0, inLane = 0;
+  while (!race.finish.done && race.time < 260) {
+    race.advance(0.25, null, track.surfaceAt, track.barrierAt);
+    for (const e of race.entries) {
+      contact = Math.max(contact, e.car.contact?.speed ?? 0);
+      if (!['asphalt', 'kerb', 'pit'].includes(track.surface(e.car.x, e.car.y))) off += 0.25;
+      if (race.inPitLane(e.car)) inLane++;
+    }
+  }
+  assert.ok(race.finish.done, 'every car took the flag');
+  const rows = race.classification();
+  assert.ok(rows.every(r => r.finished && !r.dsq && r.stops === 1 && r.penalty === 0 && new Set(r.compounds).size === 2), JSON.stringify(rows));
+  for (const e of race.entries) assert.ok(e.stops[0].stationary >= RACE_DEFAULTS.stopTimeMin && e.stops[0].stationary < 12, `${e.name} stood ${e.stops[0].stationary.toFixed(1)} s`);
+  assert.ok(inLane > 0 && pit.speedLimit < 23);
+  assert.ok(contact < 1, `contact ${contact.toFixed(1)} m/s`);
+  assert.ok(off <= 1, `${off} s off the road`);
 });

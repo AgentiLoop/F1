@@ -11,7 +11,7 @@ import { clamp } from './physics.mjs';
 // speed the downforce is rear-biased), and a cross-track term pulls it back
 // to the line.
 // A per-call offset from the line (traffic) is kept edgeMargin metres inside
-// the road edge.
+// the road edge; a path function (the pit lane) is followed as given.
 export function createCircuitAutopilot(track, tuning = {}) {
   const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100, edgeMargin: 2, laneSmoothing: 100, lateBrake: 1.2, recoverySpeed: 8, coastThrottle: 0.15, coastSpeed: 15,
     slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ersPlan: true, ersReserve: 0.5, ...tuning };
@@ -133,7 +133,9 @@ export function createCircuitAutopilot(track, tuning = {}) {
     return deploying;
   }
   let turn = 0; // turning round after a spin: steer direction (±1), 0 = not
-  // offset: metres to the right of the racing line; lane: the passing lane
+  // offset: metres to the right of the racing line, or a function of lap
+  // progress giving the centreline offset to follow, unclamped (the pit
+  // lane, off the road); lane: the passing lane
   // the car is on or heading for (its path's plan also caps the speed);
   // late: diving down the inside on that lane, its plan alone (braking later).
   const drive = function drive(car, { offset = 0, lane = 0, late = false, maxSpeed = Infinity, grip = 1 } = {}) {
@@ -141,9 +143,10 @@ export function createCircuitAutopilot(track, tuning = {}) {
     const lp = lane ? lanePlan(car.config, lane, late) : plan, atLane = late && lane ? s => lp[index(s)] : s => Math.min(at(s), lp[index(s)]);
     const c = car.config, speed = car.telemetry.speed, s = track.progress(car.x, car.y);
     const ld = Math.max(t.minLookahead, speed * t.lookahead);
-    const [px, py] = track.point(s + ld, path(s + ld, offset));
+    const pathAt = typeof offset === 'function' ? offset : q => path(q, offset);
+    const [px, py] = track.point(s + ld, pathAt(s + ld));
     const raw = Math.atan2(py - car.y, px - car.x) - car.heading, alpha = Math.atan2(Math.sin(raw), Math.cos(raw));
-    const drift = track.offset(car.x, car.y) - path(s, offset);
+    const drift = track.offset(car.x, car.y) - pathAt(s);
     // Pointing away from the target (after a spin): full lock towards it at
     // no more than recoverySpeed, turning round instead of driving the wrong
     // way: towards the target, or, when facing nearly backwards, towards the

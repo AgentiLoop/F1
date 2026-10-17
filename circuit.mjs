@@ -81,8 +81,49 @@ function racingLine(xs, ys, headings, limit) {
   return full;
 }
 
+// Pit lane beside the start/finish straight, laid out as the stadium's
+// (track.mjs stadiumPitLane: apron from inner to outer metres off the
+// centreline, fast lane at `lane`, box marks at `boxOffset`, 80 km/h limit),
+// with positions in signed lap progress (negative before the line). The pit
+// frame's offsets are negative towards the pit side; the centreline offset
+// (+ right) is side × that (side +1: pits on the left of the race direction).
+// Each side is checked every 10 m out to `reach` m either side of the line:
+// there is room where a point just beyond the apron is still nearest this
+// part of the circuit and the centreline curving towards the pits leaves at
+// least minInsideRadius m inside it. The lane is the standard layout (entry,
+// `toLimit` m to the limit line, `limitLength` m of boxes, `toMerge` m to the
+// merge zone, `mergeLength` m of it to the exit) slid as little as possible
+// from its nominal place (entry `entryAt` m before the line) to fit a side's
+// room; the side needing the smaller slide gets it (left on a tie). No room
+// either side: null (no pit stops). The placement is illustrative: the
+// traced layouts carry no pit lane, so it is not each circuit's real one.
+function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, { reach = 700, minInsideRadius = 20, entryAt = 300, toLimit = 120, limitLength = 260, toMerge = 40, mergeLength = 130 } = {}) {
+  const layout = { inner: half + 1.2, outer: half + 11, lane: -(half + 4.5), boxOffset: -(half + 8.5), boxSpacing: 30, speedLimit: 80 / 3.6 };
+  const total = toLimit + limitLength + toMerge + mergeLength, edge = layout.outer + 1;
+  const fits = (s, side) => {
+    const o = -side * edge, [x, y] = point(s, o);
+    let k = 0; for (let d = -10; d <= 10; d += 2) { const v = curvatureAt(s + d); if (Math.sign(v) === side) k = Math.max(k, Math.abs(v)); }
+    return Math.abs(offset(x, y) - o) < 1 && Math.abs(signed(progress(x, y) - s)) < 20 && (k === 0 || 1 / k - edge >= minInsideRadius);
+  };
+  let best = null;
+  for (const side of [1, -1]) {
+    if (!fits(0, side)) continue;
+    let a = 0, b = 0;
+    while (a > -reach && fits(a - 10, side)) a -= 10;
+    while (b < reach && fits(b + 10, side)) b += 10;
+    if (b - a < total) continue;
+    const entry = Math.min(Math.max(-entryAt, a), b - total);
+    if (!best || Math.abs(entry + entryAt) < Math.abs(best.entry + entryAt)) best = { side, entry };
+  }
+  if (!best) return null;
+  const { side, entry } = best, limitStart = entry + toLimit, limitEnd = limitStart + limitLength;
+  // Five boxes centred between the limit lines.
+  return Object.freeze({ ...layout, side, entry, limitStart, limitEnd, mergeStart: limitEnd + toMerge, exit: limitEnd + toMerge + mergeLength,
+    boxStart: (limitStart + limitEnd) / 2 - 2 * layout.boxSpacing });
+}
+
 export function createCircuitTrack({ name = 'Circuit', points, length: officialLength, roadWidth = 13, wallOffset = roadWidth / 2 + 12,
-  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15 }) {
+  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true }) {
   const pairs = points.length && typeof points[0] === 'number' ? Array.from({ length: points.length / 2 }, (_, i) => [points[2 * i], points[2 * i + 1]]) : points;
   let poly = spline(pairs, step);
   const polyLength = () => poly.reduce((L, a, i) => { const b = poly[(i + 1) % poly.length]; return L + Math.hypot(b[0] - a[0], b[1] - a[1]); }, 0);
@@ -183,12 +224,16 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
   }
   const progress = (x, y) => { const q = nearest(x, y); return ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f; };
   const offset = (x, y) => nearest(x, y).offset;
+  const signed = s => (s = wrap(s)) > length / 2 ? s - length : s;
+  const pit = pitLane ? circuitPitLane({ length, half, wallOffset, point, offset, progress, signed, curvatureAt: s => curvature[index(s)] }) : null;
   const surface = (x, y) => {
     const q = nearest(x, y), d = q.d;
+    // The pit apron, and its entry and exit roads from the road edge.
+    if (pit && pit.side * q.offset < -half && pit.side * q.offset > -pit.outer && (s => s > pit.entry && s < pit.exit)(signed(ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f))) return 'pit';
     return d <= half ? 'asphalt' : d <= half + 1.2 && kerb[q.i] ? 'kerb' : d <= half + 8 ? 'runoff' : 'grass';
   };
   return {
-    kind: 'circuit', name, length, roadWidth, wallOffset, step, offset, surface, progress, point, pit: null,
+    kind: 'circuit', name, length, roadWidth, wallOffset, step, offset, surface, progress, point, pit,
     samples: { x: xs, y: ys, s: ss, heading: headings, curvature, kerb, line, lineStep, lineCurvature },
     heading: s => headings[index(s)], curvatureAt: s => curvature[index(s)],
     // Racing-line offset (m, + right) at arc length s, interpolated.
