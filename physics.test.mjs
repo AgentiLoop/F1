@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, tireWearGrip, updateTireWear, fitTires, TIRE_COMPOUNDS, Simulation, FIXED_DT }
+import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, tireWearGrip, updateTireWear, fitTires, carMass, TIRE_COMPOUNDS, Simulation, FIXED_DT }
   from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
@@ -707,4 +707,27 @@ test('softer compounds stop shorter and wear faster; fitTires fits a fresh set a
   for (const t of soft.tireTemp) assert.deepEqual(t, { surface: 100, carcass: 100 });
   assert.throws(() => fitTires(soft, 'wet'), RangeError);
   assert.equal(createCar().compound, 'medium');
+});
+
+test('fuel: burnt with crank work near the 100 kg/h limit at peak power, adds mass, and an empty tank starves drive', () => {
+  // Not modelled by default: no mass, no burn.
+  const plain = run(rollingCar(60), 2, { throttle: 1 });
+  assert.equal(plain.fuel, null);
+  assert.equal(carMass(plain), plain.config.mass);
+  const full = run(rollingCar(60, { fuelLoad: 50 }), 2, { throttle: 1 });
+  const flow = full.telemetry.powertrain.fuelFlow;
+  assert.ok(flow > 60 && flow < 101, `flow ${flow.toFixed(1)} kg/h`);
+  assert.ok(full.fuel < 50 && full.fuel > 49.9, `fuel ${full.fuel}`);
+  assert.equal(carMass(full), full.config.mass + full.fuel);
+  // Closed throttle burns nothing.
+  const coast = run(rollingCar(60, { fuelLoad: 50 }), 1, {});
+  assert.equal(coast.fuel, 50);
+  // The extra mass costs acceleration from the same speed.
+  const light = run(rollingCar(30, { fuelLoad: 1 }), 2, { throttle: 1 });
+  const heavy = run(rollingCar(30, { fuelLoad: 100 }), 2, { throttle: 1 });
+  assert.ok(light.telemetry.speed > heavy.telemetry.speed + 0.5, `${light.telemetry.speed} vs ${heavy.telemetry.speed}`);
+  // Empty: no drive whatever the pedal, the car only slows.
+  const dry = run(rollingCar(60, { fuelLoad: 0 }), 2, { throttle: 1 });
+  assert.ok(dry.telemetry.speed < 58, `speed ${dry.telemetry.speed}`);
+  assert.equal(dry.telemetry.powertrain.fuelFlow, 0);
 });

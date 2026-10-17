@@ -221,9 +221,32 @@ In 24 seeded 10-lap races (four seeds; default, hard-start and all-soft
 grids; with and without the rule) there was one car-to-car contact over 2 m/s.
 A stop costs ~15 s of race time here, about half a lap, which is a larger
 share of a lap than in F1 (~20 s on a ~90 s lap). Stops now reshuffle the
-order, and AI cars sometimes win. There is no fuel load, no tyre-change or
+order, and AI cars sometimes win. There is no tyre-change or
 wheel-gun failure model, no pit-lane speed trap timing, and no undercut logic
 beyond the planned lap.
+
+### Fuel load (`physics.mjs`, `race.mjs`, cycle 14)
+
+- `fuelLoad` (kg, default `null` = not modelled) sets `car.fuel`. The fuel adds
+  to the mass at the CG: wheel loads, body modes, acceleration, wall and
+  car-to-car impulses all use `carMass(car)`. Yaw inertia is unchanged.
+- Burn is proportional to positive crank work: `fuelPerJoule` 4.8e-8 kg/J gives
+  ~99 kg/h at the ~575 kW peak (the F1 flow limit is 100 kg/h). Coasting and
+  braking burn nothing (no idle flow). `telemetry.powertrain.fuel` / `fuelFlow`
+  (kg/h).
+- An empty tank starves the engine: no drive, whatever the pedal.
+- A race with a distance (`laps`) fuels every car for it, no refuelling:
+  laps x 0.38 kg (the autopilot's measured burn here, ~0.26 kg/km against
+  roughly 0.35 kg/km in a real Grand Prix) + 3% + a 1 kg reserve (the sample a
+  car must keep). `createRace({ fuel: false })` or a spec `car.fuelLoad`
+  overrides it. The HUD shows the fuel left; standings rows carry `fuel`.
+- Measured with the autopilot on this circuit: 40 kg costs only ~0.06 s on a
+  28.7 s lap (~0.015 s per 10 kg), much less than the ~0.3 s per 10 kg
+  usually quoted for a ~90 s Grand Prix lap: this stadium
+  lap is dominated by two drag-limited straights and two hairpins. In 12
+  seeded 10-lap races with the compound rule every car finished with
+  1.2-1.4 kg left and no car-to-car contact. A 10-lap race carries only
+  ~5 kg, so the effect grows with `?laps=N`.
 
 ### Driver input (`input.mjs`, cycle 7)
 
@@ -536,6 +559,14 @@ Cycle 13 tests:
 
 The finish, race, start, basic driving and 3D checks were rerun and pass. The
 finish check's row regex now allows the ` · 0 stops` suffix.
+
+Cycle 14 tests:
+- Fuel: none modelled by default; full throttle burns 60-101 kg/h; coasting
+  burns nothing; 100 kg costs acceleration against 1 kg; an empty tank gives
+  no drive.
+- A 10-lap race fuels every car for the distance (an explicit `fuelLoad` is
+  kept; no fuel without a distance or with `fuel: false`), and the burn over
+  ~1 lap is within 0.08 kg of the planned per-lap figure.
 
 Cycle 7 input tests (`input.test.mjs`): deadzone/curve shaping and monotonicity;
 keyboard throttle ramp identical at 1/240, 1/60 and 1/30 s frames; steering

@@ -259,3 +259,17 @@ test('pit lane: the limiter cuts drive, speeding costs a penalty, a car stopped 
   assert.equal(me.car.compound, 'hard');
   assert.ok(me.compounds.includes('medium') && me.compounds.includes('hard'));
 });
+
+test('a race with a distance fuels every car for it; the burn-off lightens the car', () => {
+  const race = createRace(track, { grid: [{ name: 'A', cornerSpeed: 43, brakeDecel: 26 }, { name: 'B', cornerSpeed: 43, brakeDecel: 26, car: { fuelLoad: 20 } }], laps: 10 });
+  const o = RACE_DEFAULTS, load = 10 * o.fuelPerLap * (1 + o.fuelMargin) + o.fuelReserve;
+  assert.ok(Math.abs(race.entries[0].car.fuel - load) < 1e-9 && Math.abs(race.entries[1].car.fuel - load) < 1e-9);
+  assert.equal(race.entries[2].car.fuel, 20); // an explicit load is kept
+  assert.equal(createRace(track, { grid: [], laps: 0 }).car.fuel, null);
+  assert.equal(createRace(track, { grid: [], laps: 5, fuel: false }).car.fuel, null);
+  for (let i = 0; i < 240 * 40; i++) race.advance(FIXED_DT, null, track.surfaceAt, track.barrierAt);
+  // About one lap: burn close to the planned per-lap figure.
+  const burnt = load - race.car.fuel, lap = race.entries[0].covered / track.length;
+  assert.ok(Math.abs(burnt / lap - o.fuelPerLap) < 0.08, `${(burnt / lap).toFixed(3)} kg/lap`);
+  assert.ok(race.standings().every(s => s.fuel > 0));
+});

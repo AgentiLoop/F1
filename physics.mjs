@@ -50,6 +50,11 @@ export const DEFAULT_CAR = Object.freeze({
   tireWearEnergy: 40e6, tireWearTempScale: 20, tireWearGripLoss: 0.08,
   tireCliffWear: 0.75, tireCliffGripLoss: 0.15, tireStartWear: 0,
   tireCompound: 'medium',
+  // Fuel (illustrative): fuelLoad kg on board at the start (null = not
+  // modelled: no mass, never runs dry), burnt in proportion to positive crank
+  // work (fuelPerJoule ≈ the 100 kg/h flow limit at peak power). The fuel adds
+  // to the mass at the CG; an empty tank starves the engine of drive.
+  fuelLoad: null, fuelPerJoule: 4.8e-8,
 });
 // Dry compounds (illustrative): peak-grip multiplier and wear-rate multiplier
 // relative to the medium. Softer rubber grips more and wears faster.
@@ -80,9 +85,13 @@ export function createCar(overrides = {}) {
     // FL, FR, RL, RR tread wear fraction (0 new, 1 worn out).
     tireWear: [0, 1, 2, 3].map(() => config.tireStartWear),
     compound: compoundOf(config.tireCompound),
+    fuel: config.fuelLoad,
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [], powertrain: null },
   };
 }
+
+// Total mass: the car (with driver) plus the fuel on board (kg).
+export const carMass = car => car.config.mass + (car.fuel ?? 0);
 
 function compoundOf(name) {
   if (!TIRE_COMPOUNDS[name]) throw new RangeError(`Unknown tire compound: ${name}`);
@@ -180,13 +189,13 @@ export function aeroMap(car) {
 }
 
 export function wheelLoads(car, downforce, frontShare = car.config.frontAero) {
-  const c = car.config;
-  const total = c.mass * 9.81 + downforce;
-  const front = clamp(c.mass * 9.81 * c.frontWeight + downforce * frontShare
-    - c.mass * car.ax * c.cgHeight / c.wheelbase, 0, total);
+  const c = car.config, m = carMass(car);
+  const total = m * 9.81 + downforce;
+  const front = clamp(m * 9.81 * c.frontWeight + downforce * frontShare
+    - m * car.ax * c.cgHeight / c.wheelbase, 0, total);
   const rear = total - front;
   // Quasi-static transfer split by roll stiffness (front-biased for stability).
-  const transfer = c.mass * car.ay * c.cgHeight / c.track;
+  const transfer = m * car.ay * c.cgHeight / c.track;
   const frontLeft = clamp(front / 2 - transfer * c.frontRollShare, 0, front);
   const rearLeft = clamp(rear / 2 - transfer * (1 - c.frontRollShare), 0, rear);
   return [frontLeft, front - frontLeft, rearLeft, rear - rearLeft];
@@ -197,7 +206,7 @@ export function wheelLoads(car, downforce, frontShare = car.config.frontAero) {
 // Pitch and heave set the ride heights of the aero map (next step's
 // downforce); wheel loads themselves stay quasi-static.
 export function updateBody(car, ax, ay, downforce, dt) {
-  const c = car.config, b = car.body, h = c.mass * c.cgHeight;
+  const c = car.config, b = car.body, m = carMass(car), h = m * c.cgHeight;
   const mode = (x, rate, force, k, inertia) => {
     const damping = 2 * c.bodyDampingRatio * Math.sqrt(k * inertia);
     const next = (rate + dt * (force - k * x) / inertia) / (1 + dt * damping / inertia + dt * dt * k / inertia);
@@ -205,7 +214,7 @@ export function updateBody(car, ax, ay, downforce, dt) {
   };
   [b.roll, b.rollRate] = mode(b.roll, b.rollRate, h * ay, c.rollStiffness, c.rollInertia);
   [b.pitch, b.pitchRate] = mode(b.pitch, b.pitchRate, -h * ax, c.pitchStiffness, c.pitchInertia);
-  [b.heave, b.heaveRate] = mode(b.heave, b.heaveRate, downforce, c.heaveStiffness, c.mass);
+  [b.heave, b.heaveRate] = mode(b.heave, b.heaveRate, downforce, c.heaveStiffness, m);
   return b;
 }
 
@@ -256,7 +265,7 @@ export function tireForce(longitudinalDemand, lateralSpeed, forwardSpeed, load, 
 // scrub along the wall, both coupled to yaw.
 // Returns the closing speed at the contact (m/s), 0 when nothing hits.
 export function resolveBarrier(car, barrierAt) {
-  const c = car.config, cos = Math.cos(car.heading), sin = Math.sin(car.heading);
+  const c = car.config, m = carMass(car), cos = Math.cos(car.heading), sin = Math.sin(car.heading);
   let hit = null, weight = 0, rx = 0, ry = 0;
   for (const [bx, by] of [[c.bodyFront, c.bodyHalfWidth], [c.bodyFront, -c.bodyHalfWidth],
     [-c.bodyRear, c.bodyHalfWidth], [-c.bodyRear, -c.bodyHalfWidth]]) {
@@ -276,12 +285,12 @@ export function resolveBarrier(car, barrierAt) {
   if (closing <= 0) return 0;
   const tx = -ny, ty = nx;
   const rn = rx * ny - ry * nx, rt = rx * ty - ry * tx;
-  const jn = (1 + c.wallRestitution) * closing / (1 / c.mass + rn * rn / c.yawInertia);
-  const jt = clamp(-(pvx * tx + pvy * ty) / (1 / c.mass + rt * rt / c.yawInertia),
+  const jn = (1 + c.wallRestitution) * closing / (1 / m + rn * rn / c.yawInertia);
+  const jt = clamp(-(pvx * tx + pvy * ty) / (1 / m + rt * rt / c.yawInertia),
     -c.wallFriction * jn, c.wallFriction * jn);
   const jx = jn * nx + jt * tx, jy = jn * ny + jt * ty;
-  car.vx += jx / c.mass;
-  car.vy += jy / c.mass;
+  car.vx += jx / m;
+  car.vy += jy / m;
   car.yawRate += (rx * jy - ry * jx) / c.yawInertia;
   car.impact = { speed: closing, time: car.time, x: car.x + rx, y: car.y + ry };
   return closing;
@@ -291,8 +300,9 @@ export function resolveBarrier(car, barrierAt) {
 // optional barrierAt (see resolveBarrier) stops the car at walls.
 export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrierAt = null) {
   if (!(Number.isFinite(dt) && dt > 0 && dt <= 1 / 60)) throw new RangeError('Use a positive timestep <= 1/60 s');
-  const c = car.config;
-  const throttle = clamp(input.throttle || 0, 0, 1);
+  const c = car.config, m = carMass(car);
+  // An empty tank starves the engine: no drive, whatever the pedal.
+  const throttle = car.fuel == null || car.fuel > 0 ? clamp(input.throttle || 0, 0, 1) : 0;
   const brake = clamp(input.brake || 0, 0, 1);
   const targetSteer = clamp(input.steer || 0, -1, 1) * c.maxSteer;
   car.steer += clamp(targetSteer - car.steer, -c.steerRate * dt, c.steerRate * dt);
@@ -329,6 +339,9 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const rpm = clutchLocked ? coupledRpm : Math.max(coupledRpm, engagedRpm);
   const crankTorque = shifting ? 0 : clutchLocked ? engineTorque(c, rpm, throttle)
     : Math.max(0, engineTorque(c, rpm, throttle));
+  // Fuel burnt by positive crank work (kg/s); none modelled without a load.
+  const fuelFlow = car.fuel == null ? 0 : Math.max(0, crankTorque) * rpm / RPM * c.fuelPerJoule;
+  if (fuelFlow > 0) car.fuel = Math.max(0, car.fuel - fuelFlow * dt);
   // Fuel cut also caps drive so a spinning axle cannot pass maxRpm within the
   // step (the tire only retards a forward-spinning wheel, so this is a bound).
   const axleTorque = Math.min(crankTorque * ratio * (crankTorque > 0 ? c.drivelineEfficiency : 1),
@@ -361,7 +374,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     const r = c.wheelRadius, inertia = c.wheelInertia;
     // Conservative diagonal body response for simultaneous contact impulses.
     // Implicit linear slip avoids explicit wheel-speed oscillations near rest.
-    const inverseMass = 4 / c.mass + 4 * (x * x + y * y) / c.yawInertia;
+    const inverseMass = 4 / m + 4 * (x * x + y * y) / c.yawInertia;
     const stiffness = c.longitudinalStiffness / Math.max(Math.abs(wheelU), c.slipSpeedFloor);
     let demand = -stiffness * wheelU / (1 + stiffness * dt * inverseMass);
     const lockedTorque = omega * inertia / dt + torque - r * demand;
@@ -402,18 +415,18 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
       resistanceTorque: (freeOmega - car.wheelOmega[i]) * inertia / dt };
   });
   // Apply drag to the post-contact velocity so braking plus drag cannot reverse it.
-  const nextU = u + fx / c.mass * dt;
-  const nextV = v + fy / c.mass * dt;
-  const dragFactor = 1 / (1 + 0.5 * c.airDensity * dragArea * Math.hypot(nextU, nextV) * dt / c.mass);
-  fx += nextU * (dragFactor - 1) * c.mass / dt;
-  fy += nextV * (dragFactor - 1) * c.mass / dt;
-  updateBody(car, fx / c.mass, fy / c.mass, downforce, dt);
+  const nextU = u + fx / m * dt;
+  const nextV = v + fy / m * dt;
+  const dragFactor = 1 / (1 + 0.5 * c.airDensity * dragArea * Math.hypot(nextU, nextV) * dt / m);
+  fx += nextU * (dragFactor - 1) * m / dt;
+  fy += nextV * (dragFactor - 1) * m / dt;
+  updateBody(car, fx / m, fy / m, downforce, dt);
   // Filter acceleration used by quasi-static transfer, not the integrated forces.
   const response = 1 - Math.exp(-dt / 0.05);
-  car.ax += (fx / c.mass - car.ax) * response;
-  car.ay += (fy / c.mass - car.ay) * response;
-  car.vx += (fx * cos - fy * sin) / c.mass * dt;
-  car.vy += (fx * sin + fy * cos) / c.mass * dt;
+  car.ax += (fx / m - car.ax) * response;
+  car.ay += (fy / m - car.ay) * response;
+  car.vx += (fx * cos - fy * sin) / m * dt;
+  car.vy += (fx * sin + fy * cos) / m * dt;
   car.yawRate += moment / c.yawInertia * dt;
   const finalU = car.vx * cos + car.vy * sin;
   const finalV = -car.vx * sin + car.vy * cos;
@@ -432,7 +445,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   car.distance += Math.hypot(car.vx, car.vy) * dt;
   car.telemetry = { speed: Math.hypot(car.vx, car.vy), downforce, drag, wheels, aero,
     powertrain: { gear: car.gear, rpm, crankTorque, axleTorque, clutchLocked, shifting, diffTransfer,
-      limiter: rpm > c.maxRpm - c.limiterBand } };
+      limiter: rpm > c.maxRpm - c.limiterBand, fuel: car.fuel ?? null, fuelFlow: fuelFlow * 3600 } };
   return car;
 }
 

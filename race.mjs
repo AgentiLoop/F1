@@ -5,7 +5,7 @@
 // telemetry: a close follower loses up to towDragLoss of its drag and
 // dirtyAirLoss of its downforce, decaying over wakeLength metres behind the
 // leader and wakeWidth metres either side of its centreline.
-import { step, createCar, fitTires, tireTempGrip, tireWearGrip, TIRE_COMPOUNDS, FIXED_DT, clamp } from './physics.mjs';
+import { step, createCar, carMass, fitTires, tireTempGrip, tireWearGrip, TIRE_COMPOUNDS, FIXED_DT, clamp } from './physics.mjs';
 import { createAutopilot } from './autopilot.mjs';
 
 export const RACE_DEFAULTS = Object.freeze({
@@ -28,6 +28,10 @@ export const RACE_DEFAULTS = Object.freeze({
   // and the spacing a car keeps to one ahead in the pit lane; a planned stop is
   // put off a lap when a car less than queueDistance (m) ahead is boxing.
   // A car leaving the pits rejoins only with mergeTime seconds of closing time.
+  // Fuel (illustrative): a race of N laps starts with N * fuelPerLap kg (the
+  // autopilot's burn on this circuit) plus fuelMargin of that and fuelReserve
+  // kg (the sample a car must still hold after the flag). No refuelling.
+  fuelPerLap: 0.38, fuelMargin: 0.03, fuelReserve: 1,
   pitDecel: 14, boxDecel: 5, stopTimeMin: 2.1, stopTimeMax: 3.2, boxWindow: 3, pitSpeedingPenalty: 5, pitWear: 0.6, pitGap: 8, pitHeadway: 1.2, queueDistance: 200,
 });
 
@@ -103,7 +107,7 @@ export function resolveCarContact(a, b, o = RACE_DEFAULTS) {
   const hit = overlap(a, b);
   if (!hit) return 0;
   const { nx, ny, depth } = hit; // n points from b towards a
-  const ma = a.config.mass, mb = b.config.mass, Ia = a.config.yawInertia, Ib = b.config.yawInertia;
+  const ma = carMass(a), mb = carMass(b), Ia = a.config.yawInertia, Ib = b.config.yawInertia;
   const share = mb / (ma + mb);
   a.x += nx * depth * share; a.y += ny * depth * share;
   b.x -= nx * depth * (1 - share); b.y -= ny * depth * (1 - share);
@@ -135,7 +139,9 @@ export function resolveCarContact(a, b, o = RACE_DEFAULTS) {
 // different compounds (so must stop at least once) or is disqualified; the AI
 // and the player's autopilot then plan one stop. Without it, cars stop only
 // when their tread wear passes pitWear (or the player requests a stop).
-export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false, laps = 0, compoundRule = false } = {}) {
+// fuel: in a race with a distance every car carries the fuel for it (unless
+// its car spec sets fuelLoad); the burn-off makes the cars lighter lap by lap.
+export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false, laps = 0, compoundRule = false, fuel = true } = {}) {
   const o = { ...RACE_DEFAULTS, ...options };
   const rand = random(start?.seed ?? (Math.random() * 2 ** 32));
   const lightsOn = start ? 5 * o.lightInterval : 0;
@@ -145,6 +151,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
   const entries = [{ name: 'You', player: true, cornerSpeed: 43, brakeDecel: 26, tyres: ['medium', 'hard'], ...player }, ...grid].map((spec, i) => {
     const car = createCar(spec.car), tyres = spec.tyres ?? ['medium', 'hard'];
     fitTires(car, tyres[0]);
+    if (fuel && laps && spec.car?.fuelLoad === undefined) car.fuel = laps * o.fuelPerLap * (1 + o.fuelMargin) + o.fuelReserve;
     const lane = i === 0 ? 0 : (i % 2 ? -1 : 1) * 2.6;
     car.x = i ? -8 * i : 0; car.y = -(radius + lane); // pole at x = 0 (not -0)
     const p = track.progress(car.x, car.y);
@@ -404,7 +411,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     standings() {
       return [...entries].sort((a, b) => b.covered - a.covered).map((e, k) => ({
         position: k + 1, name: e.name, player: !!e.player, index: e.index, penalty: e.penalty, jumpStart: e.jumpStart, reaction: e.reaction,
-        compound: e.car.compound, stops: e.stops.length, pit: e.pit?.phase ?? null,
+        compound: e.car.compound, stops: e.stops.length, pit: e.pit?.phase ?? null, fuel: e.car.fuel,
         lap: Math.max(0, Math.floor(e.covered / length)) + 1, covered: e.covered,
         gap: k === 0 || e.milestone === undefined ? 0 : e.milestoneTime - (passTimes.get(e.milestone) ?? e.milestoneTime),
       }));
