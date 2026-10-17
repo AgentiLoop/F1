@@ -529,9 +529,13 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       // (pitHeadway s plus pitGap m), which keeps a queue from concertinaing.
       // (On a circuit only from the pit entry: before it the car is still racing
       // through the last corners, where ordinary following applies.)
+      // Entry paths converge even from different racing lanes. Establish the
+      // ordinary following gap before the lateral separation disappears.
+      const approach = circuit && e.pit.phase === 'in' ? others.reduce((m, x) => x.pitIn && x.gap > 0 && x.gap < lookAhead
+        ? Math.min(m, follow(x.speed, x.gap - o.followGap)) : m, Infinity) : Infinity;
       const queue = circuit && s < pit.entry ? Infinity : others.reduce((m, x) => x.gap > 0 && x.gap < lookAhead && (x.pitIn || x.pitOffset < -pit.inner) && x.pitOffset > pit.boxOffset + 1.5
         ? Math.min(m, Math.max(0, x.gap - o.pitGap) / o.pitHeadway) : m, Infinity);
-      return e.drive(car, { offset: path, maxSpeed: Math.min(cap(along, null, pitList, circuit || canMove), occupied, queue, limit, boxCap, bendCap), grip });
+      return e.drive(car, { offset: path, maxSpeed: Math.min(cap(along, null, pitList, circuit || canMove), occupied, approach, queue, limit, boxCap, bendCap), grip });
     }
     // On a circuit a passing lane is only offered where the road edge leaves
     // it at least 80% of passLane from the racing line for laneRoomAhead
