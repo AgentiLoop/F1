@@ -5,7 +5,14 @@ export const DEFAULT_CAR = Object.freeze({
   cgHeight: 0.3, frontWeight: 0.46, frontAero: 0.40, frontRollShare: 0.58,
   airDensity: 1.225, downforceArea: 5.0, dragArea: 1.25,
   // Stiffer rear tires (wider, more loaded) give mild understeer at the limit.
-  tireMu: 1.65, loadSensitivity: 0.08, corneringStiffness: 85000, rearCorneringStiffness: 115000,
+  // Cornering stiffness is quoted at the static wheel load and grows with load
+  // as (load / static)^stiffnessLoadExponent, so a loaded outside tire (or one
+  // pressed down by downforce) builds force at a smaller slip angle than a
+  // light inside one, and both reach their peak nearly together. tireMu is set so the
+  // circuit autopilot's corner speeds come close to the 2024 race telemetry
+  // (OpenF1), where the cars pull ~2.5 g in slow corners and 4.5-5 g in fast ones.
+  tireMu: 2.1, loadSensitivity: 0.08, corneringStiffness: 85000, rearCorneringStiffness: 115000,
+  stiffnessLoadExponent: 0.8,
   slidingGripRatio: 0.85, slidingFalloff: 3,
   longitudinalStiffness: 100000, wheelRadius: 0.33, wheelInertia: 1.6,
   slipSpeedFloor: 1, relaxationLength: 0.45, relaxationSpeedFloor: 5,
@@ -452,7 +459,8 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     const kinematicSlip = steadySlipAngle(wheelV, wheelU);
     car.slipAngle[i] = relaxSlipAngle(car.slipAngle[i], kinematicSlip, Math.hypot(wheelU, wheelV), c, dt);
     const tire = tireForce(demand, wheelV, wheelU, loads[i], grip * compound.grip * tempGrip * wearGrip, c, dt, car.slipAngle[i],
-      front ? c.corneringStiffness : c.rearCorneringStiffness);
+      (front ? c.corneringStiffness : c.rearCorneringStiffness)
+        * Math.pow(Math.max(loads[i], 1) / (c.mass * 9.81 * (front ? c.frontWeight : 1 - c.frontWeight) / 2), c.stiffnessLoadExponent));
     tire.kinematicSlipAngle = kinematicSlip;
     // Include contact translation and yaw in the low-speed lateral bound.
     const lateralLimit = Math.abs(wheelV) / (dt * inverseMass);

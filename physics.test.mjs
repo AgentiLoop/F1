@@ -342,7 +342,8 @@ test('high-slip braking converges and falloff lengthens locked-wheel stops', () 
   };
   const fine = stop(1 / 960, 0.75), normal = stop(1 / 240, 0.75), coarse = stop(1 / 60, 0.75);
   assert.ok(Math.abs(normal - fine) < Math.abs(coarse - fine));
-  assert.ok(Math.abs(normal - fine) / fine < 0.02);
+  // 2.3% at the default grip (tireMu 2.1): the shorter stop leaves fewer steps.
+  assert.ok(Math.abs(normal - fine) / fine < 0.025);
   assert.ok(normal > stop(1 / 240, 1) * 1.15);
 });
 
@@ -394,14 +395,28 @@ test('slip relaxation decays by e per relaxation length independent of timestep'
 const stepSteer = (overrides, dt = FIXED_DT, speed = 50) => {
   // Closed-throttle engine braking off: isolates the tire transient from shifts.
   const car = rollingCar(speed, { dragArea: 0, rollingResistance: 0, engineBrakeTorque: 0, ...overrides });
-  car.steer = 0.05;
+  car.steer = 0.02;
   const frontForce = [];
   for (let i = 0; i < Math.round(1.5 / dt); i++) {
-    step(car, { steer: 0.05 / car.config.maxSteer }, dt);
+    step(car, { steer: 0.02 / car.config.maxSteer }, dt);
     frontForce.push(car.telemetry.wheels[0].fy + car.telemetry.wheels[1].fy);
   }
   return { car, frontForce };
 };
+
+test('cornering stiffness grows with wheel load: the loaded outside front builds more force per radian', () => {
+  const corner = overrides => {
+    const car = rollingCar(60, { dragArea: 0, rollingResistance: 0, engineBrakeTorque: 0, ...overrides });
+    for (let i = 0; i < 360; i++) step(car, { steer: 0.006 / car.config.maxSteer, throttle: 0.2 });
+    const [inner, outer] = car.telemetry.wheels[0].load < car.telemetry.wheels[1].load ? car.telemetry.wheels : [car.telemetry.wheels[1], car.telemetry.wheels[0]];
+    return { loads: outer.load / inner.load, stiffness: (outer.fy / outer.slipAngle) / (inner.fy / inner.slipAngle) };
+  };
+  // Small slip: the envelope is nearly linear, so force per radian is the stiffness.
+  const scaled = corner({}), fixed = corner({ stiffnessLoadExponent: 0 });
+  assert.ok(scaled.loads > 1.1, `load ratio ${scaled.loads}`);
+  near(scaled.stiffness, scaled.loads ** 0.8, 0.03 * scaled.stiffness);
+  near(fixed.stiffness, 1, 0.03);
+});
 
 test('step steer builds front force over the relaxation length', () => {
   const lagged = stepSteer({});

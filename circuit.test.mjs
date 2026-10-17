@@ -97,6 +97,26 @@ test('layouts rebuilt from real car positions have corners as open as the real o
   }
 });
 
+test('time-trial laps come within 8% of the fastest 2024 race laps, on the racing line', () => {
+  // Fastest real race laps (OpenF1 2024 laps; Silverstone 2023). With
+  // tireMu 1.65 and load-independent cornering stiffness these laps were
+  // 84.2, 104.4, 93.1 and 95.4 s, and ran up to 5.7 m off the line.
+  for (const [key, real] of [['monaco', 73.9], ['silverstone', 88.0], ['monza', 81.2], ['hungaroring', 80.6]]) {
+    const track = createCircuitTrack(CIRCUITS[key]), sim = createTimeTrial(track), timer = createLapTimer(track, { lineProgress: 0 });
+    let offLine = 0;
+    for (let i = 0; i < 60 * 150 && !timer.state.lastLap; i++) {
+      sim.advance(1 / 60, null);
+      timer.update(sim.car);
+      const s = track.progress(sim.car.x, sim.car.y);
+      if (timer.state.started) offLine = Math.max(offLine, Math.abs(track.offset(sim.car.x, sim.car.y) - track.lineOffset(s)));
+    }
+    const lap = timer.state.lastLap;
+    assert.ok(lap?.valid, `${key}: lap within track limits`);
+    assert.ok(lap.time < real * 1.08 && lap.time > real * 0.97, `${key}: lap ${lap.time.toFixed(2)} s, real ${real} s`);
+    assert.ok(offLine < 2.5, `${key}: ${offLine.toFixed(2)} m off the racing line`);
+  }
+});
+
 test('the circuit autopilot holds the line through Spa\'s Blanchimont at ~300 km/h and its lap stays within track limits', () => {
   const track = createCircuitTrack(CIRCUITS.spa), sim = createTimeTrial(track), timer = createLapTimer(track, { lineProgress: 0 });
   let maxOffset = 0;

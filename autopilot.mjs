@@ -14,7 +14,7 @@ import { clamp } from './physics.mjs';
 // the road edge; a path function (the pit lane) is followed as given.
 export function createCircuitAutopilot(track, tuning = {}) {
   const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100, edgeMargin: 2, laneSmoothing: 100, lateBrake: 1.2, recoverySpeed: 8, coastThrottle: 0.15, coastSpeed: 15,
-    slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ersPlan: true, ersReserve: 0.5, ...tuning };
+    slipTarget: 0.1, slipBand: 0.15, rearDemand: 1.6, rearDemandBand: 0.8, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ersPlan: true, ersReserve: 0.5, ...tuning };
   const { lineCurvature: curvature, lineStep } = track.samples, n = curvature.length, step = track.length / n;
   let plan = null;
   // Deceleration (m/s²) the plan brakes at from speed v: brakeGrip of the tire
@@ -166,6 +166,7 @@ export function createCircuitAutopilot(track, tuning = {}) {
     const wheels = car.telemetry.wheels, rearSlip = wheels.length ? Math.max(wheels[2].slipRatio ?? 0, wheels[3].slipRatio ?? 0) : 0;
     const slipAt = k => wheels.length ? Math.abs(wheels[k].slipAngle ?? 0) : 0;
     const rearAlpha = Math.max(slipAt(2), slipAt(3)), frontAlpha = Math.max(slipAt(0), slipAt(1));
+    const rearDemand = wheels.length ? Math.max(wheels[2].combinedDemand ?? 0, wheels[3].combinedDemand ?? 0) : 0;
     const traction = clamp(1 - (rearSlip - t.slipTarget) / t.slipBand, 0.15, 1) * clamp(1 - (rearAlpha - t.rearSlide) / t.slideBand, 0, 1);
     // Understeer only when the fronts slide more than the rears: in a spin
     // the fronts slide too, and holding the lock then would block the catch.
@@ -176,7 +177,14 @@ export function createCircuitAutopilot(track, tuning = {}) {
       // which cancels the engine braking: lifting fully (to catch a slide, or
       // just over the target in traffic) would snap the rear loose mid-corner.
       throttle: understeer ? 0 : Math.max(err > 0 ? clamp(err / 3, 0, 1) * traction : 0, err >= -1 && speed > t.coastSpeed ? t.coastThrottle : 0),
-      brake: err < -1 ? clamp(-err / 8, 0, 1) : 0,
+      // Brake release as the rears saturate while sliding sideways (combined
+      // demand past rearDemand, the envelope peaking at 2, with the rear slip
+      // angle past half of rearSlide): braking into a turn with the load gone
+      // forward slides the rear and spins the car, so the pedal eases off, by
+      // up to 70% over rearDemandBand, as a driver modulates it (F1 cars have
+      // no ABS). Braking in a straight line is left alone.
+      brake: err < -1 ? clamp(-err / 8, 0, 1) * (1 - 0.7 * clamp((rearDemand - t.rearDemand) / t.rearDemandBand, 0, 1)
+        * clamp((rearAlpha - t.rearSlide / 2) / (t.rearSlide / 2), 0, 1)) : 0,
       ers: ersCommand(car, s),
     };
   };

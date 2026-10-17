@@ -789,6 +789,77 @@ browser check's "every car above 15 m/s at about 12 s" step catches the field
 inside La Source, whose planned apex speed is about 12 m/s, so it does not
 apply there.)
 
+### Grip calibrated against real corner speeds (`physics.mjs`, `autopilot.mjs`, cycle 33)
+
+With the real layouts in place (cycle 32), the lap-time gap was down to the
+car. Its top speeds matched the 2024 race telemetry, but the circuit
+autopilot took slow corners at 0.8–0.9 of the real speed and medium and fast
+ones at 0.6–0.85. On the real line's radius the real speeds work out at about
+2.5 g in slow corners and 4.5–5 g in fast ones. On a constant-radius test the
+car itself (not just the autopilot's margin) held at most 1.6 g at 18 m/s and
+2.8 g at 57 m/s:
+
+* **Cornering stiffness grows with load.** It was a constant 85 / 115 kN/rad
+  per front / rear tire, so the lightly loaded inside tire reached its slip
+  limit long before the loaded outside one. At 72 m/s through Silverstone's
+  fast corners the inside front ran at a combined demand of 4–5 (the envelope
+  peaks at 2) while the outside one was at 1.2–1.3, and the car understeered
+  off the line
+  (up to 5.7 m on a timed lap, and off the road with more grip). The constants
+  are now quoted at the static wheel load and scale by
+  `(load / static)^stiffnessLoadExponent` (0.8), so both tires on an axle
+  peak at nearly the same slip angle, and a tire pressed down by downforce
+  is stiffer.
+* **`tireMu` 1.65 → 2.1.** Raised so the autopilot's corner speeds (same 0.74
+  margin) come close to the real ones. Downforce (5.0 m² ClA), drag and power
+  are unchanged. Raising downforce to 6 m² as well (with `tireMu` 2.0) ran
+  the time-trial car off at Silverstone. Moving the aero balance forward to
+  the weight split (0.40 → 0.44, tried before the stiffness change) made the
+  car snap loose and leave the road at Spa, Silverstone and Yas Marina, so it
+  stays at 0.40.
+* **The AI eases off the brake as the rears slide.** With more grip the cars
+  brake harder into turns, and in the races a car braking into a turn behind
+  another (in its dirty air, the load gone forward) slid its rears and spun
+  (Bahrain 8–12 spins a car in 6 laps, Silverstone a car stuck against the
+  wall and a 9 m/s hit). The circuit autopilot now cuts the brake by up to 70%
+  once a rear tire's combined demand passes 1.6 (the envelope peaks at 2) while
+  its slip angle is past half of `rearSlide`. Braking in a straight line is
+  left alone: releasing there cost a rear-end into a car slowing for Ascari at
+  Monza. Releasing on any locked wheel overshot Bahrain's turn 4 by 9 m.
+
+**Results** (Node, seeded runs; before → after)
+
+| Check | Result |
+|---|---|
+| Gap to the fastest 2024 race laps, 18 circuits (first flying time-trial lap) | 17.9% → 5.8%: Monaco 84.2 → 74.4 s (real 73.9), Silverstone 104.4 → 92.8 (88.0), Monza 93.1 → 85.8 (81.2), Jeddah 114.3 → 104.0 (91.2) |
+| Corner speed / real speed, median of the circuits (range) | slow 0.83 (0.77–1.35) → 0.95 (0.88–1.39); medium 0.72 (0.56–1.04) → 0.85 (0.65–1.24); fast 0.66 (0.58–1.04) → 0.87 (0.71–1.12) |
+| Most a time-trial car strays off the line | 0.8–6.1 m → 1.2–2.1 m |
+| Lap 1, 18 circuits × 5 starts | 0 contacts and wall hits before and after; slowest car 6.3–19.0 → 9.8–20.4 m/s; time cars spent below 60% of their plan speed 1.9 → 0.0 s |
+| 6-lap races, 18 circuits × 2 seeds | all finish, 0 contacts, walls, spins or offs; position changes 39 → 59 |
+| 3-lap races with the compound rule, 18 circuits | all finish with no spins or wall hits; one 1.3 m/s touch at Monza's pit entry, where two pitting cars arrive side by side (no contact before) |
+| Faster car (+3 m/s corner speed) behind a slower one, 18 circuits | passes 8 → 6, no contact |
+| Browser | Monza time trial and Red Bull Ring race with a pit stop pass |
+
+Tests: the time-trial laps at Monaco, Silverstone, Monza and the Hungaroring
+are within 8% of the real fastest race laps and within 2.5 m of the line
+(fails before: Monaco 84.25 s against 73.9); the loaded outside front's force
+per radian is (load ratio)^0.8 times the inside one's. Three tests changed: the
+step-steer relaxation test uses 0.02 rad (0.05 rad now reaches the nonlinear
+part of the envelope with the stiffer loaded fronts); the locked-wheel stop is
+allowed 2.5% between 240 Hz and 960 Hz (2.3% now; the stop is shorter); and the
+Monza closing test gives the faster car 44 against 43 (Kovač's 43.6 closes to
+0.3–0.5 s and no longer gets by in four laps) and checks the closest gap. 147
+Node tests pass.
+
+**Limits:** the remaining gap is mostly medium and fast corners at Jeddah,
+Zandvoort, Yas Marina and the Red Bull Ring (0.65–0.85 of real), and Monaco's
+slow corners are now at real speed or slightly faster. `tireMu` 2.1 is a
+fitted number for this hand-shaped envelope with a 0.74 autopilot margin, not
+a measured tire coefficient. The time trial has no fuel on board. Passing on
+the real layouts is still harder than it should be: at Monza a faster car
+hovers 0.2–0.4 s behind with DRS open, swapping passing lanes down the
+straight where the line runs near the road edge.
+
 ### Real circuit geometry from car positions (`circuits.mjs`, `race.mjs`, cycle 32)
 
 The GeoJSON traces (cycle 15) put each circuit in roughly the right place, but
@@ -1105,6 +1176,7 @@ coordinates are right-handed, with body x forward, y left, and positive yaw left
   act on wheels; longitudinal slip generates contact force on the chassis.
 - Load-sensitive grip with a combined longitudinal/lateral demand envelope that
   rises to a peak and falls smoothly to a lower sliding force (see below).
+  Cornering stiffness grows with wheel load (exponent 0.8, cycle 33).
 - Speed-squared aerodynamic load; drag integrated dissipatively after contact
   impulses to avoid reversing a nearly stopped car under braking.
 - Ride-height aero map (`aeroMap`): front/rear ride heights from the sprung
@@ -1281,14 +1353,17 @@ stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 * Locked-wheel stop from 30 m/s: falloff lengthens the stop by more than 15%
   versus a no-falloff envelope. Measured 30.71 m at 240 Hz vs 31.12 m at
   960 Hz (1.3%); the test bound is 2%, so high-slip braking is less converged
-  than straight-line acceleration.
+  than straight-line acceleration. (Since cycle 33, with `tireMu` 2.1, the
+  stop differs by 2.3% and the bound is 2.5%.)
 * Cycle 4 relaxation: exactly e-fold decay per relaxation length at 240 and 960
   Hz substeps; near-rest floor speed. Step steer at 50 m/s: first-step front force
   is 43% of the instantaneous-tire force (bound 30–45%), 98% after 5 steps, and
   settled yaw rate within 1.8% of the instantaneous tire after 1.5 s (bound 2%).
   63% rise time 13.5 ms at 15 m/s vs 5.2 ms at 60 m/s (ratio 2.6, bound 2.5–5;
   coupled chassis response keeps it below the ideal 4). 240 vs 960 Hz step
-  steer: yaw rate 0.43%, lateral displacement 0.55% apart.
+  steer: yaw rate 0.43%, lateral displacement 0.55% apart. (Since cycle 33
+  the first-step test steers 0.02 rad, which keeps the stiffer loaded fronts
+  in the near-linear part of the envelope.)
 
 Cycle 6 thermal tests: thermal grip peaks at 100 °C, is symmetric and floors at
 0.8; the two-node model matches its analytic steady state within 0.01 °C at
