@@ -54,6 +54,19 @@ test('every bundled circuit matches its official length and its racing line plan
   }
 });
 
+test('no traced corner is tighter than minRadius, so every racing line stays wider than the car\'s turning circle', () => {
+  const { wheelbase, maxSteer } = createCar().config, turning = wheelbase / Math.tan(maxSteer);
+  for (const [key, c] of Object.entries(CIRCUITS)) {
+    const t = createCircuitTrack(c), { curvature, lineCurvature } = t.samples;
+    const centre = 1 / Math.max(...curvature.map(Math.abs)), racing = 1 / Math.max(...lineCurvature.map(Math.abs));
+    assert.ok(centre > 14.5, `${key} centreline radius ${centre.toFixed(1)} m`);
+    assert.ok(racing > turning, `${key} racing-line radius ${racing.toFixed(1)} m vs turning circle ${turning.toFixed(1)} m`);
+  }
+  // With the limit off, Monaco's traced Sainte Dévote is a radius the car cannot steer round.
+  const raw = createCircuitTrack({ ...CIRCUITS.monaco, minRadius: 0 });
+  assert.ok(1 / Math.max(...raw.samples.lineCurvature.map(Math.abs)) < turning);
+});
+
 test('the circuit autopilot laps Monza on the road at a plausible pace', () => {
   const track = createCircuitTrack(CIRCUITS.monza), sim = createTimeTrial(track), timer = createLapTimer(track, { lineProgress: 0 });
   let maxOffset = 0, top = 0;

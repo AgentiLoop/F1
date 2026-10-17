@@ -82,7 +82,7 @@ function racingLine(xs, ys, headings, limit) {
 }
 
 export function createCircuitTrack({ name = 'Circuit', points, length: officialLength, roadWidth = 13, wallOffset = roadWidth / 2 + 12,
-  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6 }) {
+  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15 }) {
   const pairs = points.length && typeof points[0] === 'number' ? Array.from({ length: points.length / 2 }, (_, i) => [points[2 * i], points[2 * i + 1]]) : points;
   let poly = spline(pairs, step);
   const polyLength = () => poly.reduce((L, a, i) => { const b = poly[(i + 1) % poly.length]; return L + Math.hypot(b[0] - a[0], b[1] - a[1]); }, 0);
@@ -92,10 +92,40 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     poly = poly.map((p, i) => { const a = poly[(i - 1 + poly.length) % poly.length], b = poly[(i + 1) % poly.length]; return [0.5 * p[0] + 0.25 * (a[0] + b[0]), 0.5 * p[1] + 0.25 * (a[1] + b[1])]; });
   }
   // Scale about the start point to the official length, then resample evenly.
-  const scale = officialLength ? officialLength / polyLength() : 1, [ox, oy] = poly[0];
-  poly = poly.map(([x, y]) => [ox + (x - ox) * scale, oy + (y - oy) * scale]);
-  const count = Math.round(polyLength() / step);
-  poly = resample(poly, count);
+  const scaleTo = () => {
+    const scale = officialLength ? officialLength / polyLength() : 1, [ox, oy] = poly[0];
+    poly = poly.map(([x, y]) => [ox + (x - ox) * scale, oy + (y - oy) * scale]);
+    poly = resample(poly, Math.round(polyLength() / step));
+  };
+  scaleTo();
+  // Traced hairpins can come out tighter than a car can turn (or than the
+  // racing line can follow inside them). Where a sample turns more than
+  // step/minRadius, the excess turn is passed on to its neighbours (the total
+  // turn of each corner is kept, so it just becomes rounder), the path is
+  // rebuilt from the new headings, its closing gap spread along the lap,
+  // and the result rescaled to the lap length.
+  if (minRadius > 0) {
+    const m = poly.length, P = i => poly[(i + m) % m], ds = [], h = [], turn = new Float64Array(m);
+    for (let i = 0; i < m; i++) { const a = P(i), b = P(i + 1); ds.push(Math.hypot(b[0] - a[0], b[1] - a[1])); h.push(Math.atan2(b[1] - a[1], b[0] - a[0])); }
+    for (let i = 0; i < m; i++) { const d = h[i] - h[(i - 1 + m) % m]; turn[i] = Math.atan2(Math.sin(d), Math.cos(d)); }
+    for (let pass = 0, over = 1; pass < 20000 && over > 1e-7; pass++) {
+      over = 0;
+      for (let i = 0; i < m; i++) {
+        const limit = (ds[i] + ds[(i - 1 + m) % m]) / 2 / minRadius, e = turn[i] - Math.sign(turn[i]) * limit;
+        if (Math.abs(turn[i]) <= limit) continue;
+        over = Math.max(over, Math.abs(e));
+        turn[i] -= e; turn[(i - 1 + m) % m] += e / 2; turn[(i + 1) % m] += e / 2;
+      }
+    }
+    const out = [poly[0]];
+    for (let i = 0, heading = h[0]; i < m - 1; i++) {
+      if (i) heading += turn[i];
+      out.push([out[i][0] + ds[i] * Math.cos(heading), out[i][1] + ds[i] * Math.sin(heading)]);
+    }
+    const last = out[m - 1], end = [last[0] + ds[m - 1] * Math.cos(h[0] - turn[0]), last[1] + ds[m - 1] * Math.sin(h[0] - turn[0])];
+    poly = out.map(([x, y], i) => [x - (end[0] - poly[0][0]) * i / m, y - (end[1] - poly[0][1]) * i / m]);
+    scaleTo();
+  }
   const n = poly.length, xs = new Float64Array(n), ys = new Float64Array(n), ss = new Float64Array(n + 1);
   poly.forEach(([x, y], i) => { xs[i] = x; ys[i] = y; });
   for (let i = 0; i < n; i++) ss[i + 1] = ss[i] + Math.hypot(xs[(i + 1) % n] - xs[i], ys[(i + 1) % n] - ys[i]);

@@ -521,10 +521,45 @@ illustrative, not FIA zone maps or wind-tunnel data.
   inside. There is still no defending, covering the inside or passing around
   the outside. Equal cars rarely pass, because dirty air (up to ~15% downforce
   at 20 m) costs the follower about what the tow and DRS give back.
-- **Monaco note:** at Ste Dévote the traced centreline has a radius of about
-  8 m, tighter than the car's turning circle. Every car runs wide at ~6 m/s on
-  lap 1 and the field crawls round. This comes from the track data and also
-  caused the earlier touch.
+- **Monaco note:** at Ste Dévote the traced centreline had a radius of about
+  8 m, tighter than the car's turning circle. Every car ran wide at ~6 m/s on
+  lap 1 and the field crawled round. Cycle 24 (below) fixes this in the track
+  model.
+
+### Minimum corner radius for traced circuits (`circuit.mjs`, cycle 24)
+
+- **Problem:** the GeoJSON traces make some corners tighter than any F1 corner.
+  Monaco's Ste Dévote came out at a 7.7 m centreline radius. Its racing line
+  turned at 2.9 m, against a kinematic turning circle of 9.0 m (wheelbase
+  3.6 m / tan 0.38 rad full lock). Bahrain, COTA, Shanghai, Mexico, Yas Marina,
+  the Red Bull Ring and Miami also had 8–12 m centrelines and 5–7 m racing
+  lines. The real tightest corner, Monaco's Fairmont hairpin, is about a 10 m
+  radius, taken at ~14 m/s.
+- **Fix:** `createCircuitTrack({ minRadius = 15 })`. After scaling, any sample
+  that turns more than its spacing / `minRadius` gives the excess turn to its
+  neighbours, repeated until no sample does. The total turn of each corner is
+  kept, so a too-tight corner just becomes rounder. The path is rebuilt from
+  the new headings, the small closing gap is spread along the lap, and the
+  track is rescaled to the official length. `minRadius: 0` turns this off.
+  Corners already wider than 15 m are left alone. (A first try that smoothed
+  only the tight samples cut hairpins into a V with kinks at both ends.)
+- **Result:** every centreline is now at least 15 m and every racing line at
+  least 10.0 m (Monaco; was 2.9 m), all wider than the turning circle.
+- **Measured, time trial (2nd flying lap):** Monaco 94.20 → 91.05 s, Bahrain
+  113.52 → 112.75 s, COTA 125.82 → 125.30 s, Yas Marina 108.30 → 107.68 s,
+  Mexico 96.43 → 96.05 s. All others moved by 0.2 s or less (Monza 95.55 →
+  95.42 s, Silverstone 113.42 s, Spa 125.83 → 125.78 s). No lap left the road.
+- **Measured, races:**
+  - All 18 circuits, 3 laps, full field: no contact and no wall impact. The
+    Monaco lap-1 touch (1.3 m/s) is gone, and the Monaco race took 292 s
+    (was 308 s).
+  - 2-car pace pairs on all 18 circuits: 24 of 54 passes (was 22), none with
+    contact. Bahrain now sees passes at Turn 1 with +2 and +3 m/s. At Monaco
+    the faster car now runs 0.7–0.9 s behind (was 2–3 s) but still cannot pass.
+- **Assumption:** 15 m is a chosen floor, not survey data, a little above the
+  low-teens centreline radius usually given as the practical minimum for an F1
+  hairpin. It leaves a 10 m racing line at Monaco, close to the Fairmont
+  hairpin.
 
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
@@ -554,8 +589,8 @@ AI field for a race (cycle 17, below). There is no pit lane on real circuits yet
   solved by relaxation from coarse to fine. On every bundled circuit its ideal
   speed plan is about 10–18% faster than the centreline's. It is the classic geometric
   line. It does not trade curvature for longer braking or earlier throttle the
-  way a true minimum-time line does. In hairpins tighter than the traced
-  width, it can cut a tighter apex than the centreline.
+  way a true minimum-time line does. In hairpins it can cut a tighter apex
+  than the centreline; since cycle 24 no line is tighter than 10 m.
 * **Autopilot (`createCircuitAutopilot`):** pure pursuit on the racing line.
   Corner speed comes from v²|κ| = 0.74·μ·(g + q·v²), where q is the
   downforce-to-mass term, so fast corners with downforce are taken flat. A
@@ -1047,6 +1082,12 @@ Interlagos race a car 2 m/s faster in corners must get alongside on the inside
 under braking and win, while the slower car moves to the outside lane, without
 contact. Both new tests use functions the cycle 22 code does not have. All 134
 Node tests pass. The circuit-race, race and DRS browser checks pass.
+
+Cycle 24 corner-radius test (`circuit.test.mjs`): every bundled circuit's
+centreline radius is above 14.5 m and its racing line wider than the car's
+turning circle (wheelbase / tan(maxSteer)). With `minRadius: 0`, Monaco's
+racing line is tighter than the turning circle. All 135 Node tests pass, and
+the circuit browser check passes.
 
 ## Next realism milestones
 
