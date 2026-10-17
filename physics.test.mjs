@@ -6,6 +6,15 @@ const run = (car, seconds, input, surface) => {
   for (let i = 0; i < Math.round(seconds / FIXED_DT); i++) step(car, input, FIXED_DT, surface);
   return car;
 };
+const rollingCar = (speed, overrides = {}) => {
+  const car = createCar(overrides);
+  car.vx = speed;
+  car.wheelOmega.fill(speed / car.config.wheelRadius);
+  return car;
+};
+const kineticEnergy = c => c.config.mass * (c.vx ** 2 + c.vy ** 2) / 2
+  + c.config.yawInertia * c.yawRate ** 2 / 2
+  + c.wheelOmega.reduce((sum, omega) => sum + c.config.wheelInertia * omega ** 2 / 2, 0);
 const near = (a, b, tolerance = 1e-9) => assert.ok(Math.abs(a - b) <= tolerance, `${a} != ${b}`);
 
 test('rest is stable, including applied brakes and steering', () => {
@@ -58,7 +67,7 @@ test('combined tire demand stays inside the friction circle', () => {
 
 test('braking stops without reversing and lower grip lengthens the stop', () => {
   const stop = grip => {
-    const c = createCar(); c.vx = 50;
+    const c = rollingCar(50);
     for (let i = 0; i < 2400 && c.vx > 0.01; i++) {
       const previous = c.vx;
       step(c, { brake: 1 }, FIXED_DT, () => grip);
@@ -79,9 +88,9 @@ test('left and right steering are mirrored', () => {
   near(a.x, b.x); near(a.y, -b.y); near(a.heading, -b.heading);
 });
 
-test('coasting dissipates energy', () => {
-  const c = createCar(); c.vx = 60; c.vy = 5; c.yawRate = 0.1;
-  const energy = () => c.config.mass * (c.vx ** 2 + c.vy ** 2) / 2 + c.config.yawInertia * c.yawRate ** 2 / 2;
+test('coasting dissipates chassis and wheel energy', () => {
+  const c = rollingCar(60); c.vy = 5; c.yawRate = 0.1;
+  const energy = () => kineticEnergy(c);
   for (let i = 0; i < 2400; i++) {
     const before = energy(); step(c);
     assert.ok(energy() <= before + 1e-6);
@@ -115,6 +124,104 @@ test('mixed inputs remain finite through a two-minute stress run', () => {
     step(c, { throttle: i % 2000 < 1500 ? 1 : 0, brake: i % 2000 >= 1500 ? 1 : 0,
       steer: Math.sin(i / 500) * 0.6 }, FIXED_DT, (x, y) => x > 100 && y > 0 ? 0.35 : 1);
     for (const key of ['x', 'y', 'vx', 'vy', 'heading', 'yawRate']) assert.ok(Number.isFinite(c[key]));
-    for (const w of c.telemetry.wheels) assert.ok(w.load >= 0 && w.utilization <= 1 + 1e-9);
+    for (const w of c.telemetry.wheels) {
+      assert.ok(w.load >= 0 && w.utilization <= 1 + 1e-9);
+      assert.ok(Number.isFinite(w.omega) && Number.isFinite(w.slipRatio));
+    }
   }
+});
+
+test('free rolling preserves speed and zero slip without losses', () => {
+  const c = rollingCar(25, { dragArea: 0, rollingResistance: 0 });
+  run(c, 5, {});
+  near(c.vx, 25);
+  for (const w of c.telemetry.wheels) { near(w.fx, 0); near(w.slipRatio, 0); }
+});
+
+test('rear wheels spin under excess drive torque and lower grip increases slip', () => {
+  const dry = run(createCar(), 1, { throttle: 1 });
+  const slick = run(createCar(), 1, { throttle: 1 }, () => 0.2);
+  assert.ok(slick.vx < dry.vx);
+  assert.ok(slick.telemetry.wheels.slice(2).every(w => w.slipRatio > 1 && w.omega > 0));
+  assert.ok(slick.telemetry.wheels[2].slipRatio > dry.telemetry.wheels[2].slipRatio);
+  assert.ok(slick.telemetry.wheels.slice(0, 2).every(w => Math.abs(w.slipRatio) < 0.1));
+});
+
+test('hard braking locks wheels and releasing brakes restores rotation', () => {
+  const c = rollingCar(30);
+  run(c, 0.25, { brake: 1 });
+  assert.ok(c.telemetry.wheels.every(w => w.locked && w.slipRatio < -0.99));
+  run(c, 0.5, {});
+  assert.ok(c.telemetry.wheels.every(w => !w.locked && w.omega > 0 && Math.abs(w.slipRatio) < 0.02));
+});
+
+test('zero grip transfers no contact force while driven wheels accelerate', () => {
+  const c = run(createCar({ rollingResistance: 0 }), 2, { throttle: 1 }, () => 0);
+  near(c.vx, 0); near(c.vy, 0);
+  assert.ok(c.wheelOmega[2] > 100);
+  for (const w of c.telemetry.wheels) { near(w.fx, 0); near(w.fy, 0); }
+});
+
+test('brakes hold against throttle without reversing wheel rotation', () => {
+  const c = run(createCar(), 2, { throttle: 1, brake: 1 });
+  near(c.vx, 0); near(c.x, 0);
+  for (const omega of c.wheelOmega) near(omega, 0);
+});
+
+test('braking is stable in both directions down to rest at supported timesteps', () => {
+  for (const dt of [1 / 60, 1 / 240, 1 / 960]) {
+    for (const speed of [-30, -0.01, 0, 0.01, 30]) {
+      const c = rollingCar(speed);
+      for (let i = 0; i < 6 / dt; i++) {
+        const before = kineticEnergy(c);
+        step(c, { brake: 1 }, dt);
+        assert.ok(c.vx * speed >= -1e-12);
+        assert.ok(kineticEnergy(c) <= before + 1e-7);
+      }
+      assert.ok(Math.abs(c.vx) < 1e-6);
+      assert.ok(c.wheelOmega.every(w => Math.abs(w) < 1e-6));
+    }
+  }
+});
+
+test('isolated rotating wheels obey torque balance and power bound', () => {
+  const c = createCar({ rollingResistance: 0, dragArea: 0 });
+  for (let i = 0; i < 2400; i++) {
+    const before = [...c.wheelOmega];
+    const energy = kineticEnergy(c);
+    step(c, { throttle: 0.7 }, FIXED_DT, () => 0);
+    for (let j = 0; j < 4; j++) {
+      const w = c.telemetry.wheels[j];
+      near((w.omega - before[j]) * c.config.wheelInertia / FIXED_DT,
+        w.driveTorque - c.config.wheelRadius * w.fx - w.resistanceTorque, 1e-7);
+    }
+    assert.ok((kineticEnergy(c) - energy) / FIXED_DT <= c.config.power * 0.7 + 1e-6);
+  }
+});
+
+test('contact impulses dissipate energy with arbitrary chassis and wheel motion', () => {
+  let seed = 12345;
+  const random = () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 2 ** 32);
+  for (let i = 0; i < 5000; i++) {
+    const c = createCar({ dragArea: 0, rollingResistance: 0 });
+    c.vx = (random() - 0.5) * 100; c.vy = (random() - 0.5) * 40;
+    c.yawRate = (random() - 0.5) * 10; c.steer = (random() - 0.5) * 0.76;
+    c.wheelOmega = c.wheelOmega.map(() => (random() - 0.5) * 800);
+    const before = kineticEnergy(c);
+    const grip = random();
+    step(c, { steer: c.steer / c.config.maxSteer, brake: random() }, 1 / 60, () => grip);
+    assert.ok(kineticEnergy(c) <= before + 1e-7, `energy increased at sample ${i}`);
+  }
+});
+
+test('straight acceleration converges as timestep is reduced', () => {
+  const simulate = dt => {
+    const c = createCar();
+    for (let i = 0; i < 5 / dt; i++) step(c, { throttle: 0.5 }, dt);
+    return c;
+  };
+  const coarse = simulate(1 / 60), normal = simulate(1 / 240), fine = simulate(1 / 960);
+  assert.ok(Math.abs(normal.vx - fine.vx) < Math.abs(coarse.vx - fine.vx));
+  assert.ok(Math.abs(normal.vx - fine.vx) / fine.vx < 0.01);
+  assert.ok(Math.abs(normal.x - fine.x) / fine.x < 0.01);
 });
