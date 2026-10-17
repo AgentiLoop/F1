@@ -172,6 +172,43 @@ test('every circuit gets a pit lane beside the start/finish straight, with pit s
   assert.equal(createCircuitTrack({ ...CIRCUITS.monza, pitLane: false }).pit, null);
 });
 
+test('pit-disabled circuits advance without pit strategy or compound requirements', () => {
+  for (const [key, spec] of Object.entries(CIRCUITS)) {
+    const track = createCircuitTrack({ ...spec, pitLane: false });
+    const race = createRace(track, { start: { seed: 3 }, laps: 2, compoundRule: true });
+    assert.equal(race.pit, null, key);
+    assert.equal(race.compoundRule, false, key);
+    race.requestPit('soft');
+    assert.equal(race.entries[0].pitRequest, null, key);
+    race.advance(FIXED_DT, null, track.surfaceAt, track.barrierAt);
+    race.advance(FIXED_DT, { throttle: 0, brake: 1, steer: 0 }, track.surfaceAt, track.barrierAt);
+    assert.equal(race.time, 2 * FIXED_DT, key);
+    for (const e of race.entries) {
+      assert.equal(race.inPitLane(e.car), false, key);
+      assert.equal(e.pit, null, key);
+      assert.equal(e.stopLap, null, key);
+      assert.ok(Number.isFinite(e.car.x) && Number.isFinite(e.car.y), key);
+    }
+  }
+});
+
+test('a field completes a pit-disabled circuit race without stops or compound disqualifications', () => {
+  const track = createCircuitTrack({ ...CIRCUITS['red-bull-ring'], pitLane: false });
+  const race = createRace(track, { start: { seed: 2 }, laps: 2, compoundRule: true });
+  while (!race.finish.done && race.time < 260) {
+    race.advance(0.25, null, track.surfaceAt, track.barrierAt);
+    for (const e of race.entries) {
+      assert.equal(e.pit, null);
+      assert.equal(race.inPitLane(e.car), false);
+      assert.equal(e.car.contact, undefined);
+      assert.equal(e.retired, undefined);
+    }
+  }
+  assert.ok(race.finish.done, 'every car took the flag');
+  const rows = race.classification();
+  assert.ok(rows.every(r => r.finished && r.laps === 2 && !r.dsq && r.stops === 0 && r.penalty === 0 && r.compounds.length === 1), JSON.stringify(rows));
+});
+
 test('circuit pit stops: the field stops under the compound rule without speeding, contact or running off', () => {
   const track = createCircuitTrack(CIRCUITS['red-bull-ring']), pit = track.pit;
   const race = createRace(track, { grid: DEFAULT_GRID, start: { seed: 2 }, laps: 2, compoundRule: true });
