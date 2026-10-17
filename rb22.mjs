@@ -65,6 +65,18 @@ function splitCorners(geometry) {
   });
 }
 
+// A corner's axle direction in car space (+z side): the area-weighted normal of its flat
+// brake disc (split corner meshes are non-indexed). Needs current world matrices.
+function axleOf(corner) {
+  const axis = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+  const disc = corner.children.find(m => m.material.name.startsWith('discs')), pos = disc.geometry.attributes.position;
+  for (let t = 0; t < pos.count; t += 3) {
+    [a, b, c].forEach((v, k) => v.fromBufferAttribute(pos, t + k).applyMatrix4(disc.matrixWorld));
+    n.crossVectors(b.sub(a), c.sub(a)); axis.addScaledVector(n, Math.sign(n.z) || 1);
+  }
+  return axis.normalize();
+}
+
 // livery: { helmet } hex colour (the car keeps its own paint).
 export function buildRB22Car(template, config, { accent = 0x39e0ae, helmet = 0x1e2a6e } = {}) {
   const physical = o => new THREE.MeshPhysicalMaterial(o);
@@ -77,11 +89,14 @@ export function buildRB22Car(template, config, { accent = 0x39e0ae, helmet = 0x1
   const F = config.wheelbase * (1 - config.frontWeight);
   root.position.x = F - box(root.getObjectByName(CORNERS[0])).getCenter(new THREE.Vector3()).x;
 
-  // Wheels: the whole corner (tyre, rim, disc) spins about its hub.
+  // Wheels: the whole corner (tyre, rim, disc) spins about its hub, on the wheel's own
+  // axle: the front wheels are modelled with camber, and spun about the car's lateral
+  // axis instead they wobble.
   const wheels = CORNERS.map((name, i) => {
     const node = root.getObjectByName(name), hub = box(node).getCenter(new THREE.Vector3());
     const pivot = new THREE.Group(); pivot.position.copy(hub); car.add(pivot);
-    const spin = new THREE.Group(); pivot.add(spin); car.updateMatrixWorld(true);
+    const axle = new THREE.Group(); axle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axleOf(node)); pivot.add(axle);
+    const spin = new THREE.Group(); axle.add(spin); car.updateMatrixWorld(true);
     spin.attach(node);
     return { pivot, spin, front: i < 2 };
   });
