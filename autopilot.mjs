@@ -17,8 +17,11 @@ export function createCircuitAutopilot(track, tuning = {}) {
     slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ...tuning };
   const { lineCurvature: curvature, lineStep } = track.samples, n = curvature.length, step = track.length / n;
   let plan = null;
+  // Deceleration (m/s²) the plan brakes at from speed v: brakeGrip of the tire
+  // limit with downforce, plus drag (a + b·v²).
+  const brakeDecel = (c, v) => t.brakeGrip * c.tireMu * (9.81 + 0.5 * c.airDensity * c.downforceArea / c.mass * v * v) + 0.5 * c.airDensity * c.dragArea / c.mass * v * v;
   function speedPlan(c) {
-    const g = 9.81, mu = c.tireMu, q = 0.5 * c.airDensity * c.downforceArea / c.mass, drag = 0.5 * c.airDensity * c.dragArea / c.mass;
+    const g = 9.81, mu = c.tireMu, q = 0.5 * c.airDensity * c.downforceArea / c.mass;
     const w = Math.round(t.curvatureWindow / step), v = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       let k = 0; for (let j = -w; j <= w; j++) k = Math.max(k, Math.abs(curvature[(i + j + n) % n]));
@@ -26,8 +29,8 @@ export function createCircuitAutopilot(track, tuning = {}) {
       v[i] = den > 0 ? Math.min(t.maxSpeed, Math.sqrt(t.latGrip * mu * g / den)) : t.maxSpeed;
     }
     for (let lap = 0; lap < 2; lap++) for (let i = n - 1; i >= 0; i--) {
-      const next = v[(i + 1) % n], decel = t.brakeGrip * mu * (g + q * next * next) + drag * next * next;
-      v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * decel * lineStep[i]));
+      const next = v[(i + 1) % n];
+      v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * brakeDecel(c, next) * lineStep[i]));
     }
     return v;
   }
@@ -77,7 +80,15 @@ export function createCircuitAutopilot(track, tuning = {}) {
     };
   };
   drive.plan = car => (plan ??= speedPlan(car.config));
+  drive.planSpeed = (car, s) => (plan ??= speedPlan(car.config), at(s));
   drive.path = path;
+  drive.brakeDecel = brakeDecel;
+  // Highest speed from which that braking slows to v within d metres:
+  // decel a + b·u² integrates to v0² = ((a + b·v²)·e^(2bd) − a) / b.
+  drive.brakeSpeed = (c, v, d) => {
+    const a = brakeDecel(c, 0), b = brakeDecel(c, 1) - a;
+    return Math.sqrt(Math.max(0, ((a + b * v * v) * Math.exp(2 * b * Math.max(0, d)) - a) / b));
+  };
   return drive;
 }
 

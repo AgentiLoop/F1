@@ -343,28 +343,45 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // Dirty air: corner speed scaled by the expected loss of normal load (the
     // downforce share of it is taken as ~45% at this circuit's corner speeds),
     // and by the tires: the compound, the coldest (e.g. on an out lap) and the most worn.
+    // A circuit AI's corner-speed margin is the player autopilot's, which already
+    // copes with tires at their starting temperature, so only grip lost below
+    // that counts there (no pit lane, so no out laps on circuits yet).
+    const temp = Math.min(...car.tireTemp.map(t => tireTempGrip(car.config, t)))
+      / (circuit ? tireTempGrip(car.config, { surface: car.config.tireStartTemp, carcass: car.config.tireStartTemp }) : 1);
     const grip = (1 - (1 - car.wake.downforce) * 0.45) * TIRE_COMPOUNDS[car.compound].grip
-      * Math.min(...car.tireTemp.map(t => tireTempGrip(car.config, t))) * tireWearGrip(car.config, Math.max(...car.tireWear));
+      * Math.min(1, temp) * tireWearGrip(car.config, Math.max(...car.tireWear));
     const lookAhead = Math.max(o.lookAhead, o.followGap + 1.5 * speed * speed / (2 * o.followDecel));
     // Cars on the other side of the pit-lane line are separate traffic.
     const side = x => !!pit && track.offset(x.car.x, x.car.y) < -pit.inner;
     const others = entries.filter(other => other !== e && side(other) === side(e)).map(other => {
       return { gap: signed(other.covered - e.covered), offset: rel(other.car), lane: other.lane, pitIn: other.pit?.phase === 'in',
         // Anticipate a braking car: its speed a moment (anticipation s) from now.
-        speed: Math.max(0, other.car.telemetry.speed + Math.min(0, other.car.ax) * o.anticipation) };
+        // On a circuit the follow law already brakes as the plan does, so only
+        // braking harder than that (a spin, a wall) is anticipated.
+        speed: Math.max(0, other.car.telemetry.speed + Math.min(0, other.car.ax
+          + (circuit ? e.drive.brakeDecel(car.config, other.car.telemetry.speed) : 0)) * o.anticipation) };
     });
     const { toCorner, fromCorner } = corners(car);
-    const canMove = toCorner > o.passCutoff || speed < 30;
+    // A slow car (e.g. stuck behind a stopped one) may move anywhere; on a
+    // circuit only where its plan is not slow anyway (not in a hairpin, where
+    // that would let cars run side by side through the corner).
+    const slow = speed < 30 && (!circuit || e.drive.planSpeed(car, track.progress(car.x, car.y)) > 30);
+    const canMove = toCorner > o.passCutoff || slow;
     // No new lane change in the first exitClear metres of a straight (still
     // unwinding the steering under power out of the corner) unless slow.
-    const canChange = canMove && (fromCorner > o.exitClear || speed < 30);
+    const canChange = canMove && (fromCorner > o.exitClear || slow);
     // A lane's cap counts cars in it or moving into it (a car heading for the
     // pit entry sweeps every lane on its inside). From the braking zone
     // to the corner exit nobody runs side by side: a car that is not ahead
-    // backs out behind one alongside, whatever its lane.
+    // backs out behind one alongside, whatever its lane. The follow law stops
+    // the car followGap behind one ahead braking at followDecel; on a circuit
+    // it may instead brake as its own speed plan does, with downforce (a flat
+    // 18 m/s² there held cars ~1 s/lap behind and out of DRS range). Closer
+    // than followGap the flat law alone slows the car below the leader's speed.
+    const follow = (v, d) => Math.max(Math.sqrt(Math.max(0, v * v + 2 * o.followDecel * d)), circuit && d > 0 ? e.drive.brakeSpeed(car.config, v, d) : 0);
     const cap = (lane, gap = o.followGap) => others.reduce((m, x) => x.gap > 0 && x.gap < lookAhead
       && (Math.abs(x.offset - lane) < o.laneClearance || x.lane === lane || (x.pitIn && lane < x.offset + o.laneClearance) || (!canMove && x.gap < 2 * o.alongside))
-      ? Math.min(m, Math.sqrt(Math.max(0, x.speed ** 2 + 2 * o.followDecel * (x.gap - gap)))) : m, Infinity);
+      ? Math.min(m, follow(x.speed, x.gap - gap)) : m, Infinity);
     // No car alongside, or closing from behind within closeTime seconds,
     // anywhere across the strip swept from here to the lane, and no nearby car
     // already heading for that lane.
@@ -415,7 +432,9 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       }
       e.lane = best;
     }
-    e.offset += clamp(e.lane - e.offset, -o.laneRate * dt, o.laneRate * dt);
+    // On a circuit a move across (e.g. from a grid slot to the racing line)
+    // pauses while the strip still to sweep is not free.
+    if (!circuit || free(e.lane)) e.offset += clamp(e.lane - e.offset, -o.laneRate * dt, o.laneRate * dt);
     // Also respect whoever is in the strip the car is steering for, and (down
     // to a nose-to-tail gap, then creeping) the strip it actually occupies.
     const occupied = Math.max(o.creepSpeed, cap(rel(car), car.config.bodyFront + car.config.bodyRear + 1));
