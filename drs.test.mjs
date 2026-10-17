@@ -95,8 +95,10 @@ test('circuits use their real DRS zones from race telemetry, each on a straight'
     for (const z of zones) {
       const span = ((z.end - z.start) % L + L) % L;
       assert.ok(span > 250 && span < 1000, `${key} zone ${span.toFixed(0)} m`);
-      // The racing line through the zone bends no tighter than 100 m radius.
-      for (let d = 0; d <= span; d += 2) assert.ok(Math.abs(k[Math.floor(((z.start + d) % L) / L * k.length)]) < 1 / 100, `${key} zone at ${z.start.toFixed(0)}+${d}`);
+      // The racing line through the zone bends no tighter than 80 m radius (the
+      // tightest is Zandvoort's flat-out banked final corner, 87 m, where the
+      // flap is opened before the corner).
+      for (let d = 0; d <= span; d += 2) assert.ok(Math.abs(k[Math.floor(((z.start + d) % L) / L * k.length)]) < 1 / 80, `${key} zone at ${z.start.toFixed(0)}+${d}`);
       assert.ok(Math.abs(((z.start - z.detection) % L + L) % L - 150) < 1e-6, 'detection 150 m before');
     }
   }

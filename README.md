@@ -789,6 +789,101 @@ browser check's "every car above 15 m/s at about 12 s" step catches the field
 inside La Source, whose planned apex speed is about 12 m/s, so it does not
 apply there.)
 
+### Real circuit geometry from car positions (`circuits.mjs`, `race.mjs`, cycle 32)
+
+The GeoJSON traces (cycle 15) put each circuit in roughly the right place, but
+their corners were too tight. Set against the real race speed at each corner,
+the old racing line's radius implied 4–7 g at the apex of medium and fast
+corners, which no F1 car pulls. The Hungaroring's turn 4 was a 53 m line where
+the cars drive about a 100 m arc, and turn 1 was 19 m against about 24 m.
+
+* **Data:** car positions from the OpenF1 API `location` endpoint (x, y, z in
+  0.1 m, about 3.7 samples a second). 6 drivers × 12 clean race laps per
+  circuit: laps from lap 4 on, not out-laps, within 2% of the driver's median.
+  2024 races; 2023 at Silverstone and Interlagos, whose 2024 races were wet.
+  Montreal 2024 started wet; only its dry laps pass the 2% filter.
+* **Real line:** each lap starts at the timing line, so each sample is placed
+  by its fraction of the lap (chord distance along that lap). The 72 laps'
+  samples are pooled and Gaussian-smoothed (σ ≈ 5 m along the lap) into one
+  path every ~4 m. This is the line the cars drive, not the road centre.
+* **Centreline:** found so that the circuit's own racing line (`circuit.mjs`,
+  unchanged) runs along the real line. Start with the real line as the
+  centreline, build the track, move each centreline sample sideways by 0.8 ×
+  the gap between its racing line and the real line, and repeat 12 times. The
+  racing line then follows the real one to 0.4–0.6 m rms (Monaco 1.4 m). Using
+  the real line itself as the centreline would let the racing line cut every
+  corner again, by up to 4.9 m.
+* **Placement:** each path is rotated and shifted onto the old trace (least
+  squares, never mirrored) and starts at the old trace's first point. The grid,
+  pit lane and run to turn 1 therefore stay where cycle 31 left them (moving the
+  lap start to the timing line broke lap 1 then). Points are stored every 10 m.
+* **Checks on the data:** the rebuilt centrelines are within 1% of the official
+  lap lengths (Hungaroring 4417 m against 4381 m, Spa 7034 m against 7004 m).
+  The timing line, now read directly from the positions, lands 2–31 m from
+  where cycle 31's speed-trace fit put it. The OpenF1 x/y frame matched the
+  GeoJSON frame without mirroring on all 18 circuits (4–10 m rms).
+* **Time trial** (second flying lap, Node, old → new): Bahrain 112.32 →
+  104.18 s, Shanghai 116.48 → 109.17, Catalunya 92.48 → 92.07, Monaco 91.12 →
+  84.08, Montreal 87.32 → 83.77, Red Bull Ring 80.87 → 78.45, Silverstone
+  113.07 → 103.53, Hungaroring 99.12 → 94.42, Spa 125.80 → 124.83, Monza 95.10
+  → 91.72, COTA 125.08 → 114.77, Mexico 95.92 → 87.80, Yas Marina 107.52 →
+  104.18, Imola 94.67 → 92.58, Zandvoort 92.10 → 92.10, Jeddah 111.02 →
+  113.15, Miami 107.47 → 102.75, Interlagos 86.00 → 82.58. No offs. Against
+  the fastest real race lap in the same data, the car was 23.0% slower over
+  the 18 circuits; it is now 17.9% slower (13–27% per circuit). The rest of
+  the gap is the car and the autopilot's grip margin in medium and fast
+  corners, where the sim's apex speeds are 0.6–0.85 of the real ones. That
+  can now be compared corner by corner.
+* **Race AI changes the new layouts needed (circuits only):** the real racing
+  lines swing across the road, out to the edge before a turn-in or in to an
+  apex, within 50–100 m. A passing lane is held inside the road edge, so there
+  it merges with the line.
+  * A car being dived on now moves over to the outside lane as soon as the dive
+    is committed (the diving car will be alongside within `diveReach` 0.6 s),
+    not only once it is alongside. Before, at Interlagos turn 4 and at Imola,
+    it was still on a line that was swinging in to the apex, and turned into
+    the diving car (2.9 and 1.6 m/s contacts in the two-car test).
+  * Whether a car ahead is in a lane's strip is judged from where that lane
+    actually runs beside it (clamped at the edge), except for a car being
+    dived on.
+  * A car keeps `sideGap` 3.1 m (centre to centre) across the road from any
+    car alongside, along its whole path ahead. Before, at Montreal, a car on
+    the line squeezed one in the outside lane as the line ran out to the edge
+    before turn 1: 28 contacts in 5 lap-1 starts.
+* **Pit lane fixes the new layouts needed:** the pit path's own bends are now
+  only speed-capped between the pit entry and exit. Before the entry the path
+  is the racing line, and capping its corners at `pitCornerAccel` (1.2 g) made
+  a car braking into Zandvoort's banked last corner spin into the wall; the
+  race never finished. A car heading into the pits now also sees cars already
+  on the apron, and judges whether one is on its path from where its own path
+  runs at that car (the path swings across into the lane). Before, at the Red
+  Bull Ring, a car slowing just past the entry was invisible to the next car
+  in, which hit it at 18 m/s.
+* **Race checks** (the old layouts with the old AI → the new layouts with this
+  cycle's AI; Node, seeded):
+  * Lap 1, 18 circuits × 5 starts: 0 → 0 contacts and wall hits. Time any car
+    spends under 8 m/s 4.0 → 1.8 s; COTA's turn-1 queue is gone (slowest car
+    7.2 → 16.0 m/s).
+  * 6-lap races, 18 circuits × 2 seeds: 0 → 0 contacts, wall hits and spins,
+    and every race finished. Changes of running order 69 → 39. The new
+    layouts with the old AI gave 36 changes and 16 contacts, so the drop in
+    passing comes from the layouts, whose lines leave less room beside them.
+  * 3-lap races with the two-compound rule, 18 circuits: 90 stops with no
+    contact, off, spin, wall hit, penalty or disqualification.
+  * Two-car races, a car 3 m/s faster in corners behind, 5 laps on each of
+    18 circuits: passes at 10 → 8 circuits, all without contact (the new layouts
+    with the old AI: 7, two of them with contact).
+  * Browser: the Monza time-trial check and the Red Bull Ring race check pass.
+  * Tests: two new ones fail on the old code. They check faster valid laps at
+    Monaco, COTA, Silverstone and Mexico, and three Montreal lap-1 starts
+    without contact. The Interlagos dive test failed on the new layouts until
+    the yield change.
+* **Not changed:** track width (13 m everywhere), elevation (the z data is
+  there for a later cycle), walls, kerbs and the pit-lane rules. The DRS zones
+  keep their cycle-31 lap fractions, and their test now allows an 80 m line
+  radius: Zandvoort's real zone runs through its banked last corner, 87 m on
+  the new line.
+
 ### Real DRS zones from race telemetry (`circuits.mjs`, `circuit.mjs`, `race.mjs`, cycle 31)
 
 Until cycle 31 every circuit got DRS on its two longest straights. That gave
@@ -849,7 +944,8 @@ straight (cycle 26, below).
   used as the start/finish line. The source order is assumed to be the race
   direction; this was not checked against official maps.
   The traces are approximate. They have no elevation, no camber and no real
-  track width: every circuit is 13 m wide.
+  track width: every circuit is 13 m wide. Since cycle 32 the layouts are
+  rebuilt from real car positions (above) and only placed on these traces.
 * **Surfaces:** the same grip bands as the stadium track: asphalt, a 1.2 m
   kerb, runoff to 8 m past the edge, then grass. Kerbs are only laid where the
   line curves; on straights the road edge runs straight into runoff. Walls sit

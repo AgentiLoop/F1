@@ -113,3 +113,18 @@ test('lap-1 queues through Spa La Source and COTA turn 1 keep moving, without co
     }
   }
 });
+
+test('lap 1 at Montreal: a car on the racing line leaves room to one held at the road edge in the outside lane, without contact', () => {
+  // The real line swings out to the edge before turn 1; a car on it used to
+  // squeeze the car in the outside lane (28 contacts in 5 starts).
+  const track = createCircuitTrack(CIRCUITS.montreal);
+  for (const seed of [1, 2, 5]) {
+    const race = createRace(track, { grid: DEFAULT_GRID, start: { seed }, laps: 2 });
+    let contact = 0;
+    while (Math.max(...race.entries.map(e => e.covered)) < track.length) {
+      race.advance(1 / 60, null, track.surfaceAt, track.barrierAt);
+      for (const e of race.entries) if (e.car.contact) contact = Math.max(contact, e.car.contact.speed);
+    }
+    assert.equal(contact, 0, `seed ${seed}`);
+  }
+});

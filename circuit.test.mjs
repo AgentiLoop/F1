@@ -85,6 +85,18 @@ test('the circuit autopilot laps Monza on the road at a plausible pace', () => {
   assert.ok(top * 3.6 > 290, `top speed ${(top * 3.6).toFixed(0)} km/h`);
 });
 
+test('layouts rebuilt from real car positions have corners as open as the real ones: faster valid laps at Monaco, COTA, Silverstone and Mexico', () => {
+  // On the GeoJSON traces (before cycle 32) these first timed laps were 91.4,
+  // 126.0, 114.0 and 96.8 s: their corners were tighter than the cars drive.
+  for (const [key, limit] of [['monaco', 87], ['cota', 119], ['silverstone', 108], ['mexico', 92]]) {
+    const track = createCircuitTrack(CIRCUITS[key]), sim = createTimeTrial(track), timer = createLapTimer(track, { lineProgress: 0 });
+    for (let i = 0; i < 60 * 150 && !timer.state.lastLap; i++) { sim.advance(1 / 60, null); timer.update(sim.car); }
+    const lap = timer.state.lastLap;
+    assert.ok(lap?.valid, `${key}: lap within track limits`);
+    assert.ok(lap.time < limit, `${key}: lap ${lap.time.toFixed(2)} s`);
+  }
+});
+
 test('the circuit autopilot holds the line through Spa\'s Blanchimont at ~300 km/h and its lap stays within track limits', () => {
   const track = createCircuitTrack(CIRCUITS.spa), sim = createTimeTrial(track), timer = createLapTimer(track, { lineProgress: 0 });
   let maxOffset = 0;

@@ -18,7 +18,7 @@ export const RACE_DEFAULTS = Object.freeze({
   // (m) are explained in aiCommand. Grid slots are
   // gridSpacing m apart.
   cornerCurvature: 1 / 300, laneRoomAhead: 200, laneRoomExit: 80, laneReturn: 150, gridSpacing: 8,
-  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 0.3, passRoom: 250, diveGap: 20, diveOverlap: 1, diveReach: 0.6, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, laneClearance: 2.6, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
+  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 0.3, passRoom: 250, diveGap: 20, diveOverlap: 1, diveReach: 0.6, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, laneClearance: 2.6, sideGap: 3.1, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
   // Standing start: five red lights come on one per lightInterval seconds, then
   // go out after a random hold in [holdMin, holdMax]. Moving more than
   // jumpDistance metres before lights out is a jump start (jumpPenalty seconds).
@@ -393,11 +393,16 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     const grip = (1 - (1 - car.wake.downforce) * 0.45) * TIRE_COMPOUNDS[car.compound].grip
       * Math.min(1, temp) * tireWearGrip(car.config, Math.max(...car.tireWear));
     const lookAhead = Math.max(o.lookAhead, o.followGap + 1.5 * speed * speed / (2 * o.followDecel));
-    // Cars on the other side of the pit-lane line are separate traffic.
-    const others = entries.filter(other => other !== e && pitApron(other.car) === pitApron(car)).map(other => {
-      return { gap: signed(other.covered - e.covered), offset: rel(other.car), pitOffset: pit ? pitOff(other.car) : 0, lane: other.lane, pitIn: other.pit?.phase === 'in', index: other.index,
+    // Cars on the other side of the pit-lane line are separate traffic, except
+    // that a car heading into the pits also sees those already on the apron
+    // (otherwise one slowing just past the line was invisible to the next car
+    // in until it crossed too, too late to stop).
+    const others = entries.filter(other => other !== e && (pitApron(other.car) === pitApron(car) || (e.pit?.phase === 'in' && pitApron(other.car)))).map(other => {
+      return { gap: signed(other.covered - e.covered), offset: rel(other.car), s: circuit && track.progress(other.car.x, other.car.y), centre: track.offset(other.car.x, other.car.y), pitOffset: pit ? pitOff(other.car) : 0, lane: other.lane, pitIn: other.pit?.phase === 'in', index: other.index,
         // Diving down the inside of this car, alongside (it must yield), or of any car.
         claim: other.dive?.rival === e.index && other.dive.overlap, diving: !!other.dive,
+        // Committed to a dive on this car: it will be alongside within diveReach s.
+        committed: other.dive?.rival === e.index && (other.dive.overlap || other.dive.committed),
         // Anticipate a braking car: its speed a moment (anticipation s) from now.
         // On a circuit the follow law already brakes as the plan does, so only
         // braking harder than that (a spin, a wall) is anticipated.
@@ -436,6 +441,14 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // through Spa's La Source and COTA turn 1 at 1-2 m/s.)
     const followGap = circuit && Math.abs(e.offset - e.lane) < 1 ? Math.min(o.followGap, o.followMin + o.followTime * speed) : o.followGap;
     const carLength = car.config.bodyFront + car.config.bodyRear;
+    // On a circuit a lane is a path parallel to the racing line, clamped inside
+    // the road edge, so where the line runs out to the edge (before a turn-in,
+    // at an apex) the lane on that side merges with it. Whether a car ahead is
+    // in a lane's strip is judged from where the lane actually runs beside it:
+    // otherwise a car in the outside lane, unable to cross back with a car
+    // alongside on the line, ran on into its flank (Montreal's turn 1). The car
+    // being dived on is left to the dive rules (it moves over).
+    const inStrip = (x, lane) => Math.abs(x.offset - (circuit && x.index !== e.dive?.rival ? e.drive.path(x.s, lane) - track.lineOffset(x.s) : lane)) < o.laneClearance;
     // Backing out from alongside drops back the full followGap (on a circuit the
     // speed-scaled gap: the full 14 m behind a car at hairpin speed was ~1 s,
     // and backing out that far stacked up the field behind), except
@@ -448,7 +461,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       const g = gap ?? (x.speed < o.followSlow ? o.followGap : followGap);
       if (x.claim && x.gap > -2 * o.alongside) return Math.min(m, follow(x.speed, x.gap - carLength - o.yieldGap));
       if (!(x.gap > 0 && x.gap < lookAhead)) return m;
-      if (Math.abs(x.offset - lane) < o.laneClearance || x.lane === lane || (x.pitIn && pitSide * lane < pitSide * x.offset + o.laneClearance)) return Math.min(m, follow(x.speed, x.gap - g));
+      if ((list === others && gap === null ? inStrip(x, lane) : Math.abs(x.offset - lane) < o.laneClearance) || x.lane === lane || (x.pitIn && pitSide * lane < pitSide * x.offset + o.laneClearance)) return Math.min(m, follow(x.speed, x.gap - g));
       return !sideBySide && x.gap < 2 * o.alongside && x.index !== e.dive?.rival ? Math.min(m, follow(x.speed, x.gap - (circuit ? g : Math.max(g, o.followGap)))) : m;
     }, Infinity);
     // No car alongside, or closing from behind within closeTime seconds,
@@ -485,22 +498,31 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       // On a circuit the pit path's own bends (the swing into the lane, a
       // curving straight) are taken at no more than pitCornerAccel laterally,
       // braking for them at pitDecel (from three-point curvature every 5 m).
+      // Only between the pit entry and exit: before the entry the path is the
+      // racing line, whose corners the speed plan already takes (capped at
+      // pitCornerAccel, a car braked to ~32 m/s inside Zandvoort's banked last
+      // corner, 150 m before the entry, spun and stopped against the wall).
       let bendCap = Infinity;
       if (circuit) {
         const at = d => track.point(p + d, path(p + d));
         for (let d = 0, a = at(-5), b = at(0); d <= o.pitPreview; d += 5) {
           const c = at(d + 5), k = 2 * Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
             / (Math.hypot(b[0] - a[0], b[1] - a[1]) * Math.hypot(c[0] - b[0], c[1] - b[1]) * Math.hypot(c[0] - a[0], c[1] - a[1]) || Infinity);
-          bendCap = Math.min(bendCap, Math.sqrt(o.pitCornerAccel / Math.max(k, 1e-6) + 2 * o.pitDecel * d));
+          if (s + d >= pit.entry && s + d <= pit.exit) bendCap = Math.min(bendCap, Math.sqrt(o.pitCornerAccel / Math.max(k, 1e-6) + 2 * o.pitDecel * d));
           a = b; b = c;
         }
       }
       // On a circuit, lanes along the pit lane are compared as centreline
       // offsets (the racing line's offset changes along it, so offsets from
       // it do not line up between cars), and a car beside a parked one is not
-      // side by side in a corner (that rule is for the circuit itself).
-      const pitList = circuit ? others.map(x => ({ ...x, offset: pitSide * x.pitOffset, lane: NaN })) : others;
+      // side by side in a corner (that rule is for the circuit itself). Each
+      // other car's offset is taken from this car's own path where that car
+      // is: the path swings ~6 m across into the lane (and round a corner
+      // just before the line at the Red Bull Ring), and compared across a
+      // 40 m gap a car slowing ahead in the lane did not count as on the path,
+      // so the car behind ran into it at 18 m/s.
       const here = track.offset(car.x, car.y), along = circuit ? path(p) : e.offset;
+      const pitList = circuit ? others.map(x => ({ ...x, offset: pitSide * x.pitOffset - path(x.s) + along, lane: NaN })) : others;
       const occupied = Math.max(o.creepSpeed, cap(here, car.config.bodyFront + car.config.bodyRear + 1, pitList, circuit || canMove));
       // Single file into and down the pit lane behind any car ahead heading
       // there (not one already parked in its box), at a constant time headway
@@ -521,11 +543,14 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // Out-braking (circuit): a car out in the passing lane on the inside of
     // the next corner, within diveGap metres of the car ahead on the line as
     // it reaches the laneReturn point, stays on the inside and brakes later
-    // (its lane's plan with lateBrake). Once its nose is alongside (within a
-    // car length plus diveOverlap) the other car must yield: it backs out to
-    // yieldGap metres nose to tail and moves over to the outside lane (even
-    // with traffic closing behind) to leave room (the inside lane meets the
-    // racing line at the apex). Not alongside by diveTurnIn metres before the
+    // (its lane's plan with lateBrake). Once the dive is committed (below) the
+    // other car moves over to the outside lane (even with traffic closing
+    // behind) to leave room (the inside lane meets the racing line at the
+    // apex), and once the diving car's nose is alongside (within a car length
+    // plus diveOverlap) it also backs out to yieldGap metres nose to tail.
+    // (Moving over only once alongside was too late on the real circuit
+    // layouts: the line swings in to the apex faster than a lane change, and
+    // the slower car turned into the diving one.) Not alongside by diveTurnIn metres before the
     // corner, or dropped back, the diving car gives up and backs out (closing
     // fast enough to be alongside within diveReach seconds it is committed:
     // too late to back out without running into the other car). It ends diveExit
@@ -534,13 +559,14 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     if (e.dive) {
       const r = others.find(x => x.index === e.dive.rival);
       if (r) e.dive.overlap = r.gap < carLength + o.diveOverlap || (e.dive.overlap && r.gap < carLength + 3);
+      if (r) e.dive.committed = (speed - r.speed) * o.diveReach >= r.gap - carLength - o.diveOverlap;
       const out = e.covered > e.dive.cornerAt && toCorner > 0 && fromCorner > o.diveExit;
       if (!r || out || r.gap < -(carLength + 2) || (e.dive.overlap && r.gap > carLength + 3) || (!e.dive.overlap && ((toCorner < o.diveTurnIn && (speed - r.speed) * o.diveReach < r.gap - carLength - o.diveOverlap) || r.gap > o.diveGap + 5))) e.dive = null;
     } else if (circuit && !slow && !e.finish && e.lane && Math.abs(e.offset - e.lane) < 0.5 && toCorner < o.laneReturn && toCorner > o.diveTurnIn
       && target && !target.diving && target.gap < o.diveGap && Math.sign(e.lane) === insideOf(s, toCorner)) {
       e.dive = { rival: target.index, cornerAt: e.covered + toCorner, overlap: target.gap < carLength + o.diveOverlap };
     }
-    const yielding = others.find(x => x.claim && x.gap > -2 * o.alongside);
+    const yielding = others.find(x => x.committed && x.gap > -2 * o.alongside);
     if (yielding) e.lane = Math.sign(yielding.offset - rel(car)) * -o.passLane;
     else if (circuit && e.lane && !e.dive && (toCorner < o.laneReturn || room(e.lane, o.laneRoomExit) < 0.8 * o.passLane) && free(0)) e.lane = 0;
     const current = cap(e.lane);
@@ -565,11 +591,19 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // On a circuit a move across (e.g. from a grid slot to the racing line)
     // pauses while the strip still to sweep is not free.
     if (!circuit || yielding || free(e.lane)) e.offset += clamp(e.lane - e.offset, -o.laneRate * dt, o.laneRate * dt);
+    // On a circuit a car keeps sideGap m (centre to centre; cars are 2 m wide)
+    // across the road from any car alongside (within a car length and a
+    // metre): where the racing line swings out to the road edge (a lane is
+    // held inside the edge) a path parallel to it would squeeze the car on
+    // that side into its flank.
+    const beside = circuit ? others.filter(x => Math.abs(x.gap) < carLength + 1) : [];
+    const here = beside.length && track.offset(car.x, car.y);
+    const edge = track.roadWidth / 2 - 1, path = beside.length ? q => clamp(beside.reduce((p, x) => x.centre > here ? Math.min(p, x.centre - o.sideGap) : Math.max(p, x.centre + o.sideGap), e.drive.path(q, e.offset)), -edge, edge) : e.offset;
     // Also respect whoever is in the strip the car is steering for, and (down
     // to a nose-to-tail gap, then creeping) the strip it actually occupies.
     const occupied = Math.max(o.creepSpeed, cap(rel(car), car.config.bodyFront + car.config.bodyRear + 1));
     const maxSpeed = Math.min(current, cap(e.offset), occupied, e.finish ? o.coolDownSpeed : Infinity);
-    return e.drive(car, { offset: e.offset, lane: circuit ? e.lane : 0, late: !!e.dive, maxSpeed, grip });
+    return e.drive(car, { offset: path, lane: circuit ? e.lane : 0, late: !!e.dive, maxSpeed, grip });
   }
 
   // Recovery is opponent-only: never take control of the player's pedals or
