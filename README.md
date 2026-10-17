@@ -382,13 +382,38 @@ illustrative, not FIA zone maps or wind-tunnel data.
   308.7 to 322.2 km/h. Time-trial flying laps (autopilot) are 0.04–0.63 s
   faster, with top speed up 0–12 km/h: Monza 97.49 → 97.04 s, Silverstone
   115.69 → 115.47 s, Miami 109.46 → 108.83 s, Monaco 95.09 → 95.00 s. Real
-  qualifying gains are of a similar order. Spa's lap is flagged invalid with
-  and without DRS (it already was).
+  qualifying gains are of a similar order. Spa's lap was flagged invalid with
+  and without DRS (it already was; fixed in cycle 21, below).
 - In a seeded 10-lap stadium race the cars ran with DRS open for 7–40 s each;
   everyone finished with no wall impacts. In seeded 5-lap races at Monza,
   Silverstone and the Red Bull Ring the circuit AI field spread out by more
   than 1 s before lap 3, so no car ever qualified for DRS. Closer circuit
   racing needs better AI racecraft.
+
+### Autopilot yaw-rate feedback: Spa's lap is valid again (`autopilot.mjs`, cycle 21)
+
+- **Cause:** at Spa, Blanchimont (racing-line radius ~190 m) is taken flat at
+  ~305 km/h. The car understeered there: front slip angles reached ~0.11 rad and
+  it ran 3–5 m wide of the line, out to 8.2 m from the centreline. All four
+  wheels went past the edge, so every Spa lap was deleted. Pure pursuit
+  steers for the path's geometry and leaves out the extra lock an understeering
+  car needs. The cross-track correction had faded to ~20% of its strength at
+  that speed.
+- **Fix:** the circuit autopilot now adds yaw-rate feedback to the steering:
+  `yawGain` (2) × wheelbase × (pursuit curvature − yawRate/speed), applied above
+  5 m/s. It adds nothing while the car follows the pursuit arc. The
+  cross-track pull now keeps full strength up to 60 m/s (was 40).
+- **Measured** (time trial, 2 flying laps, all 18 circuits): every lap is now
+  valid. The largest distance from the centreline is 5.9 m, at Spa (was 8.2 m);
+  the road edge is at 6.5 m. Laps are 0.0–1.1 s faster: Spa 125.83 s, Monza
+  95.55 s, Silverstone 113.42 s, Catalunya 92.77 s. Seeded 5-lap races at Monza,
+  Silverstone, Spa, Interlagos and the Red Bull Ring, and 3-lap races on all 18
+  circuits, finished with no wall impacts. The worst car-to-car contact was
+  2.0 m/s, at Interlagos (1.9 m/s before the change). Stadium robustness races
+  were unchanged.
+- **Assumptions:** the gain and the 60 m/s fade speed were picked from a sweep
+  (gains 0.5–5; fade speeds 40–120 m/s, where 120 made the car weave at Spa).
+  They are not taken from real driver data.
 
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
