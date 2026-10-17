@@ -12,7 +12,7 @@ From this directory, run `python3 -m http.server 5188 --bind 127.0.0.1`, then op
 Three.js is served from `vendor/`, so there are no runtime downloads, npm
 dependencies, or bundler. A WebGL-capable browser is required.
 
-Run validation with `node --test physics.test.mjs car3d.test.mjs`.
+Run validation with `node --test` (all `*.test.mjs` files).
 Node's built-in test runner is the only test dependency.
 
 ## 3D view and car model
@@ -52,9 +52,18 @@ contact position, has outward loft normals, and stays under 200k triangles.
   while a button has focus; click the circuit to return focus to driving.
 - Losing window focus or hiding the tab pauses and releases held inputs.
 
-The stadium test circuit is fictional and flat. Asphalt and off-track grip are
-sampled separately at each wheel. Barriers are visual only: there are no
-collisions, lap timing, or reset penalties. Use Reset if stranded.
+The stadium test circuit is fictional and flat. `track.mjs` defines its surfaces
+and barriers to match `world3d.mjs`: asphalt, 1.2 m kerbs, run-off to 8 m past
+the road edge, grass, and walls 12 m past each edge. Grip is sampled at each
+wheel (assumed multipliers: kerb 0.9, run-off 0.7, grass 0.35).
+
+Walls are rigid. Each step after integration, the body footprint (four corners,
+2.95 m ahead of and 2.35 m behind the CG, 1.0 m half-width) is tested against
+the walls; the car is pushed out by the deepest penetration and receives one
+impulse at the depth-weighted centre of the penetrating corners: 25%
+restitution along the wall normal and Coulomb scrub (friction 0.5) along it,
+both coupled to yaw. The status line reports the closing speed of the last
+impact. There is no damage, lap timing or reset penalty. Use Reset if stranded.
 
 ## Implemented model
 
@@ -202,7 +211,7 @@ establish internal consistency, not real-car accuracy.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
 5. Cockpit camera, body motion from suspension, sound, gamepad/wheel input and
-   force feedback, collisions, real circuit geometry, timing, opponents, race rules.
+   force feedback, damage, kerb geometry and bumps, real circuit geometry, timing, opponents, race rules.
 
 ## Repository / parity
 

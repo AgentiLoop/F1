@@ -25,6 +25,8 @@ export const DEFAULT_CAR = Object.freeze({
   // heave against the aero platform springs. Damping as a ratio of critical.
   rollStiffness: 400000, rollInertia: 120, pitchStiffness: 600000, pitchInertia: 650,
   heaveStiffness: 700000, bodyDampingRatio: 0.6,
+  // Rigid footprint for barrier contact (m from the CG) and wall impact response.
+  bodyFront: 2.95, bodyRear: 2.35, bodyHalfWidth: 1.0, wallRestitution: 0.25, wallFriction: 0.5,
 });
 export const FIXED_DT = 1 / 240;
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -37,7 +39,7 @@ export function createCar(overrides = {}) {
     steer: 0, ax: 0, ay: 0, time: 0, distance: 0,
     wheelOmega: [0, 0, 0, 0],
     slipAngle: [0, 0, 0, 0],
-    gear: 1, shiftTimer: 0,
+    gear: 1, shiftTimer: 0, impact: null,
     // roll > 0: left side up; pitch > 0: nose down; heave > 0: body lower (m).
     body: { roll: 0, rollRate: 0, pitch: 0, pitchRate: 0, heave: 0, heaveRate: 0 },
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [], powertrain: null },
@@ -146,8 +148,48 @@ export function tireForce(longitudinalDemand, lateralSpeed, forwardSpeed, load, 
     combinedDemand, sliding: combinedDemand > 2 };
 }
 
-// surfaceAt receives each contact's world position and returns a grip multiplier.
-export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
+// Rigid barrier contact on the body footprint. barrierAt(x, y) returns
+// { depth, nx, ny } (unit normal pointing back onto the circuit) or null.
+// The car is pushed out by the deepest corner and gets one impulse at the
+// depth-weighted centre of the penetrating corners (a flat face hitting flat
+// on gets no spurious spin): restitution along the normal, Coulomb-capped
+// scrub along the wall, both coupled to yaw.
+// Returns the closing speed at the contact (m/s), 0 when nothing hits.
+export function resolveBarrier(car, barrierAt) {
+  const c = car.config, cos = Math.cos(car.heading), sin = Math.sin(car.heading);
+  let hit = null, weight = 0, rx = 0, ry = 0;
+  for (const [bx, by] of [[c.bodyFront, c.bodyHalfWidth], [c.bodyFront, -c.bodyHalfWidth],
+    [-c.bodyRear, c.bodyHalfWidth], [-c.bodyRear, -c.bodyHalfWidth]]) {
+    const cx = bx * cos - by * sin, cy = bx * sin + by * cos;
+    const contact = barrierAt(car.x + cx, car.y + cy);
+    if (!contact || contact.depth <= 0) continue;
+    if (!hit || contact.depth > hit.depth) hit = contact;
+    weight += contact.depth; rx += cx * contact.depth; ry += cy * contact.depth;
+  }
+  if (!hit) return 0;
+  rx /= weight; ry /= weight;
+  const { nx, ny, depth } = hit;
+  car.x += nx * depth;
+  car.y += ny * depth;
+  const pvx = car.vx - car.yawRate * ry, pvy = car.vy + car.yawRate * rx;
+  const closing = -(pvx * nx + pvy * ny);
+  if (closing <= 0) return 0;
+  const tx = -ny, ty = nx;
+  const rn = rx * ny - ry * nx, rt = rx * ty - ry * tx;
+  const jn = (1 + c.wallRestitution) * closing / (1 / c.mass + rn * rn / c.yawInertia);
+  const jt = clamp(-(pvx * tx + pvy * ty) / (1 / c.mass + rt * rt / c.yawInertia),
+    -c.wallFriction * jn, c.wallFriction * jn);
+  const jx = jn * nx + jt * tx, jy = jn * ny + jt * ty;
+  car.vx += jx / c.mass;
+  car.vy += jy / c.mass;
+  car.yawRate += (rx * jy - ry * jx) / c.yawInertia;
+  car.impact = { speed: closing, time: car.time, x: car.x + rx, y: car.y + ry };
+  return closing;
+}
+
+// surfaceAt receives each contact's world position and returns a grip multiplier;
+// optional barrierAt (see resolveBarrier) stops the car at walls.
+export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrierAt = null) {
   if (!(Number.isFinite(dt) && dt > 0 && dt <= 1 / 60)) throw new RangeError('Use a positive timestep <= 1/60 s');
   const c = car.config;
   const throttle = clamp(input.throttle || 0, 0, 1);
@@ -276,6 +318,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
   car.heading += car.yawRate * dt;
   car.x += car.vx * dt;
   car.y += car.vy * dt;
+  if (barrierAt) resolveBarrier(car, barrierAt);
   car.time += dt;
   car.distance += Math.hypot(car.vx, car.vy) * dt;
   car.telemetry = { speed: Math.hypot(car.vx, car.vy), downforce, drag, wheels,
@@ -290,14 +333,14 @@ export class Simulation {
     this.accumulator = 0;
     this.droppedTime = 0;
   }
-  advance(elapsed, input, surfaceAt) {
+  advance(elapsed, input, surfaceAt, barrierAt) {
     if (!Number.isFinite(elapsed) || elapsed < 0) throw new RangeError('Elapsed time must be finite and nonnegative');
     const accepted = Math.min(elapsed, 0.25);
     this.droppedTime += elapsed - accepted;
     this.accumulator += accepted;
     let steps = 0;
     while (this.accumulator + 1e-12 >= FIXED_DT) {
-      step(this.car, input, FIXED_DT, surfaceAt);
+      step(this.car, input, FIXED_DT, surfaceAt, barrierAt);
       this.accumulator = Math.max(0, this.accumulator - FIXED_DT);
       steps++;
     }

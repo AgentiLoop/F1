@@ -16,24 +16,25 @@
 <div class="section stats"><div><div class="label">Longitudinal</div><div class="number" id="long">0.00 g</div></div><div><div class="label">Lateral</div><div class="number" id="lat">0.00 g</div></div><div><div class="label">Downforce</div><div class="number" id="aero">0.0 kN</div></div><div><div class="label">Distance</div><div class="number" id="distance">0 m</div></div><div><div class="label">Sim time</div><div class="number" id="time">0.0 s</div></div><div><div class="label">Steering</div><div class="number" id="steer">0.0°</div></div><div><div class="label">Roll / pitch</div><div class="number" id="attitude">0.00° / 0.00°</div></div><div><div class="label">Aero squat</div><div class="number" id="heave">0 mm</div></div></div>
 <div class="section"><div class="label">Tire force / peak grip</div><div class="wheels" id="wheels"></div><p class="note">FL / FR / RL / RR · normal load in kN.<br>Bars: force / peak capacity, not remaining grip. SLIDE: combined demand beyond the illustrative force peak; force falls toward 75% of peak. Slip: signed longitudinal slip; + is wheelspin when moving forward. LOCK: stopped wheel above 1 m/s. α: force-producing (relaxed) / kinematic slip angle; the carcass catches up over 0.45 m of travel. No ABS or traction control.</p></div>
 <div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview<br><kbd>P</kbd> Autopilot on / off</div>
-<p class="note">Illustrative, uncalibrated dynamics. Keyboard steering is speed-scaled. Body roll, pitch and aero squat are damped spring modes for display; wheel loads are still quasi-static. No tire temperature, collisions, or race rules yet. This is a handling testbed, not a validated F1 simulator.</p>
+<p class="note">Illustrative, uncalibrated dynamics. Keyboard steering is speed-scaled. Body roll, pitch and aero squat are damped spring modes for display; wheel loads are still quasi-static. Surface grip (assumed): kerb 90%, runoff 70%, grass 35%. Walls are rigid: the body footprint rebounds with 25% restitution and scrubs with friction 0.5; no damage model. No tire temperature or race rules yet. This is a handling testbed, not a validated F1 simulator.</p>
 </aside></main>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
 <script type="module">
 import * as THREE from './vendor/three.module.js';
 import { RoomEnvironment } from './vendor/RoomEnvironment.js';
-import { Simulation, createCar, clamp, DEFAULT_CAR } from './physics.mjs';
+import { Simulation, createCar, DEFAULT_CAR } from './physics.mjs';
 import { buildF1Car } from './car3d.mjs';
 import { buildWorld } from './world3d.mjs';
 import { createAutopilot } from './autopilot.mjs';
+import { createStadiumTrack } from './track.mjs';
 const $ = id => document.getElementById(id);
 const canvas = $('track');
 let sim, paused = false, overview = false, previousTime = null, snapCamera = true;
 let width = 1, height = 1;
 const keys = new Set();
 const halfStraight = 220, radius = 90, roadWidth = 15;
-const trackDistance = (x, y) => Math.abs(Math.hypot(x - clamp(x, -halfStraight, halfStraight), y) - radius);
-const surfaceAt = (x, y) => trackDistance(x, y) <= roadWidth / 2 ? 1 : 0.35;
+const track = createStadiumTrack({ halfStraight, radius, roadWidth });
+const { surfaceAt, barrierAt } = track;
 const drive = createAutopilot({ halfStraight, radius });
 let autopilot = true;
 function toggleAutopilot() {
@@ -155,7 +156,8 @@ function render(dt = 0) {
     const deg = a => ((a ?? 0) * 180 / Math.PI).toFixed(1);
     $(`alpha-${name}`).textContent = `α ${deg(wheel?.slipAngle)}° / ${deg(wheel?.kinematicSlipAngle)}°`;
   });
-  $('status').textContent = paused ? 'Paused · Space or Resume to continue' : surfaceAt(c.x, c.y) < 1 ? 'Off circuit · reduced grip · R to reset' : autopilot ? 'Autopilot · P to take control' : c.telemetry.speed < 0.5 ? 'Ready · W or ↑ to accelerate' : 'Test circuit · keyboard steering assist';
+  const surface = track.surface(c.x, c.y), impact = c.impact && c.impact.speed > 2 && c.time - c.impact.time < 1.5 ? c.impact : null;
+  $('status').textContent = paused ? 'Paused · Space or Resume to continue' : impact ? `Wall impact · ${Math.round(impact.speed * 3.6)} km/h into the barrier · R to reset` : surface !== 'asphalt' ? `On the ${surface} · reduced grip · R to reset` : autopilot ? 'Autopilot · P to take control' : c.telemetry.speed < 0.5 ? 'Ready · W or ↑ to accelerate' : 'Test circuit · keyboard steering assist';
 }
 function frame(now) {
   const dt = previousTime !== null && !paused ? Math.min((now - previousTime) / 1000, 0.1) : 0;
@@ -165,7 +167,7 @@ function frame(now) {
     sim.advance((now - previousTime) / 1000, autopilot ? drive(sim.car) : {
       throttle: Number(has('KeyW', 'ArrowUp')), brake: Number(has('KeyS', 'ArrowDown')),
       steer: steer / (1 + (sim.car.telemetry.speed / 22) ** 2),
-    }, surfaceAt);
+    }, surfaceAt, barrierAt);
   }
   previousTime = now; render(dt); requestAnimationFrame(frame);
 }
