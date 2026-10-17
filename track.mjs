@@ -18,8 +18,16 @@ export function createStadiumTrack({ halfStraight, radius, roadWidth, wallOffset
     const d = Math.abs(offset(x, y));
     return d <= half ? 'asphalt' : d <= half + 1.2 ? 'kerb' : d <= half + 8 ? 'runoff' : 'grass';
   };
+  // Arc length along the centreline (anticlockwise), from the left end of the bottom straight.
+  const straight = 2 * halfStraight, arc = Math.PI * radius, length = 2 * straight + 2 * arc;
+  const progress = (x, y) => {
+    if (x >= -halfStraight && x <= halfStraight) return y < 0 ? x + halfStraight : straight + arc + (halfStraight - x);
+    if (x > halfStraight) return straight + (Math.atan2(y, x - halfStraight) + Math.PI / 2) * radius;
+    const a = Math.atan2(y, x + halfStraight);
+    return 2 * straight + arc + ((a < 0 ? a + 2 * Math.PI : a) - Math.PI / 2) * radius;
+  };
   return {
-    halfStraight, radius, roadWidth, wallOffset, offset, surface,
+    halfStraight, radius, roadWidth, wallOffset, offset, surface, length, progress,
     surfaceAt: (x, y) => SURFACE_GRIP[surface(x, y)],
     // Outer and inner walls; the normal points back towards the circuit.
     barrierAt: (x, y) => {

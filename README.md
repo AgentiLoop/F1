@@ -63,7 +63,22 @@ the walls; the car is pushed out by the deepest penetration and receives one
 impulse at the depth-weighted centre of the penetrating corners: 25%
 restitution along the wall normal and Coulomb scrub (friction 0.5) along it,
 both coupled to yaw. The status line reports the closing speed of the last
-impact. There is no damage, lap timing or reset penalty. Use Reset if stranded.
+impact. There is no damage or reset penalty. Use Reset if stranded.
+
+### Lap timing (`laptimer.mjs`)
+
+The start/finish line is the chequered strip on the bottom straight. Progress is
+measured along the centreline (`track.progress`, 1445.5 m per lap) and split into
+three equal-length sectors. The timer is updated once per rendered frame; each
+line or sector crossing is timed by linear interpolation between updates, so
+splits do not depend on frame rate. Laps start at the first forward crossing
+after a load or reset (out lap); driving backwards over a line never counts.
+A lap is deleted when all four tire contact points are beyond the asphalt edge at
+the same time (the F1 track-limits convention; kerbs are outside the edge).
+Deleted laps cannot set best laps or best sectors. The live delta compares the
+current lap with the best lap at the same distance (5 m reference samples).
+Reset aborts the lap in progress but keeps completed laps and session bests.
+Sector colours: purple = session best, yellow = slower.
 
 ## Implemented model
 
@@ -211,7 +226,7 @@ establish internal consistency, not real-car accuracy.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
 5. Cockpit camera, body motion from suspension, sound, gamepad/wheel input and
-   force feedback, damage, kerb geometry and bumps, real circuit geometry, timing, opponents, race rules.
+   force feedback, damage, kerb geometry and bumps, real circuit geometry, opponents, race rules.
 
 ## Repository / parity
 
