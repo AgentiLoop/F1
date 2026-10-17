@@ -297,9 +297,9 @@ Pick a circuit from the menu in the header, or open `?track=<key>`. The keys
 are `monza`, `silverstone`, `spa`, `interlagos`, `red-bull-ring`,
 `hungaroring`, `catalunya`, `zandvoort`, `cota`, `monaco`, `bahrain`,
 `montreal`, `yas-marina`, `imola`, `mexico`, `jeddah`, `miami` and `shanghai`.
-A real circuit is a solo time trial. It has no AI field, start lights or pit
-lane yet; those stay on the stadium track. The car starts 150 m before the line
-and the lap timer starts when it crosses.
+A real circuit opens as a solo time trial: the car starts 150 m before the
+line and the lap timer starts when it crosses. **O** (or `?race`) brings in the
+AI field for a race (cycle 17, below). There is no pit lane on real circuits yet.
 
 * **Layouts:** traced centrelines from
   [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT,
@@ -340,6 +340,79 @@ the geometric racing line, and corners in the traces that are tighter than the
 real ones. Asking the autopilot for more grip (latGrip 0.82–0.9) made laps no
 faster and put the car off the road. No car calibration was changed this
 cycle.
+
+### Racing the AI field on real circuits (`race.mjs`, cycle 17)
+
+`createRace` accepts a circuit track (`track.kind === 'circuit'`). Open
+`?track=<key>&race`, or press **O** on a circuit; the default distance is 3
+laps (`?laps=N`). What is the same as on the stadium track: the standing start
+(`?nostart` skips it), wakes, car contact, standings, the chequered flag,
+classification and fuel. What differs:
+
+* **Grid:** the line is at s = 0. Pole is 0.8 m behind it and the slots are
+  `gridSpacing` (8 m) apart, alternating 2.6 m either side of the centreline.
+* **Lanes:** measured from the racing line, not the centreline. A passing lane
+  (±3 m) is offered only if the road edge leaves it at least 80% of that for the
+  next 200 m. Offsets are clamped `edgeMargin` (2 m) inside the road edge. A
+  car heads back to the line, when that strip is clear, within 150 m of a corner
+  or as its lane runs out of room. Here a corner is where the racing line is
+  tighter than 1/300 m⁻¹. New passing moves still stop 60 m before a corner and
+  start again 40 m after it.
+* **Pace:** each AI driver's corner and braking grip margins scale with its
+  spec relative to the player's: latGrip = 0.74 × cornerSpeed / 43 and
+  brakeGrip = 0.62 × brakeDecel / 26.
+* **No pit lane:** the two-compound rule is switched off and pit requests are
+  ignored.
+* **Fuel:** `fuelPerKm` (0.32 kg per km of lap) instead of the stadium's
+  per-lap figure. The autopilot burnt about 0.30 kg/km at Monza, Silverstone,
+  Spa and the Red Bull Ring.
+* **Retirement:** an AI car that stays below 1 m/s for `retireAfter` (10 s)
+  after the start, outside the pits, retires (the cars have no reverse gear).
+  It is classified DNF after the running cars, and the race can end without it.
+  Retirement applies on the stadium track too.
+
+Changes to the circuit autopilot that the races needed (the time trial uses
+them as well):
+
+* **Coasting throttle:** at speed it keeps at least 15% throttle when not
+  braking. This cancels the closed-throttle engine braking. Lifting fully in a
+  corner, when held up in traffic or catching a slide, made the downshift and
+  the engine braking lock the rears and spin the car.
+* **Understeer check:** it holds the steering for understeer only when the
+  fronts slide more than the rears. Before this, the check also fired during a
+  spin and held the steering at zero when the car needed to catch it.
+* **Turning round:** when pointing more than 90° away from its target, it
+  steers on full lock at no more than 8 m/s until within 60° of the target.
+  Without this it drove the wrong way round the lap. When it is facing nearly
+  backwards, it turns towards the centreline.
+
+Tyre calibration changed this cycle for all tracks. Before, the medium lost
+about 18% of its tread per Silverstone lap, so cars hit the wear cliff after
+about four laps. Rear surfaces also climbed past 140–150 °C by lap 5 at Spa,
+which spun the field. Two changes:
+
+* `tireWearEnergy` is now 200 MJ (was 40 MJ), about 1.5–3% per lap in the time
+  trial.
+* Surface cooling to the air is now 12 + 1.6·u W/K (was 0.8·u). Over 5 time
+  trial laps the rears level off near 115 °C at Silverstone and 121 °C at Spa.
+
+**Measured** (Node, autopilot with the full 5-car field):
+
+* **Robustness:** 5-lap races at Monza, Silverstone, Spa, Interlagos and the
+  Red Bull Ring, 2–3 start seeds each, all finished. There were no spins, no
+  wall hits and no contact above 2 m/s, and every car spent under 2.1 s off
+  the road.
+* **10-lap races:** Monza, Silverstone and the Red Bull Ring finished with no
+  contact. These ran with an earlier, larger fuel allowance, and every car
+  finished with 5.9–9.3 kg left.
+* **Racing:** cars rarely change places. The player's autopilot on pole won
+  every race.
+* **Time trial:** second laps are now Monza 96.3 s, Silverstone 114.8 s, Spa
+  127.0 s, Interlagos 86.8 s and the Red Bull Ring 81.7 s. They are also more
+  consistent from lap to lap.
+* **Stadium:** the 12 seeded 10-lap races with the two-compound rule all
+  finished without contact. The flag fell 2–4 s later than before, because the
+  tyres now run cooler.
 
 Not bundled: Suzuka (the figure-of-eight crossover breaks nearest-point
 progress); Baku (two parts of the trace lie 9.6 m apart, so the car takes a
@@ -473,7 +546,7 @@ at any allowed timestep):
 * Surface heat in: `tireSlipHeatShare` (50%) of the contact friction power
   |Fx (r ω − u)| + |Fy v| (the rest is assumed to go into the road).
 * Carcass heat in: rolling hysteresis, `rollingResistance` × load × |u|.
-* Losses: surface to air (12 + 0.8·u W/K) and to the 35 °C track (25 W/K);
+* Losses: surface to air (12 + 1.6·u W/K; 0.8·u before cycle 17) and to the 35 °C track (25 W/K);
   carcass to air (8 + 0.4·u W/K); surface↔carcass conduction 250 W/K. Heat
   capacities 2.5 kJ/K (surface) and 16 kJ/K (carcass). Air is 25 °C.
 * Grip: `tireTempGrip` blends 60% surface + 40% carcass temperature T and
@@ -490,7 +563,7 @@ and the temperature is uniform across the tread width.
 `car.tireWear[i]` is the fraction of usable tread used (0 new, 1 worn out;
 `tireStartWear` sets the starting value). Every step `updateTireWear` adds the
 same contact friction power that heats the tread, divided by `tireWearEnergy`
-(40 MJ for a full tire at or below the optimum) and multiplied by
+(200 MJ for a full tire at or below the optimum; 40 MJ before cycle 17) and multiplied by
 exp(max(0, Tsurface − 100) / 20), so a tire running 20 °C over the optimum
 wears e (~2.7) times faster. Free rolling causes no wear.
 `tireWearGrip` multiplies peak friction (alongside the thermal grip) by
@@ -586,7 +659,7 @@ locked-wheel sliding heats the tread >5 °C in 1 s while free rolling only cools
 it; a 50 m/s stop on 40 °C tires is >10% longer than on 100 °C tires.
 `/tmp/f1-thermal-smoke.mjs` checks the per-wheel temperature HUD in Chrome.
 Cycle 8 wear tests: wear grip is 1 when new, linear to the cliff, steeper past
-it, and clamped at both ends; wear equals sliding energy / 40 MJ at
+it, and clamped at both ends; wear equals sliding energy / tireWearEnergy (40 MJ then, 200 MJ since cycle 17) at
 60/240/960 Hz, is e times faster one temperature scale above the optimum and
 caps at 1; a 1 s lockup wears every tire while free rolling does not; a 50 m/s
 stop on fully worn tires is >10% longer than on new ones.
@@ -702,8 +775,9 @@ establish internal consistency, not real-car accuracy.
    force feedback, damage, kerb geometry and bumps, race
    rules (safety car, blue flags), undercut/overcut strategy and smarter AI racecraft.
 6. Real circuits: elevation, camber and surveyed track widths, a minimum-time
-   racing line, pit lanes and the AI field on real layouts, and car calibration
-   so lap times can be compared with real pole times.
+   racing line, pit lanes (and the compound rule) on real layouts, AI that can
+   overtake there, and car calibration so lap times can be compared with real
+   pole times.
 
 ## Repository / parity
 

@@ -6,7 +6,8 @@ import { createTimeTrial } from './trial.mjs';
 import { createLapTimer } from './laptimer.mjs';
 import { SURFACE_GRIP } from './track.mjs';
 import { createCircuitAutopilot } from './autopilot.mjs';
-import { createCar } from './physics.mjs';
+import { createCar, Simulation, FIXED_DT } from './physics.mjs';
+import { createRace, DEFAULT_GRID, RACE_DEFAULTS } from './race.mjs';
 
 // Anticlockwise circle of radius 200 m traced with 48 points.
 const ring = Array.from({ length: 48 }, (_, i) => [200 * Math.cos(i * Math.PI / 24), 200 * Math.sin(i * Math.PI / 24)]);
@@ -69,4 +70,43 @@ test('the circuit autopilot laps Monza on the road at a plausible pace', () => {
   // Real pole laps are ~80 s; this illustrative car on a geometric line is slower.
   assert.ok(lap.time > 85 && lap.time < 105, `lap ${lap.time.toFixed(2)} s`);
   assert.ok(top * 3.6 > 290, `top speed ${(top * 3.6).toFixed(0)} km/h`);
+});
+
+test('an offset from the racing line is kept edgeMargin inside the road edge; no offset follows the line', () => {
+  const track = createCircuitTrack(CIRCUITS.silverstone), drive = createCircuitAutopilot(track), edge = track.roadWidth / 2 - 2;
+  for (let s = 0; s < track.length; s += 37) {
+    assert.ok(Math.abs(drive.path(s, 9)) <= edge + 1e-9 && Math.abs(drive.path(s, -9)) <= edge + 1e-9);
+    assert.equal(drive.path(s, 0), track.lineOffset(s));
+  }
+});
+
+test('the circuit autopilot turns a spun car round instead of driving the wrong way', () => {
+  const track = createCircuitTrack(CIRCUITS.monza), drive = createCircuitAutopilot(track), sim = new Simulation(createCar());
+  const s0 = 300; [sim.car.x, sim.car.y] = track.point(s0, track.lineOffset(s0)); sim.car.heading = track.heading(s0) + Math.PI;
+  for (let i = 0; i < 12 / FIXED_DT; i++) sim.advance(FIXED_DT, drive(sim.car), track.surfaceAt, track.barrierAt);
+  const s = track.progress(sim.car.x, sim.car.y), d = sim.car.heading - track.heading(s);
+  assert.ok(Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) < 0.2, `heading error ${Math.atan2(Math.sin(d), Math.cos(d)).toFixed(2)} rad`);
+  assert.ok(s > s0 + 100 && sim.car.telemetry.speed > 30, `progress ${s.toFixed(0)} m at ${sim.car.telemetry.speed.toFixed(1)} m/s`);
+});
+
+test('a race on a real circuit: grid behind the line, no pit lane, fuel for the distance, a clean finish', () => {
+  const track = createCircuitTrack(CIRCUITS['red-bull-ring']);
+  const race = createRace(track, { grid: DEFAULT_GRID, start: { seed: 3 }, laps: 1, compoundRule: true });
+  assert.equal(race.pit, null); assert.equal(race.compoundRule, false);
+  race.requestPit('soft'); assert.equal(race.entries[0].pitRequest, null);
+  race.entries.forEach((e, i) => {
+    assert.ok(Math.abs(e.covered + 0.8 + RACE_DEFAULTS.gridSpacing * i) < 0.5, `slot ${i}: ${e.covered.toFixed(2)} m`);
+    assert.ok(Math.abs(e.car.fuel - (RACE_DEFAULTS.fuelPerKm * track.length / 1000 * (1 + RACE_DEFAULTS.fuelMargin) + RACE_DEFAULTS.fuelReserve)) < 1e-9);
+  });
+  let contact = 0, maxOff = 0;
+  while (!race.finish.done && race.time < 160) {
+    race.advance(0.25, null, track.surfaceAt, track.barrierAt);
+    for (const e of race.entries) { contact = Math.max(contact, e.car.contact?.speed ?? 0); maxOff = Math.max(maxOff, Math.abs(track.offset(e.car.x, e.car.y))); }
+  }
+  assert.ok(race.finish.done, 'every car took the flag');
+  const rows = race.classification();
+  assert.ok(rows.every(r => r.finished && r.laps === 1 && !r.dsq), JSON.stringify(rows));
+  assert.ok(rows[0].time > 75 && rows[0].time < 100, `winner ${rows[0].time.toFixed(2)} s`);
+  assert.ok(contact < 3, `contact ${contact.toFixed(1)} m/s`);
+  assert.ok(maxOff < track.roadWidth / 2 + 1.5, `max offset ${maxOff.toFixed(1)} m`);
 });

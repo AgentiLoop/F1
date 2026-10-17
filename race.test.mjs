@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCar, step, FIXED_DT } from './physics.mjs';
 import { createStadiumTrack } from './track.mjs';
-import { createRace, wakeStrength, resolveCarContact, RACE_DEFAULTS } from './race.mjs';
+import { createRace, wakeStrength, resolveCarContact, RACE_DEFAULTS, DEFAULT_GRID } from './race.mjs';
 
 const track = createStadiumTrack({ halfStraight: 220, radius: 90, roadWidth: 15 });
 const place = (x, y, heading = 0, speed = 0) => Object.assign(createCar(), { x, y, heading, vx: speed * Math.cos(heading), vy: speed * Math.sin(heading) });
@@ -272,4 +272,19 @@ test('a race with a distance fuels every car for it; the burn-off lightens the c
   const burnt = load - race.car.fuel, lap = race.entries[0].covered / track.length;
   assert.ok(Math.abs(burnt / lap - o.fuelPerLap) < 0.08, `${(burnt / lap).toFixed(3)} kg/lap`);
   assert.ok(race.standings().every(s => s.fuel > 0));
+});
+
+test('an AI car stuck for retireAfter seconds retires: classified after running cars, and the race can end without it', () => {
+  const race = createRace(track, { grid: [{ ...DEFAULT_GRID[0], car: { fuelLoad: 0 } }], laps: 1 }), out = race.entries[1];
+  race.advance(0.25, null, track.surfaceAt, track.barrierAt);
+  for (let t = 0; t < RACE_DEFAULTS.retireAfter + 3; t += 0.25) race.advance(0.25, null, track.surfaceAt, track.barrierAt);
+  assert.ok(out.retired && out.retired.lap === 1, JSON.stringify(out.retired));
+  assert.equal(out.command.brake, 1);
+  let rows = race.classification();
+  assert.equal(rows[0].player, true); assert.equal(rows[1].retired, true);
+  assert.equal(race.standings().find(s => !s.player).retired, true);
+  while (!race.finish.done && race.time < 120) race.advance(0.25, null, track.surfaceAt, track.barrierAt);
+  assert.ok(race.finish.done, 'done once the player finishes');
+  rows = race.classification();
+  assert.ok(rows[0].finished && rows[1].retired && !rows[1].finished);
 });

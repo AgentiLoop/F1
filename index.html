@@ -42,13 +42,14 @@ let sim, paused = false, overview = false, cockpit = false, previousTime = null,
 let width = 1, height = 1;
 const keys = new Set();
 const halfStraight = 220, radius = 90, roadWidth = 15;
-// ?track=<key> (circuits.mjs) drives a real circuit as a solo time trial;
+// ?track=<key> (circuits.mjs) drives a real circuit, as a solo time trial
+// unless ?race (or O) brings in the AI field (no pit lane there yet);
 // without it, the stadium test track hosts the race against the AI field.
 const circuitKey = Object.hasOwn(CIRCUITS, new URLSearchParams(location.search).get('track')) ? new URLSearchParams(location.search).get('track') : null;
 const track = circuitKey ? createCircuitTrack(CIRCUITS[circuitKey]) : createStadiumTrack({ halfStraight, radius, roadWidth });
 const { surfaceAt, barrierAt } = track;
 const timer = createLapTimer(track, circuitKey ? { lineProgress: 0 } : undefined);
-let autopilot = true, command = { throttle: 0, brake: 0, steer: 0 }, opponents = !circuitKey;
+let autopilot = true, command = { throttle: 0, brake: 0, steer: 0 }, opponents = !circuitKey || new URLSearchParams(location.search).has('race');
 const driver = createDriverInput();
 // Sound: the AudioContext is created on the first key press or click (autoplay policy).
 const soundModel = createSoundModel(DEFAULT_CAR);
@@ -73,11 +74,11 @@ function toggleAutopilot() {
 // The race: the player's car (sim.car) on pole plus the AI field behind it.
 function reset() {
   // A race with opponents begins with the standing-start lights (?nostart skips them).
-  // Race distance: ?laps=N (default 10); the chequered flag ends the race.
+  // Race distance: ?laps=N (default 10, or 3 on a real circuit); the chequered flag ends the race.
   // Tyres: start compound ?tyre=soft|medium|hard (default medium); with opponents
   // the two-compound rule applies (races of 2+ laps).
   const query = new URLSearchParams(location.search), tyre = TIRE_COMPOUNDS[query.get('tyre')] ? query.get('tyre') : 'medium';
-  sim = circuitKey ? createTimeTrial(track, { tyre }) : createRace(track, { grid: opponents ? DEFAULT_GRID : [], start: opponents && !query.has('nostart'), laps: opponents ? Math.max(1, Math.round(Number(query.get('laps')) || 10)) : 0,
+  sim = circuitKey && !opponents ? createTimeTrial(track, { tyre }) : createRace(track, { grid: opponents ? DEFAULT_GRID : [], start: opponents && !query.has('nostart'), laps: opponents ? Math.max(1, Math.round(Number(query.get('laps')) || (circuitKey ? 3 : 10))) : 0,
     compoundRule: opponents, player: { tyres: [tyre, tyre === 'hard' ? 'medium' : 'hard'] } }); timer.restart();
   rivals.forEach(r => { r.model.group.visible = opponents; r.wheelAngle.fill(0); });
   keys.clear(); driver.reset(); soundModel.reset(); previousTime = null; snapCamera = true;
@@ -105,7 +106,6 @@ $('view').onclick = changeView;
 $('autopilot').onclick = toggleAutopilot;
 $('sound').onclick = toggleSound;
 function toggleOpponents() {
-  if (circuitKey) return; // real circuits: time trial only (no AI field or pit lane yet)
   opponents = !opponents; reset();
   $('field').textContent = `Opponents: ${opponents ? 'on' : 'off'}`;
   $('field').setAttribute('aria-pressed', String(opponents));
@@ -293,12 +293,12 @@ function render(dt = 0) {
     const rows = sim.classification(); result = rows.find(r => r.player);
     $('race-label').textContent = `Classification · ${finish.laps} lap${finish.laps > 1 ? 's' : ''}${finish.done ? '' : ' · finishing'}`;
     $('race-pos').textContent = result.finished ? `Finished P${result.position} / ${rows.length}` : `Chequered flag · P${result.position}`;
-    $('standings').innerHTML = rows.map(r => `<li class="${r.player ? 'you' : ''}"><span>${r.position}</span>${swatch(r)}${r.name}<b>${r.dsq ? 'DSQ · one compound' : !r.finished ? 'running' : r.gap === 0 ? formatLapTime(r.total) : r.lapsDown ? `+${r.lapsDown} lap${r.lapsDown > 1 ? 's' : ''}` : `+${r.gap.toFixed(3)}`}${r.penalty ? ` · incl. ${r.penalty}s pen` : ''} · ${r.stops} stop${r.stops === 1 ? '' : 's'}</b></li>`).join('');
+    $('standings').innerHTML = rows.map(r => `<li class="${r.player ? 'you' : ''}"><span>${r.position}</span>${swatch(r)}${r.name}<b>${r.dsq ? 'DSQ · one compound' : r.retired ? `DNF · lap ${r.laps + 1}` : !r.finished ? 'running' : r.gap === 0 ? formatLapTime(r.total) : r.lapsDown ? `+${r.lapsDown} lap${r.lapsDown > 1 ? 's' : ''}` : `+${r.gap.toFixed(3)}`}${r.penalty ? ` · incl. ${r.penalty}s pen` : ''} · ${r.stops} stop${r.stops === 1 ? '' : 's'}</b></li>`).join('');
   } else if (opponents) {
     const standings = sim.standings(), me = standings.find(s => s.player);
     $('race-label').textContent = 'Race order · interval to leader';
     $('race-pos').textContent = `P${me.position} / ${standings.length} · Lap ${Math.min(me.lap, finish.laps)}/${finish.laps}`;
-    $('standings').innerHTML = standings.map(s => `<li class="${s.player ? 'you' : ''}"><span>${s.position}</span>${swatch(s)}${s.name}<b>${s.position === 1 ? `Lap ${Math.min(s.lap, finish.laps)}` : `+${s.gap.toFixed(3)}`}${s.penalty ? ` · +${s.penalty}s pen` : ''}${s.pit ? ' · PIT' : ''}${tyreBadge(s.compound)}</b></li>`).join('');
+    $('standings').innerHTML = standings.map(s => `<li class="${s.player ? 'you' : ''}"><span>${s.position}</span>${swatch(s)}${s.name}<b>${s.position === 1 ? `Lap ${Math.min(s.lap, finish.laps)}` : `+${s.gap.toFixed(3)}`}${s.penalty ? ` · +${s.penalty}s pen` : ''}${s.pit ? ' · PIT' : ''}${s.retired ? ' · OUT' : ''}${tyreBadge(s.compound)}</b></li>`).join('');
   } else $('race-pos').textContent = '';
   const contact = c.contact && c.contact.speed > 1 && c.time - c.contact.time < 1.5 ? c.contact : null;
   const surface = track.surface(c.x, c.y), impact = c.impact && c.impact.speed > 2 && c.time - c.impact.time < 1.5 ? c.impact : null;
@@ -341,10 +341,10 @@ function frame(now) {
   previousTime = now; render(dt); requestAnimationFrame(frame);
 }
 // Circuit picker: reloads with ?track=<key> (stadium = no key), keeping other options.
-$('track-select').innerHTML = `<option value="">Stadium test track · race</option>${Object.entries(CIRCUITS).map(([k, c]) => `<option value="${k}">${c.name} · time trial</option>`).join('')}`;
+$('track-select').innerHTML = `<option value="">Stadium test track · race</option>${Object.entries(CIRCUITS).map(([k, c]) => `<option value="${k}">${c.name}</option>`).join('')}`;
 $('track-select').value = circuitKey ?? '';
 $('track-select').onchange = e => { const q = new URLSearchParams(location.search); if (e.target.value) q.set('track', e.target.value); else q.delete('track'); location.search = q.toString(); };
-if (circuitKey) { $('field').disabled = true; $('field').textContent = 'Opponents: stadium only'; $('race-section').hidden = true; }
+$('field').textContent = `Opponents: ${opponents ? 'on' : 'off'}`; $('field').setAttribute('aria-pressed', String(opponents)); $('race-section').hidden = !opponents;
 reset(); resize(); requestAnimationFrame(frame);
 // Read-only snapshots for browser smoke tests and telemetry tools.
 window.f1Lab = {

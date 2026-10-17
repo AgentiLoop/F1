@@ -6,8 +6,10 @@ import { clamp } from './physics.mjs';
 // corners with downforce are flat out; a backward pass then limits each point
 // to what braking (brakeGrip·μ·(g + q·v²) plus drag) can reach from the next.
 // latGrip/brakeGrip < 1 leave margin for load sensitivity and slip.
+// A per-call offset from the line (traffic) is kept edgeMargin metres inside
+// the road edge.
 export function createCircuitAutopilot(track, tuning = {}) {
-  const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100,
+  const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100, edgeMargin: 2, recoverySpeed: 8, coastThrottle: 0.15, coastSpeed: 15,
     slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 40, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ...tuning };
   const { lineCurvature: curvature, lineStep } = track.samples, n = curvature.length, step = track.length / n;
   let plan = null;
@@ -26,33 +28,51 @@ export function createCircuitAutopilot(track, tuning = {}) {
     return v;
   }
   const at = s => plan[Math.floor((((s % track.length) + track.length) % track.length) / step) % n];
+  const edge = track.roadWidth / 2 - t.edgeMargin;
+  // Centreline offset of the path `offset` metres right of the line at s.
+  const path = (s, offset) => offset ? clamp(track.lineOffset(s) + offset, -edge, edge) : track.lineOffset(s);
+  let turn = 0; // turning round after a spin: steer direction (±1), 0 = not
   // offset: metres to the right of the racing line.
   const drive = function drive(car, { offset = 0, maxSpeed = Infinity, grip = 1 } = {}) {
     plan ??= speedPlan(car.config);
     const c = car.config, speed = car.telemetry.speed, s = track.progress(car.x, car.y);
     const ld = Math.max(t.minLookahead, speed * t.lookahead);
-    const [px, py] = track.point(s + ld, track.lineOffset(s + ld) + offset);
-    const alpha = Math.atan2(py - car.y, px - car.x) - car.heading;
-    const drift = track.offset(car.x, car.y) - track.lineOffset(s) - offset;
-    const steerAngle = Math.atan(2 * c.wheelbase * Math.sin(Math.atan2(Math.sin(alpha), Math.cos(alpha))) / ld)
+    const [px, py] = track.point(s + ld, path(s + ld, offset));
+    const raw = Math.atan2(py - car.y, px - car.x) - car.heading, alpha = Math.atan2(Math.sin(raw), Math.cos(raw));
+    const drift = track.offset(car.x, car.y) - path(s, offset);
+    // Pointing away from the target (after a spin): full lock towards it at
+    // no more than recoverySpeed, turning round instead of driving the wrong
+    // way: towards the target, or, when facing nearly backwards, towards the
+    // centreline (more room for the turning circle). The turn keeps its
+    // direction until the car points within 60° of the target.
+    const across = Math.abs(alpha) > 5 * Math.PI / 6 ? (track.offset(car.x, car.y) < 0 ? 1 : -1) : Math.sign(alpha);
+    turn = Math.abs(alpha) > Math.PI / 2 ? turn || across : Math.abs(alpha) < Math.PI / 3 ? 0 : turn;
+    const turning = turn !== 0;
+    const steerAngle = turning ? turn * c.maxSteer : Math.atan(2 * c.wheelbase * Math.sin(alpha) / ld)
       + t.crossTrackGain * drift * Math.min(1, (t.crossTrackSpeed / Math.max(speed, 1)) ** 2);
     // Target: the plan's lowest speed over the next `preview` seconds of travel.
     let target = at(s);
     for (let d = step; d <= speed * t.preview; d += step) target = Math.min(target, at(s + d));
-    target = Math.min(maxSpeed, target * Math.sqrt(grip));
+    target = Math.min(maxSpeed, turning ? t.recoverySpeed : Infinity, target * Math.sqrt(grip));
     const err = target - speed;
     const wheels = car.telemetry.wheels, rearSlip = wheels.length ? Math.max(wheels[2].slipRatio ?? 0, wheels[3].slipRatio ?? 0) : 0;
     const slipAt = k => wheels.length ? Math.abs(wheels[k].slipAngle ?? 0) : 0;
     const rearAlpha = Math.max(slipAt(2), slipAt(3)), frontAlpha = Math.max(slipAt(0), slipAt(1));
     const traction = clamp(1 - (rearSlip - t.slipTarget) / t.slipBand, 0.15, 1) * clamp(1 - (rearAlpha - t.rearSlide) / t.slideBand, 0, 1);
-    const understeer = frontAlpha > t.frontSlide && Math.abs(steerAngle) > Math.abs(car.steer) && Math.sign(steerAngle) === Math.sign(car.steer);
+    // Understeer only when the fronts slide more than the rears: in a spin
+    // the fronts slide too, and holding the lock then would block the catch.
+    const understeer = frontAlpha > t.frontSlide && frontAlpha > rearAlpha && Math.abs(steerAngle) > Math.abs(car.steer) && Math.sign(steerAngle) === Math.sign(car.steer);
     return {
       steer: clamp((understeer ? car.steer : steerAngle) / c.maxSteer, -1, 1),
-      throttle: err > 0 && !understeer ? clamp(err / 3, 0, 1) * traction : 0,
+      // Off the brakes at speed the throttle stays at least coastThrottle,
+      // which cancels the engine braking: lifting fully (to catch a slide, or
+      // just over the target in traffic) would snap the rear loose mid-corner.
+      throttle: understeer ? 0 : Math.max(err > 0 ? clamp(err / 3, 0, 1) * traction : 0, err >= -1 && speed > t.coastSpeed ? t.coastThrottle : 0),
       brake: err < -1 ? clamp(-err / 8, 0, 1) : 0,
     };
   };
   drive.plan = car => (plan ??= speedPlan(car.config));
+  drive.path = path;
   return drive;
 }
 

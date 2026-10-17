@@ -41,13 +41,13 @@ export const DEFAULT_CAR = Object.freeze({
   ambientTemp: 25, trackTemp: 35, tireStartTemp: 70, tireOptimalTemp: 100, tireWindow: 35,
   tireTempGripLoss: 0.12, tireMinTempGrip: 0.8, tireSurfaceGripWeight: 0.6,
   tireSurfaceHeatCapacity: 2500, tireCarcassHeatCapacity: 16000, tireSlipHeatShare: 0.5,
-  tireSurfaceCooling: 12, tireSurfaceCoolingPerSpeed: 0.8, tireRoadConduction: 25,
+  tireSurfaceCooling: 12, tireSurfaceCoolingPerSpeed: 1.6, tireRoadConduction: 25,
   tireCoreConduction: 250, tireCarcassCooling: 8, tireCarcassCoolingPerSpeed: 0.4,
   // Tread wear (illustrative): fraction of usable tread lost per joule of contact
   // sliding energy (tireWearEnergy wears a tire out at the optimum), accelerated
   // exponentially when the surface runs hot. Grip falls linearly with wear and
   // drops off a cliff once the tread is nearly gone.
-  tireWearEnergy: 40e6, tireWearTempScale: 20, tireWearGripLoss: 0.08,
+  tireWearEnergy: 200e6, tireWearTempScale: 20, tireWearGripLoss: 0.08,
   tireCliffWear: 0.75, tireCliffGripLoss: 0.15, tireStartWear: 0,
   tireCompound: 'medium',
   // Fuel (illustrative): fuelLoad kg on board at the start (null = not
