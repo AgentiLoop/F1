@@ -453,6 +453,79 @@ illustrative, not FIA zone maps or wind-tunnel data.
 - **Still missing:** cars now run in DRS range but almost never pass on
   circuits. The AI still has no late-braking or defending moves.
 
+### Overtaking on real circuits: tow, follow gap, passing-lane plans, out-braking (`race.mjs`, `autopilot.mjs`, cycle 23)
+
+- **Cause:** after cycle 22 no car passed on track in 5-lap full-field races
+  at nine circuits. In 2-car races, a car 1–3 m/s faster in corners (up to ~7%
+  more grip) behind a slower one passed on only 2 of 54 circuit/pace pairs.
+  Four things stopped it:
+  - A follower pulled out 40–50 m back, as soon as any car was in its lane.
+    The lane gain compared a finite speed cap with an empty lane's infinite
+    one. Pulling out that early threw the tow away before it built closing speed.
+  - The fixed 14 m follow gap is ~0.7 s in a 20 m/s corner. That time gap
+    carried down the next straight, out of reach of DRS (~2–3 m/s closing).
+  - From 150 m before a corner every car went back to the racing line. From
+    60 m the car behind always backed out, so a corner-speed advantage could
+    never be used.
+  - A passing lane cornered at the racing line's planned speed, although its
+    path is tighter.
+- **Fix (circuits only; the stadium is unchanged):**
+  - *Slipstream first:* a car leaves the line only once it is within
+    `pullOutTime` (0.3 s) plus a car length of the car ahead on the line. It
+    also needs at least `passRoom` (250 m) to the next corner.
+  - *Follow gap grows with speed:* `followMin + followTime·v` (8 m + 0.08 s),
+    at most the old 14 m. The full 14 m still applies in three cases: behind a
+    car slower than `followSlow` (10 m/s, e.g. one that ran wide in a hairpin),
+    while a car is still crossing to its lane (lap-1 grid slots), and when
+    backing out from alongside.
+  - *Passing-lane speed plans* (`drive.lanePlan`): each ±3 m lane has its own
+    plan, from its own curvature and arc lengths. The offsets are smoothed
+    first (`laneSmoothing`, 100 passes) so the clamp at the road edge leaves no
+    kinks. A car on a passing lane is capped by both plans.
+  - *Out-braking:* a car in the passing lane on the inside of the next corner
+    can dive. It must be within `diveGap` (20 m) of the car ahead when it
+    reaches the laneReturn point. It then stays on the inside and brakes on its
+    lane plan alone, at `lateBrake` (1.2×) the plan deceleration.
+  - *Yielding:* once the diver's nose is within a car length plus `diveOverlap`
+    (1 m), the other car yields. It backs out to `yieldGap` (2 m) nose to tail
+    and moves to the outside lane, because the inside lane meets the racing
+    line at the apex.
+  - *Giving up:* a diver not alongside by `diveTurnIn` (15 m) before the corner
+    gives up. The exception is a diver closing fast enough to be alongside
+    within `diveReach` (0.6 s), because backing out then would run into the
+    other car.
+  - *Ending:* the move ends once the diver is clearly ahead or no longer
+    alongside, or `diveExit` (40 m) down the next straight. The corner's inside
+    is the sign of the racing line's tightest curvature in the 60 m after the
+    corner start.
+- **Measured, 2-car races:** a leader with a 42 m/s corner speed raced a
+  follower 1–3 m/s faster, over 5 laps on all 18 circuits.
+  - Passes: 22 of 54, none with contact. Before: 2 of 54, one of those with a
+    3.6 m/s contact.
+  - Monza, Catalunya, Jeddah and Miami see passes even at +1 m/s.
+  - Silverstone, Bahrain, Mexico, COTA, Yas Marina, Imola, the Red Bull Ring
+    and Monaco still see no pass.
+  - The cycle-22 Monza pair (43.6 behind 43 m/s) now ends with the faster car
+    winning by 1.5 s after one dive, without contact.
+- **Measured, full field:**
+  - 5 laps, 2 seeds, nine circuits: 10 passes (3 per race at Monza, 2 at
+    Jeddah), no contacts and no wall impacts. Before: 0 passes.
+  - All 18 circuits, 3 laps: no wall impacts. The only contact is Monaco's
+    lap-1 Ste Dévote crawl, now 1.3 m/s (was 1.8 m/s).
+  - Time-trial laps are unchanged (Monza 95.55 s, Silverstone 113.42 s, Spa
+    125.83 s).
+- **Assumptions:** every number above was chosen by trying values on these
+  circuits, not taken from driver data. `lateBrake` 1.3 gave contacts and a
+  follower that lost 5.6 s. A 12 m dive gap gave no dives.
+- **Limits:** the defender gives up whenever a diver is alongside on its
+  inside. There is still no defending, covering the inside or passing around
+  the outside. Equal cars rarely pass, because dirty air (up to ~15% downforce
+  at 20 m) costs the follower about what the tow and DRS give back.
+- **Monaco note:** at Ste Dévote the traced centreline has a radius of about
+  8 m, tighter than the car's turning circle. Every car runs wide at ~6 m/s on
+  lap 1 and the field crawls round. This comes from the track data and also
+  caused the earlier touch.
+
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
 Pick a circuit from the menu in the header, or open `?track=<key>`. The keys
@@ -963,6 +1036,17 @@ follower's detection gap falls by more than 0.4 s, DRS opens for more than
 10 s, the car finishes less than 1 s behind and there is no contact. The race
 test fails against the cycle 21 code. All 132 Node tests pass, and the
 circuit and circuit-race browser checks pass.
+
+Cycle 23 overtaking tests (`follow.test.mjs`, now four tests). The Monza pair
+test now expects the faster car to win, with its detection gaps falling by more
+than 0.4 s, DRS open for more than 10 s and no contact. A lane-plan test checks
+that each ±3 m Monza lane is never below half the racing line's planned speed,
+that it is slower than the line at more than 50 samples, and that the
+late-braking plan is never slower than the normal lane plan. In a 2-car, 5-lap
+Interlagos race a car 2 m/s faster in corners must get alongside on the inside
+under braking and win, while the slower car moves to the outside lane, without
+contact. Both new tests use functions the cycle 22 code does not have. All 134
+Node tests pass. The circuit-race, race and DRS browser checks pass.
 
 ## Next realism milestones
 
