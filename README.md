@@ -74,6 +74,9 @@ contact position, has outward loft normals, and stays under 200k triangles.
   speeding) and stop in your box (the first one, painted green). `?tyre=soft`
   (or `medium`/`hard`) picks the start compound. With opponents every finisher
   must use two compounds (one stop) or is disqualified.
+- DRS: hold F (gamepad RB). It opens only where the race allows it (see
+  below); braking closes it. In a time trial it is free to use in the DRS
+  zones. The autopilot opens it wherever it is allowed.
 - Buttons provide the same pause/reset/view actions. Driving keys are ignored
   while a button has focus; click the circuit to return focus to driving.
 - Losing window focus or hiding the tab pauses and releases held inputs.
@@ -344,6 +347,48 @@ Modelled after the 2014–25 power-unit rules; the numbers are illustrative.
   extra rear power at Spa overheated the rears (~127 °C, 28% worn after 2.4
   laps) and the car spun on lap 3. With it, third flying laps are 1–3 s slower
   as the rears go off.
+
+### DRS (`physics.mjs`, `race.mjs`, `trial.mjs`, cycle 20)
+
+Modelled after the 2011–25 rules; the aero numbers and zone placement are
+illustrative, not FIA zone maps or wind-tunnel data.
+
+- Physics: `input.drs === true` opens the rear-wing flap (`car.drs`, 0..1) at
+  `drsRate` 4 per second (0.25 s full travel). Any brake above 5%, or no
+  request, closes it at the same rate. Fully open, it removes `drsDragLoss` 12%
+  of the drag and `drsDownforceLoss` 10% of the downforce, all from the rear, so
+  the aero balance moves forward (40% → 44% front). Telemetry: `drs`,
+  `frontShare`. It stacks with the tow from a car ahead.
+- Race rules: each zone has a detection point, an opening point and an end.
+  A car whose gap at the detection point to whichever car crossed it last is 1 s
+  or less may open the flap in that zone. That car can be a lapped car. Cars
+  that are pitting, retired or finished do not count. DRS is enabled once the
+  leader has completed 2 laps, so from lap 3, and is off after the chequered
+  flag. `createRace(track, { drs: false })` turns it off.
+- Zones: the stadium gets one on each straight. A real circuit gets one on each
+  of its two longest straights of at least 450 m. Here a straight is where the
+  racing line curves no tighter than 1/200 m⁻¹. Each zone opens 60 m after the
+  corner exit and runs to the next corner, with its detection point 150 m
+  before the opening. `findDrsZones(track)` lists them. These are not the
+  official zones: Monza's are the main straight and the run from the first
+  chicane through Curva Grande, and Monaco gets two where the real circuit has one.
+- The AI and the player's autopilot request DRS wherever it is allowed, and
+  the flap closes as they brake. A request from a player who is driving is
+  ignored outside an allowed zone. The HUD shows `DRS from lap 3`, the last
+  detection gap, `DRS · hold F` when it is available, and `DRS OPEN`. The
+  standings mark rivals running with DRS open. The 3D rear-wing flap swings
+  from 35° to 5° as it opens.
+- Measured: after 60 s at full throttle (ERS spent), top speed rises from
+  308.7 to 322.2 km/h. Time-trial flying laps (autopilot) are 0.04–0.63 s
+  faster, with top speed up 0–12 km/h: Monza 97.49 → 97.04 s, Silverstone
+  115.69 → 115.47 s, Miami 109.46 → 108.83 s, Monaco 95.09 → 95.00 s. Real
+  qualifying gains are of a similar order. Spa's lap is flagged invalid with
+  and without DRS (it already was).
+- In a seeded 10-lap stadium race the cars ran with DRS open for 7–40 s each;
+  everyone finished with no wall impacts. In seeded 5-lap races at Monza,
+  Silverstone and the Red Bull Ring the circuit AI field spread out by more
+  than 1 s before lap 3, so no car ever qualified for DRS. Closer circuit
+  racing needs better AI racecraft.
 
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
@@ -836,6 +881,17 @@ wall placements at Monza, Silverstone, Spa, Interlagos and the Hungaroring
 recovered with no wall impact; seeded stadium (10 laps, compound rule), Monza
 and Silverstone races finished with no retirements and never triggered
 recovery.
+
+Cycle 20 DRS tests (`drs.test.mjs`, six tests): the open flap's drag,
+downforce and front-load effects and its 8–20 km/h top-speed gain; actuation
+rate and closing on the brakes; a follower within 1 s at the detection point
+opens it in the zone while the car ahead does not; nothing before the
+enabling laps or with `drs: false`; a driving player opens it only on request
+and only where it is allowed; Monza's zones, one of them spanning the start
+line. All 128 Node tests pass. `/tmp/f1-drs-smoke.mjs` waited in Chrome for a
+car to open DRS on lap 3. It checked that open flaps were allowed and drawn
+flat and that the standings showed DRS, with no page errors. The race,
+circuit-race, circuit and 3D checks still pass.
 
 ## Next realism milestones
 
