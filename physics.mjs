@@ -16,6 +16,7 @@ export const DEFAULT_CAR = Object.freeze({
   engineBrakeTorque: 80, drivelineEfficiency: 0.95,
   // Overall ratios (gearbox x final drive), engine rpm per wheel rpm.
   gearRatios: Object.freeze([12.9, 10.6, 9.0, 7.8, 6.85, 6.05, 5.35, 4.75]),
+  reverseRatio: 45, // Illustrative recovery ratio, not measured gearbox data.
   shiftTime: 0.03, autoShift: true, upshiftRpm: 12800, downshiftRpm: 10500,
   diffPreload: 150, diffRamp: 0.3, diffLockRate: 120,
   maxBrakeForce: 34000,
@@ -180,7 +181,7 @@ function shaftOmegas(car) {
 // Sequential shift with torque interruption; refuses downshifts that over-rev.
 export function shift(car, direction) {
   const c = car.config, next = car.gear + Math.sign(direction);
-  if (car.shiftTimer > 0 || next < 1 || next > c.gearRatios.length || next === car.gear) return false;
+  if (car.gear < 1 || car.shiftTimer > 0 || next < 1 || next > c.gearRatios.length || next === car.gear) return false;
   if (next < car.gear && Math.max(...shaftOmegas(car)) * c.gearRatios[next - 1] * RPM > c.maxRpm) return false;
   car.gear = next;
   car.shiftTimer = c.shiftTime;
@@ -322,6 +323,13 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   // An empty tank starves the engine: no drive, whatever the pedal.
   const throttle = car.fuel == null || car.fuel > 0 ? clamp(input.throttle || 0, 0, 1) : 0;
   const brake = clamp(input.brake || 0, 0, 1);
+  // Explicit direction requests wait for stopped chassis/wheels and safe pedals.
+  const requestedGear = input.reverse === true ? -1 : input.reverse === false ? 1 : car.gear;
+  if ((requestedGear < 0) !== (car.gear < 0) && car.shiftTimer === 0 && !input.throttle && brake > 0.5
+    && Math.hypot(car.vx, car.vy) < 0.2 && car.wheelOmega.every(w => Math.abs(w * c.wheelRadius) < 0.2)) {
+    car.gear = requestedGear;
+    car.shiftTimer = c.shiftTime;
+  }
   const targetSteer = clamp(input.steer || 0, -1, 1) * c.maxSteer;
   car.steer += clamp(targetSteer - car.steer, -c.steerRate * dt, c.steerRate * dt);
   const cos = Math.cos(car.heading), sin = Math.sin(car.heading);
@@ -340,16 +348,17 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   // Quasi-static engine (its inertia is not modelled) through a sequential
   // gearbox. Below the engagement speed the clutch slips at a throttle-set rpm
   // and transmits only positive torque, so a closed throttle never creeps.
-  const axleOmega = (car.wheelOmega[2] + car.wheelOmega[3]) / 2;
+  const direction = car.gear < 0 ? -1 : 1;
+  const axleOmega = direction * (car.wheelOmega[2] + car.wheelOmega[3]) / 2;
   car.shiftTimer = Math.max(0, car.shiftTimer - dt);
-  if (c.autoShift && car.shiftTimer === 0) {
+  if (c.autoShift && car.gear > 0 && car.shiftTimer === 0) {
     const [axle, road] = shaftOmegas(car), current = c.gearRatios[car.gear - 1] * RPM;
     // Upshift on engine rpm, but only once road speed would not immediately
     // satisfy the downshift rule in the next gear (no wheelspin hunting).
     if (axle * current > c.upshiftRpm && road * current >= c.downshiftRpm) shift(car, 1);
     else if (car.gear > 1 && Math.max(axle, road) * c.gearRatios[car.gear - 2] * RPM < c.downshiftRpm) shift(car, -1);
   }
-  const ratio = c.gearRatios[car.gear - 1];
+  const ratio = car.gear < 0 ? c.reverseRatio : c.gearRatios[car.gear - 1];
   const coupledRpm = axleOmega * ratio * RPM;
   const engagedRpm = c.idleRpm + throttle * (c.launchRpm - c.idleRpm);
   const shifting = car.shiftTimer > 0;
@@ -366,7 +375,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const ers = car.ers, crankOmega = Math.max(rpm, 1) / RPM;
   let ersTorque = 0, ersHarvest = 0;
   if (ers) {
-    if (!shifting && throttle > 0 && input.ers !== false) {
+    if (direction > 0 && !shifting && throttle > 0 && input.ers !== false) {
       const want = throttle * Math.min(c.ersMaxTorque, c.ersPower / crankOmega) * clamp((c.maxRpm - rpm) / c.limiterBand, 0, 1)
         * clamp((speed - c.ersMinSpeed) / c.ersSpeedBlend, 0, 1);
       const energy = Math.max(0, Math.min(ers.charge, c.ersDeployPerLap - ers.deployed));
@@ -381,9 +390,10 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   }
   const crankTorque = iceTorque + ersTorque;
   // Fuel cut also caps drive so a spinning axle cannot pass maxRpm within the
-  // step (the tire only retards a forward-spinning wheel, so this is a bound).
-  const axleTorque = Math.min(crankTorque * ratio * (crankTorque > 0 ? c.drivelineEfficiency : 1),
+  // step, using wheel speed measured in the selected drive direction.
+  const directedTorque = Math.min(crankTorque * ratio * (crankTorque > 0 ? c.drivelineEfficiency : 1),
     Math.max(0, 2 * c.wheelInertia * (c.maxRpm / (ratio * RPM) - axleOmega) / dt));
+  const axleTorque = direction * directedTorque;
   // Open split plus a clutch-pack limited-slip coupling (preload + ramp on
   // axle torque). Below its capacity the clutch is regularised as a viscous
   // coupling of fixed rate, and it can never more than equalise the rear
@@ -391,8 +401,8 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const rearSlip = car.wheelOmega[2] - car.wheelOmega[3];
   const diffTransfer = Math.sign(rearSlip) * Math.min(c.diffPreload + c.diffRamp * Math.abs(axleTorque),
     c.diffLockRate * Math.abs(rearSlip) / (1 + 2 * c.diffLockRate * dt / c.wheelInertia));
-  const driveTorque = Math.max(axleTorque, 0) / 2;
-  const engineBraking = Math.max(-axleTorque, 0) / 2;
+  const driveTorque = direction * Math.max(directedTorque, 0) / 2;
+  const engineBraking = Math.max(-directedTorque, 0) / 2;
   let fx = 0;
   let fy = 0;
   let moment = 0;
