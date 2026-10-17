@@ -63,6 +63,8 @@ contact position, has outward loft normals, and stays under 200k triangles.
 - Race start (with opponents): hold still while the five red lights come on;
   go when they go out. Moving before lights out is a jump start (+5 s).
   Add `?nostart` to the URL to skip the start sequence.
+- Race distance: 10 laps by default; `?laps=N` sets another. At the chequered
+  flag the side panel shows the classification; R starts a new race.
 - Buttons provide the same pause/reset/view actions. Driving keys are ignored
   while a button has focus; click the circuit to return focus to driving.
 - Losing window focus or hiding the tab pauses and releases held inputs.
@@ -119,8 +121,8 @@ The timing box shows the race position (P1 / 5) and the side panel the order
 with intervals; the status line reports car-to-car contact speed. Lap timing,
 sound and telemetry remain the player's. Rival models use the same pose code as
 the player's car (body roll/pitch/heave, wheel spin and steer). There are no
-race rules beyond the start yet (flags, pit stops, penalties other than a jump
-start), no blue flags, and AI cars do not defend or vary their pace by tire state.
+pit stops, blue flags or penalties other than a jump start yet, and AI cars do
+not defend or vary their pace by tire state.
 
 ### Standing start (`race.mjs`, cycle 11)
 
@@ -130,10 +132,26 @@ go out after a random hold of 0.2-3 s (seeded PRNG, so tests are
 reproducible). AI cars and the player's autopilot hold the brake until lights
 out plus a per-driver reaction time drawn from 0.18-0.3 s. Moving more than
 0.5 m before lights out is a jump start: a 5 s time penalty, shown in the
-status line and the race order (`+5s pen`; it is not yet applied to the
-order). The player's reaction (lights out to throttle above 50%) is shown in
+status line and the race order (`+5s pen`), and added to the race time in the
+final classification. The player's reaction (lights out to throttle above 50%) is shown in
 the status line. The light timing follows the familiar F1 pattern; the hold,
 reaction range, 0.5 m threshold and 5 s penalty are illustrative choices.
+
+### Race distance, chequered flag and classification (`race.mjs`, cycle 12)
+
+`createRace(track, { laps })` sets a race distance (the page uses 10 laps,
+`?laps=N` to change; 0 = endless). The start line is the chequered strip; the
+flag falls when the leader completes the distance, and every other car finishes
+the next time it crosses the line, so lapped cars finish a lap or more short,
+as in F1. Finish times are interpolated within the 240 Hz step and measured
+from lights out. After the flag a car cruises at most 45 m/s (cool-down lap).
+`classification()` orders finishers by laps completed, then race time plus
+time penalties (the jump-start penalty is applied here); cars still running
+follow in road order. The side panel switches to the classification (winner's
+time, gaps, `+N laps`, `incl. 5s pen`), the timing box to `Finished P2 / 5`
+and the status line to the result. Before the flag the timing box shows the
+lap (`P1 / 5 · Lap 3/10`). Race lengths here are short (a lap is ~30 s); there
+are no pit stops or fuel/tyre strategy yet.
 
 ### Driver input (`input.mjs`, cycle 7)
 
@@ -338,7 +356,7 @@ with load, slip or speed; there is no longitudinal relaxation.
 
 ## Verification
 
-Deterministic tests (91 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
+Deterministic tests (95 in total across all `*.test.mjs` files) cover the original rest, symmetry, aero/load/force,
 stopping-distance, render-rate, hitch and 120-second stress checks, plus:
 
 * Lossless free rolling, rear wheelspin, zero-grip wheel acceleration.
@@ -413,6 +431,17 @@ in Chrome the light build-up with the field held, the autopilot launch and
 reaction readout, a keyboard jump start with `+5s pen` in the race order, and
 a clean manual start. The other browser checks load `?nostart`.
 
+Cycle 12 finish tests (`race.test.mjs`): a two-lap autopilot race ends with
+the flag and every car finished, classified 1-5 by total time on the lead lap,
+gaps 0-15 s, the winner's time equal to the flag time, no contact above 2 m/s
+including the cool-down; a 30 s penalty is added to the player's time and
+places it behind every car with a lower total; a player parked on the grid is
+unclassified (`finished: false`) at the back while the AI field finishes.
+`/tmp/f1-finish-smoke.mjs` runs `?nostart&laps=1` in Chrome: lap counter
+`Lap 1/1`, then the classification panel, `Finished P1 / 5`, gaps, the
+chequered-flag status, and R restarting the race. The race, start and basic
+driving browser checks were rerun and pass.
+
 Cycle 7 input tests (`input.test.mjs`): deadzone/curve shaping and monotonicity;
 keyboard throttle ramp identical at 1/240, 1/60 and 1/30 s frames; steering
 lock, return and centre crossing exact for small and single large steps;
@@ -445,7 +474,7 @@ establish internal consistency, not real-car accuracy.
    and transient handling before making realism claims.
 5. Wheel/pedal calibration and
    force feedback, damage, kerb geometry and bumps, real circuit geometry, race
-   rules (flags, applied penalties, pit stops) and smarter AI racecraft.
+   rules (pit stops, safety car, blue flags) and smarter AI racecraft.
 
 ## Repository / parity
 

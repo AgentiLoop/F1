@@ -135,3 +135,49 @@ test('moving before lights out is a jump start with a time penalty; reacting aft
   assert.ok(Math.abs(clean.entries[0].reaction - 0.25) < 0.01, `reaction ${clean.entries[0].reaction}`);
   assert.ok(clean.car.telemetry.speed > 10);
 });
+
+function runToFlag(laps, input, setup) {
+  const race = createRace(track, { laps });
+  setup?.(race);
+  let hardestContact = 0;
+  for (let i = 0; i < 400 * 240 && !race.finish.done; i++) {
+    race.advance(1 / 240, input?.(race) ?? null, track.surfaceAt, track.barrierAt);
+    for (const e of race.entries)
+      if (e.car.contact && Math.abs(e.car.contact.time - e.car.time) < 1e-9) hardestContact = Math.max(hardestContact, e.car.contact.speed);
+    if (input && race.time > 200) break;
+  }
+  return { race, hardestContact };
+}
+
+test('a two-lap race ends at the chequered flag with a classification by time', () => {
+  assert.deepEqual(createRace(track).finish, { laps: 0, flag: false, flagTime: null, done: false });
+  const { race, hardestContact } = runToFlag(2);
+  const { finish } = race, result = race.classification();
+  assert.ok(finish.flag && finish.done);
+  assert.ok(hardestContact < 2, `hardest contact ${hardestContact.toFixed(2)} m/s`);
+  assert.deepEqual(result.map(r => r.position), [1, 2, 3, 4, 5]);
+  assert.ok(result.every(r => r.finished && r.laps === 2 && r.lapsDown === 0), JSON.stringify(result));
+  // The winner's time is the flag; the rest follow in order, a few seconds apart.
+  assert.ok(Math.abs(result[0].time - finish.flagTime) < 1e-9 && result[0].gap === 0);
+  assert.ok(result.every((r, k) => k === 0 || (r.total >= result[k - 1].total && r.gap > 0 && r.gap < 15)), JSON.stringify(result));
+  // Two laps of 2 × 440 m straights and 2 × 283 m arcs at ~45 m/s average.
+  assert.ok(finish.flagTime > 2 * track.length / 70 && finish.flagTime < 2 * track.length / 35, `flag at ${finish.flagTime}`);
+  // Every car ran the full distance (and is now on its cool-down lap).
+  for (const e of race.entries) assert.ok(e.covered > 2 * track.length);
+});
+
+test('time penalties are added to the race time; cars that never finish are unclassified at the back', () => {
+  const { race } = runToFlag(1, null, r => { r.entries[0].penalty = 30; });
+  const result = race.classification(), me = result.find(r => r.player);
+  assert.equal(me.total, me.time + 30);
+  assert.equal(me.position, 1 + result.filter(r => !r.player && r.total < me.total).length);
+  assert.ok(result.every((r, k) => k === 0 || r.total >= result[k - 1].total));
+  // The player parks on the grid: the AI field finishes, the player does not.
+  const parked = runToFlag(1, () => ({ brake: 1 })).race;
+  const final = parked.classification();
+  assert.ok(parked.finish.flag && !parked.finish.done);
+  assert.equal(final.at(-1).name, 'You');
+  assert.equal(final.at(-1).finished, false);
+  assert.equal(final.at(-1).time, null);
+  assert.ok(final.slice(0, -1).every(r => r.finished && r.laps === 1));
+});

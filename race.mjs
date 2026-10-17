@@ -19,6 +19,8 @@ export const RACE_DEFAULTS = Object.freeze({
   // jumpDistance metres before lights out is a jump start (jumpPenalty seconds).
   // AI reaction times are drawn from [reactionMin, reactionMax].
   lightInterval: 1, holdMin: 0.2, holdMax: 3, jumpDistance: 0.5, jumpPenalty: 5, reactionMin: 0.18, reactionMax: 0.3,
+  // After taking the chequered flag a car cruises at most coolDownSpeed (m/s).
+  coolDownSpeed: 45,
 });
 
 // Small deterministic PRNG (mulberry32) so a seeded start is reproducible.
@@ -114,8 +116,10 @@ export function resolveCarContact(a, b, o = RACE_DEFAULTS) {
 // track: createStadiumTrack(); grid: opponent specs (the player is entry 0 on
 // pole, on the centreline at x = 0; opponents line up 8 m apart behind,
 // alternating either side of the centreline). start: false races from t = 0;
-// true or { seed } runs the standing-start light sequence first.
-export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false } = {}) {
+// true or { seed } runs the standing-start light sequence first. laps: race
+// distance; the chequered flag falls when the leader completes it, and every
+// other car finishes on its next crossing of the line (0 = no finish).
+export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false, laps = 0 } = {}) {
   const o = { ...RACE_DEFAULTS, ...options };
   const rand = random(start?.seed ?? (Math.random() * 2 ** 32));
   const lightsOn = start ? 5 * o.lightInterval : 0;
@@ -128,11 +132,11 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     car.x = i ? -8 * i : 0; car.y = -(radius + lane); // pole at x = 0 (not -0)
     const p = track.progress(car.x, car.y);
     return { ...spec, index: i, car, lane: 0, offset: lane, last: p, covered: p - startLine, grid: p - startLine,
-      reactionTime: o.reactionMin + rand() * (o.reactionMax - o.reactionMin), reaction: null, jumpStart: false, penalty: 0,
+      reactionTime: o.reactionMin + rand() * (o.reactionMax - o.reactionMin), reaction: null, jumpStart: false, penalty: 0, finish: null,
       drive: createAutopilot({ halfStraight, radius }, { cornerSpeed: spec.cornerSpeed, brakeDecel: spec.brakeDecel }) };
   });
   const passTimes = new Map(); // first time any car reached each 10 m milestone
-  let accumulator = 0, time = 0;
+  let accumulator = 0, time = 0, flagTime = null;
 
   // Distance along the lap to a car `d` metres of covered distance ahead (ignores laps).
   const ahead_ = d => ((d % length) + length) % length;
@@ -176,7 +180,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     }
     e.offset += clamp(e.lane - e.offset, -o.laneRate * dt, o.laneRate * dt);
     // Also respect whoever is in the strip the car currently occupies.
-    const maxSpeed = Math.min(current, cap(e.offset));
+    const maxSpeed = Math.min(current, cap(e.offset), e.finish ? o.coolDownSpeed : Infinity);
     // Dirty air: corner speed scaled by the expected loss of normal load (the
     // downforce share of it is taken as ~45% at this circuit's corner speeds).
     const grip = 1 - (1 - car.wake.downforce) * 0.45;
@@ -201,7 +205,19 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     for (const e of entries) {
       const p = track.progress(e.car.x, e.car.y);
       let d = p - e.last; if (d < -length / 2) d += length; else if (d > length / 2) d -= length;
+      const before = e.covered;
       e.covered += d; e.last = p;
+      // Finish: the leader at the race distance drops the flag; after that a car
+      // finishes at its next line crossing (lapped cars a lap or more short).
+      // The crossing time is interpolated within the step.
+      if (laps && !e.finish) {
+        const line = flagTime === null ? laps * length : Math.floor(e.covered / length) * length;
+        if (line >= length && before < line && e.covered >= line) {
+          const t = time - FIXED_DT * (e.covered - line) / (e.covered - before);
+          flagTime ??= t;
+          e.finish = { laps: Math.round(line / length), time: t - lightsOut };
+        }
+      }
       if (start && !e.jumpStart && time < lightsOut && e.covered - e.grid > o.jumpDistance) { e.jumpStart = true; e.penalty += o.jumpPenalty; }
       // Reaction: from lights out to the first firm throttle (> 50%).
       if (start && e.reaction === null && time >= lightsOut && commands[e.index].throttle > 0.5) e.reaction = time - lightsOut;
@@ -235,6 +251,26 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
         position: k + 1, name: e.name, player: !!e.player, index: e.index, penalty: e.penalty, jumpStart: e.jumpStart, reaction: e.reaction,
         lap: Math.max(0, Math.floor(e.covered / length)) + 1, covered: e.covered,
         gap: k === 0 || e.milestone === undefined ? 0 : e.milestoneTime - (passTimes.get(e.milestone) ?? e.milestoneTime),
+      }));
+    },
+    // Chequered flag state: flag = the leader has completed the race distance;
+    // done = every car has finished.
+    get finish() {
+      return { laps, flag: flagTime !== null, flagTime, done: !!laps && entries.every(e => e.finish) };
+    },
+    // Classification: finishers by laps completed, then race time (from lights
+    // out) plus time penalties; cars still running follow in road order. gap is
+    // seconds behind the winner on the lead lap, lapsDown otherwise.
+    classification() {
+      const total = e => e.finish.time + e.penalty;
+      const ranked = [...entries].sort((a, b) => !!b.finish - !!a.finish
+        || (a.finish ? b.finish.laps - a.finish.laps || total(a) - total(b) : b.covered - a.covered));
+      const winner = ranked[0].finish ? ranked[0] : null;
+      return ranked.map((e, k) => ({
+        position: k + 1, name: e.name, player: !!e.player, index: e.index, finished: !!e.finish, penalty: e.penalty,
+        laps: e.finish?.laps ?? Math.max(0, Math.floor(e.covered / length)), time: e.finish?.time ?? null, total: e.finish ? total(e) : null,
+        lapsDown: e.finish ? winner.finish.laps - e.finish.laps : null,
+        gap: e.finish && e.finish.laps === winner.finish.laps ? total(e) - total(winner) : null,
       }));
     },
   };
