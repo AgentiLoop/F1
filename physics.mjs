@@ -33,14 +33,25 @@ export const DEFAULT_CAR = Object.freeze({
   stallHeight: 0.012, stallLoss: 0.3, rakeBalanceGain: 1.5,
   // Rigid footprint for barrier contact (m from the CG) and wall impact response.
   bodyFront: 2.95, bodyRear: 2.35, bodyHalfWidth: 1.0, wallRestitution: 0.25, wallFriction: 0.5,
+  // Two-node tire thermal model (illustrative, °C, W/K, J/K): tread surface and
+  // carcass. Sliding power heats the surface (tireSlipHeatShare of it; the rest
+  // goes into the road), rolling hysteresis heats the carcass. Air cooling grows
+  // with speed; the surface also conducts to the track. Grip peaks at the
+  // optimum temperature and falls quadratically (capped) either side.
+  ambientTemp: 25, trackTemp: 35, tireStartTemp: 70, tireOptimalTemp: 100, tireWindow: 35,
+  tireTempGripLoss: 0.12, tireMinTempGrip: 0.8, tireSurfaceGripWeight: 0.6,
+  tireSurfaceHeatCapacity: 2500, tireCarcassHeatCapacity: 16000, tireSlipHeatShare: 0.5,
+  tireSurfaceCooling: 12, tireSurfaceCoolingPerSpeed: 0.8, tireRoadConduction: 25,
+  tireCoreConduction: 250, tireCarcassCooling: 8, tireCarcassCoolingPerSpeed: 0.4,
 });
 export const FIXED_DT = 1 / 240;
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const RPM = 60 / (2 * Math.PI);
 
 export function createCar(overrides = {}) {
+  const config = { ...DEFAULT_CAR, ...overrides };
   return {
-    config: { ...DEFAULT_CAR, ...overrides },
+    config,
     x: 0, y: 0, heading: 0, vx: 0, vy: 0, yawRate: 0,
     steer: 0, ax: 0, ay: 0, time: 0, distance: 0,
     wheelOmega: [0, 0, 0, 0],
@@ -48,8 +59,28 @@ export function createCar(overrides = {}) {
     gear: 1, shiftTimer: 0, impact: null,
     // roll > 0: left side up; pitch > 0: nose down; heave > 0: body lower (m).
     body: { roll: 0, rollRate: 0, pitch: 0, pitchRate: 0, heave: 0, heaveRate: 0 },
+    // FL, FR, RL, RR tread surface and carcass temperatures (°C).
+    tireTemp: [0, 1, 2, 3].map(() => ({ surface: config.tireStartTemp, carcass: config.tireStartTemp })),
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [], powertrain: null },
   };
+}
+
+// Thermal grip multiplier from a surface/carcass blend around the optimum.
+export function tireTempGrip(c, temp) {
+  const t = c.tireSurfaceGripWeight * temp.surface + (1 - c.tireSurfaceGripWeight) * temp.carcass;
+  return clamp(1 - c.tireTempGripLoss * ((t - c.tireOptimalTemp) / c.tireWindow) ** 2, c.tireMinTempGrip, 1);
+}
+
+// Advance one tire's temperatures (semi-implicit, stable for any dt).
+// slipPower: frictional power at the contact (W); rollingPower: hysteresis (W).
+export function updateTireTemp(temp, c, slipPower, rollingPower, speed, dt) {
+  const hs = c.tireSurfaceCooling + c.tireSurfaceCoolingPerSpeed * speed, hr = c.tireRoadConduction, k = c.tireCoreConduction;
+  const hc = c.tireCarcassCooling + c.tireCarcassCoolingPerSpeed * speed;
+  const as = dt / c.tireSurfaceHeatCapacity, ac = dt / c.tireCarcassHeatCapacity;
+  temp.surface = (temp.surface + as * (c.tireSlipHeatShare * slipPower + hs * c.ambientTemp + hr * c.trackTemp + k * temp.carcass))
+    / (1 + as * (hs + hr + k));
+  temp.carcass = (temp.carcass + ac * (rollingPower + hc * c.ambientTemp + k * temp.surface)) / (1 + ac * (hc + k));
+  return temp;
 }
 
 // Crank torque: interpolated full-throttle curve with a soft fuel-cut limiter,
@@ -297,9 +328,10 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     const worldX = car.x + x * cos - y * sin;
     const worldY = car.y + x * sin + y * cos;
     const grip = clamp(surfaceAt(worldX, worldY), 0, 2);
+    const temp = car.tireTemp[i], tempGrip = tireTempGrip(c, temp);
     const kinematicSlip = steadySlipAngle(wheelV, wheelU);
     car.slipAngle[i] = relaxSlipAngle(car.slipAngle[i], kinematicSlip, Math.hypot(wheelU, wheelV), c, dt);
-    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip, c, dt, car.slipAngle[i],
+    const tire = tireForce(demand, wheelV, wheelU, loads[i], grip * tempGrip, c, dt, car.slipAngle[i],
       front ? c.corneringStiffness : c.rearCorneringStiffness);
     tire.kinematicSlipAngle = kinematicSlip;
     // Include contact translation and yaw in the low-speed lateral bound.
@@ -310,12 +342,16 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     tire.utilization = tire.capacity > 0 ? Math.hypot(tire.fx, tire.fy) / tire.capacity : 0;
     const freeOmega = omega + dt * (torque - r * tire.fx) / inertia;
     car.wheelOmega[i] = Math.sign(freeOmega) * Math.max(0, Math.abs(freeOmega) - dt * resistanceTorque / inertia);
+    // Contact friction power (force times slip velocity) and rolling hysteresis heat the tire.
+    const slipPower = Math.abs(tire.fx * (r * car.wheelOmega[i] - wheelU)) + Math.abs(tire.fy * wheelV);
+    updateTireTemp(temp, c, slipPower, c.rollingResistance * loads[i] * Math.abs(wheelU), Math.abs(wheelU), dt);
     const bodyFx = tire.fx * ca - tire.fy * sa;
     const bodyFy = tire.fx * sa + tire.fy * ca;
     fx += bodyFx;
     fy += bodyFy;
     moment += x * bodyFy - y * bodyFx;
-    return { ...tire, load: loads[i], grip, x: worldX, y: worldY, steer: angle,
+    return { ...tire, load: loads[i], grip, tempGrip, slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
+      x: worldX, y: worldY, steer: angle,
       omega: car.wheelOmega[i], driveTorque: torque,
       resistanceTorque: (freeOmega - car.wheelOmega[i]) * inertia / dt };
   });

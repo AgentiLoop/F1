@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, Simulation, FIXED_DT }
+import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, Simulation, FIXED_DT }
   from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
@@ -610,4 +610,49 @@ test('heavy braking at speed shifts the aero balance forward with the pitch', ()
   const { aero } = car.telemetry;
   assert.ok(car.body.pitch > 0 && aero.frontShare > car.config.frontAero + 0.02, `share ${aero.frontShare}`);
   assert.ok(aero.rear > car.config.rearRideHeight * 0.9 && aero.front < car.config.frontRideHeight / 2);
+});
+
+test('thermal grip peaks at the optimum, is symmetric about it and floors at the minimum', () => {
+  const c = createCar().config, g = (surface, carcass = surface) => tireTempGrip(c, { surface, carcass });
+  near(g(c.tireOptimalTemp), 1);
+  near(g(c.tireOptimalTemp - 30), g(c.tireOptimalTemp + 30));
+  assert.ok(g(70) < g(85) && g(85) < 1, `${g(70)} ${g(85)}`);
+  near(g(-50), c.tireMinTempGrip); near(g(300), c.tireMinTempGrip);
+  // The tread surface dominates: a hot surface on a cold carcass grips better than the reverse.
+  assert.ok(g(100, 60) > g(60, 100));
+});
+
+test('tire temperatures reach the analytic two-node steady state at any timestep', () => {
+  const c = createCar().config, P = 6000, R = 1500, v = 50;
+  const hs = c.tireSurfaceCooling + c.tireSurfaceCoolingPerSpeed * v, hr = c.tireRoadConduction, k = c.tireCoreConduction;
+  const hc = c.tireCarcassCooling + c.tireCarcassCoolingPerSpeed * v;
+  // Solve [hs+hr+k, -k; -k, hc+k] [Ts; Tc] = [share*P + hs*Ta + hr*Tr; R + hc*Ta].
+  const a = hs + hr + k, d = hc + k, b1 = c.tireSlipHeatShare * P + hs * c.ambientTemp + hr * c.trackTemp, b2 = R + hc * c.ambientTemp;
+  const det = a * d - k * k, Ts = (b1 * d + k * b2) / det, Tc = (a * b2 + k * b1) / det;
+  for (const dt of [1 / 60, 1 / 240, 1 / 960]) {
+    const t = { surface: 20, carcass: 20 };
+    for (let i = 0; i < 4000 / dt; i++) updateTireTemp(t, c, P, R, v, dt);
+    near(t.surface, Ts, 0.01); near(t.carcass, Tc, 0.01);
+  }
+  // Without heat input the tire settles between the air and track temperatures.
+  const idle = { surface: 110, carcass: 110 };
+  for (let i = 0; i < 4000 * 60; i++) updateTireTemp(idle, c, 0, 0, 0, 1 / 60);
+  assert.ok(idle.surface > c.ambientTemp && idle.surface < c.trackTemp && idle.carcass < idle.surface, JSON.stringify(idle));
+});
+
+test('sliding heats the tread while free rolling only cools it toward the air', () => {
+  const rolling = rollingCar(50), locked = rollingCar(50), start = rolling.config.tireStartTemp;
+  run(rolling, 1, {}); run(locked, 1, { brake: 1 });
+  for (const w of rolling.telemetry.wheels) assert.ok(w.slipPower < 500 && w.surfaceTemp <= start, `${w.slipPower} ${w.surfaceTemp}`);
+  for (const w of locked.tireTemp) assert.ok(w.surface > start + 5 && w.surface > w.carcass, JSON.stringify(w));
+});
+
+test('cold tires grip less: a stop on 40 °C tires is longer than on tires at the optimum', () => {
+  const stop = temp => {
+    const c = rollingCar(50, { tireStartTemp: temp });
+    for (let i = 0; i < 2400 && c.vx > 0.01; i++) step(c, { brake: 1 });
+    return c.x;
+  };
+  const warm = stop(100), cold = stop(40);
+  assert.ok(cold > warm * 1.1, `${warm.toFixed(1)} vs ${cold.toFixed(1)} m`);
 });

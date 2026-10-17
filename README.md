@@ -41,8 +41,9 @@ Node's built-in test runner is the only test dependency.
   6 mm/g lateral, clamped to 40/30 mm, 80 ms first-order lag) — an illustrative
   neck-compliance cue, not a measured driver model.
 * Limits: the shape is hand-modelled from public proportions, not CAD of any real
-  car; there is no body roll/pitch (the physics has no suspension yet), no
-  tire deformation, damage or livery editor. Kerbs are drawn
+  car; body roll/pitch/heave are rigid-body rotations of the sprung body (no
+  per-corner suspension travel), and there is no tire deformation, damage or
+  livery editor. Kerbs are drawn
   but the physics still treats them as off-track grip.
 
 `car3d.test.mjs` checks the model fits a 5.65 × 2.0 × 0.96 m envelope, touches the
@@ -143,7 +144,7 @@ sign interpretation. The low-speed denominator is regularization, not tire data.
 
 Defaults introduced here: radius 0.33 m, wheel inertia 1.6 kg m², longitudinal
 stiffness 100000 N per unit slip. **All are illustrative, not measured F1 data.**
-There is no thermal/wear state, ABS, or traction control (lateral relaxation was added in cycle 4; longitudinal slip has no relaxation).
+There is no wear state, ABS, or traction control (thermal state was added in cycle 6; lateral relaxation was added in cycle 4; longitudinal slip has no relaxation).
 Quasi-static transfer does not model suspension or body roll/pitch.
 
 ### Combined-slip peak and sliding envelope (cycle 3)
@@ -165,9 +166,33 @@ PRE-PEAK / SLIDE / NO GRIP per wheel, and its bars are force / peak capacity.
 This is a hand-shaped, isotropic friction-circle substitute, **not** a fitted
 Pacejka/brush model: s, w and the peak position are uncalibrated assumptions,
 longitudinal and lateral peaks occur at the same normalized demand, and there
-is no camber, pressure, temperature, speed dependence, or aligning torque. The low-speed lateral clamp is still applied after
+is no camber, pressure, speed dependence, or aligning torque (temperature scales
+peak grip since cycle 6, see below). The low-speed lateral clamp is still applied after
 the envelope. A locked wheel now produces less braking force than the peak and
 much less lateral force than a rolling tire at the same steering input.
+
+### Tire temperature (cycle 6)
+
+Each tire has two thermal nodes in `car.tireTemp[i]` (°C): the tread surface and
+the carcass. Every step `updateTireTemp` advances them semi-implicitly (stable
+at any allowed timestep):
+
+* Surface heat in: `tireSlipHeatShare` (50%) of the contact friction power
+  |Fx (r ω − u)| + |Fy v| (the rest is assumed to go into the road).
+* Carcass heat in: rolling hysteresis, `rollingResistance` × load × |u|.
+* Losses: surface to air (12 + 0.8·u W/K) and to the 35 °C track (25 W/K);
+  carcass to air (8 + 0.4·u W/K); surface↔carcass conduction 250 W/K. Heat
+  capacities 2.5 kJ/K (surface) and 16 kJ/K (carcass). Air is 25 °C.
+* Grip: `tireTempGrip` blends 60% surface + 40% carcass temperature T and
+  multiplies the peak friction by 1 − 0.12 ((T − 100) / 35)², clamped to
+  [0.8, 1]. Tires start at 70 °C (blanket temperature).
+
+On the stadium circuit with the autopilot the rears and the outside front reach
+~90–100 °C after a few laps and the lightly loaded inside front stays near
+70 °C; after ~10 minutes the rears run ~120 °C (overheating from traction out
+of the hairpins) and lose ~5% grip. All coefficients are illustrative
+assumptions, not compound data; there is no wear, pressure, camber or
+graining, and the temperature is uniform across the tread width.
 
 ### Lateral slip relaxation (cycle 4)
 
@@ -223,6 +248,13 @@ stopping-distance, render-rate, hitch and 120-second stress checks, plus:
   coupled chassis response keeps it below the ideal 4). 240 vs 960 Hz step
   steer: yaw rate 0.43%, lateral displacement 0.55% apart.
 
+Cycle 6 thermal tests: thermal grip peaks at 100 °C, is symmetric and floors at
+0.8; the two-node model matches its analytic steady state within 0.01 °C at
+60/240/960 Hz and relaxes between air and track temperature without input;
+locked-wheel sliding heats the tread >5 °C in 1 s while free rolling only cools
+it; a 50 m/s stop on 40 °C tires is >10% longer than on 100 °C tires.
+`/tmp/f1-thermal-smoke.mjs` checks the per-wheel temperature HUD in Chrome.
+
 Cycle 4 reran all four headless Chrome checks (new `/tmp/f1-relax-smoke.mjs`:
 α readouts visible, relaxed angle nonzero while steering, reset clears state);
 all passed without page errors.
@@ -237,7 +269,7 @@ establish internal consistency, not real-car accuracy.
 ## Next realism milestones
 
 1. Fitted (e.g. Pacejka) curves replacing the
-   hand-shaped envelope, thermal/wear state, and measured brake/tire parameters.
+   hand-shaped envelope, wear, pressure and measured brake/tire/thermal parameters.
 2. Suspension travel per corner, road elevation, roll-sensitive aero, plank
    wear/friction and porpoising from a measured aero map.
 3. Engine/transmission, differential, hybrid energy, fuel mass, and setup controls.
