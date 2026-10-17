@@ -225,3 +225,136 @@ test('straight acceleration converges as timestep is reduced', () => {
   assert.ok(Math.abs(normal.vx - fine.vx) / fine.vx < 0.01);
   assert.ok(Math.abs(normal.x - fine.x) / fine.x < 0.01);
 });
+test('combined tire envelope has a smooth peak and a lower sliding plateau', () => {
+  const c = createCar().config;
+  const load = c.mass * 9.81 / 4, capacity = c.tireMu * load;
+  const force = q => tireForce(q * capacity, 0, 40, load, 1, c, FIXED_DT);
+  near(force(0).fx, 0);
+  near(force(1e-6).fx / (capacity * 1e-6), 1, 1e-6);
+  near(force(2).fx, capacity);
+  near(force(30).fx, capacity * c.slidingGripRatio);
+  assert.equal(force(2).sliding, false);
+  assert.equal(force(2.01).sliding, true);
+  let previous = 0;
+  for (let q = 0; q <= 2; q += 0.01) {
+    const f = force(q);
+    assert.ok(f.fx >= previous - 1e-9); previous = f.fx;
+  }
+  previous = capacity;
+  for (let q = 2; q <= 30; q += 0.01) {
+    const f = force(q);
+    assert.ok(f.fx <= previous + 1e-9);
+    assert.ok(f.fx >= capacity * c.slidingGripRatio - 1e-9); previous = f.fx;
+  }
+  const h = 1e-5;
+  near((force(2).fx - force(2 - h).fx) / (h * capacity), 0, 1e-5);
+  near((force(2 + h).fx - force(2).fx) / (h * capacity), 0, 1e-5);
+});
+
+test('pure lateral force peaks, falls off and is symmetric in reverse', () => {
+  const c = createCar().config, load = c.mass * 9.81 / 4;
+  const capacity = c.tireMu * load;
+  for (const speed of [-40, 40]) {
+    const force = q => tireForce(0, Math.tan(q * capacity / c.corneringStiffness) * Math.abs(speed),
+      speed, load, 1, c, FIXED_DT);
+    near(force(2).fy, -capacity);
+    near(force(20).fy, -capacity * c.slidingGripRatio, 1e-8);
+    near(force(-2).fy, capacity);
+    assert.ok(Math.abs(force(3).fy) < Math.abs(force(2).fy));
+  }
+});
+
+test('combined demands share a radial envelope without changing force direction', () => {
+  const c = createCar().config, load = c.mass * 9.81 / 4;
+  const capacity = c.tireMu * load;
+  for (const q of [0.01, 0.5, 2, 3, 10]) {
+    for (let a = 0; a < 2 * Math.PI; a += 0.1) {
+      const dx = q * capacity * Math.cos(a), dy = q * capacity * Math.sin(a);
+      const lateralSpeed = Math.tan(-dy / c.corneringStiffness) * 40;
+      const f = tireForce(dx, lateralSpeed, 40, load, 1, c, FIXED_DT);
+      const pure = tireForce(q * capacity, 0, 40, load, 1, c, FIXED_DT);
+      near(Math.hypot(f.fx, f.fy), pure.fx, 1e-8);
+      near(f.fx, pure.fx * Math.cos(a), 1e-8);
+      near(f.fy, pure.fx * Math.sin(a), 1e-8);
+    }
+  }
+});
+
+test('peak force responds to surface grip and load sensitivity', () => {
+  const c = createCar().config;
+  let previous = 0;
+  for (const load of [100, 1000, 2000, 10000]) {
+    const capacity = c.tireMu * load * (load / (c.mass * 9.81 / 4)) ** -c.loadSensitivity;
+    const peak = tireForce(2 * capacity, 0, 40, load, 1, c, FIXED_DT);
+    const halfGrip = tireForce(capacity, 0, 40, load, 0.5, c, FIXED_DT);
+    near(peak.fx, capacity); near(halfGrip.fx, capacity / 2);
+    assert.ok(peak.fx > previous); previous = peak.fx;
+  }
+  for (const [load, grip] of [[0, 1], [2000, 0]]) {
+    const f = tireForce(1e5, 10, 40, load, grip, c, FIXED_DT);
+    near(f.fx, 0); near(f.fy, 0); near(f.combinedDemand, 0);
+    assert.equal(f.sliding, false);
+  }
+});
+
+test('locked wheels lose cornering authority in forward and reverse travel', () => {
+  for (const speed of [-30, 30]) {
+    for (const dt of [1 / 60, 1 / 240, 1 / 960]) {
+      const rolling = rollingCar(speed), locked = rollingCar(speed);
+      rolling.steer = locked.steer = 0.04;
+      locked.wheelOmega.fill(0);
+      step(rolling, { steer: 0.04 / rolling.config.maxSteer }, dt);
+      step(locked, { steer: 0.04 / locked.config.maxSteer, brake: 1 }, dt);
+      for (let i = 0; i < 2; i++) {
+        const a = rolling.telemetry.wheels[i], b = locked.telemetry.wheels[i];
+        assert.ok(b.locked && b.sliding);
+        assert.ok(Math.abs(b.fy) < Math.abs(a.fy) * 0.25);
+        assert.ok(b.utilization < 0.8);
+      }
+    }
+  }
+});
+
+test('high-slip braking converges and falloff lengthens locked-wheel stops', () => {
+  const stop = (dt, slidingGripRatio) => {
+    const c = rollingCar(30, { slidingGripRatio });
+    for (let i = 0; i < 10 / dt && c.vx > 0.01; i++) step(c, { brake: 1 }, dt);
+    assert.ok(c.vx <= 0.01);
+    return c.x;
+  };
+  const fine = stop(1 / 960, 0.75), normal = stop(1 / 240, 0.75), coarse = stop(1 / 60, 0.75);
+  assert.ok(Math.abs(normal - fine) < Math.abs(coarse - fine));
+  assert.ok(Math.abs(normal - fine) / fine < 0.02);
+  assert.ok(normal > stop(1 / 240, 1) * 1.15);
+});
+
+test('loaded contact force preserves wheel torque balance through sliding and release', () => {
+  const c = rollingCar(30);
+  let sawSliding = false;
+  for (let i = 0; i < 1200; i++) {
+    const before = [...c.wheelOmega];
+    step(c, { brake: i < 120 ? 1 : 0, throttle: i > 360 ? 1 : 0, steer: 0.1 });
+    for (let j = 0; j < 4; j++) {
+      const w = c.telemetry.wheels[j];
+      sawSliding ||= w.sliding;
+      near((w.omega - before[j]) * c.config.wheelInertia / FIXED_DT,
+        w.driveTorque - c.config.wheelRadius * w.fx - w.resistanceTorque, 1e-7);
+    }
+  }
+  assert.ok(sawSliding);
+});
+
+test('grip discontinuities and sustained sliding remain passive without propulsion', () => {
+  const c = rollingCar(60, { dragArea: 0, rollingResistance: 0 });
+  c.vy = 20; c.yawRate = 2; c.wheelOmega = [0, -40, 400, 800];
+  for (let i = 0; i < 6000; i++) {
+    const before = kineticEnergy(c);
+    step(c, { steer: Math.sin(i / 100), brake: i % 500 < 100 ? 1 : 0 },
+      FIXED_DT, () => [1, 0, 0.1, 2][Math.floor(i / 25) % 4]);
+    assert.ok(kineticEnergy(c) <= before + 1e-7, `energy increased at step ${i}`);
+    for (const w of c.telemetry.wheels) {
+      assert.ok(Number.isFinite(w.combinedDemand));
+      assert.ok(w.utilization <= 1 + 1e-9);
+    }
+  }
+});
