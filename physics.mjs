@@ -21,6 +21,10 @@ export const DEFAULT_CAR = Object.freeze({
   maxBrakeForce: 34000,
   brakeBias: 0.59, rollingResistance: 0.015,
   maxSteer: 0.38, steerRate: 1.2,
+  // Sprung-body modes (illustrative): roll/pitch about axes near the ground,
+  // heave against the aero platform springs. Damping as a ratio of critical.
+  rollStiffness: 400000, rollInertia: 120, pitchStiffness: 600000, pitchInertia: 650,
+  heaveStiffness: 700000, bodyDampingRatio: 0.6,
 });
 export const FIXED_DT = 1 / 240;
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -34,6 +38,8 @@ export function createCar(overrides = {}) {
     wheelOmega: [0, 0, 0, 0],
     slipAngle: [0, 0, 0, 0],
     gear: 1, shiftTimer: 0,
+    // roll > 0: left side up; pitch > 0: nose down; heave > 0: body lower (m).
+    body: { roll: 0, rollRate: 0, pitch: 0, pitchRate: 0, heave: 0, heaveRate: 0 },
     telemetry: { speed: 0, downforce: 0, drag: 0, wheels: [], powertrain: null },
   };
 }
@@ -83,6 +89,22 @@ export function wheelLoads(car, downforce) {
   const frontLeft = clamp(front / 2 - transfer * c.frontRollShare, 0, front);
   const rearLeft = clamp(rear / 2 - transfer * (1 - c.frontRollShare), 0, rear);
   return [frontLeft, front - frontLeft, rearLeft, rear - rearLeft];
+}
+
+// Sprung-body roll, pitch and heave as damped oscillators driven by the
+// chassis accelerations and downforce. Backward Euler: stable for any dt.
+// Visual/telemetry only for now: wheel loads stay quasi-static.
+export function updateBody(car, ax, ay, downforce, dt) {
+  const c = car.config, b = car.body, h = c.mass * c.cgHeight;
+  const mode = (x, rate, force, k, inertia) => {
+    const damping = 2 * c.bodyDampingRatio * Math.sqrt(k * inertia);
+    const next = (rate + dt * (force - k * x) / inertia) / (1 + dt * damping / inertia + dt * dt * k / inertia);
+    return [x + dt * next, next];
+  };
+  [b.roll, b.rollRate] = mode(b.roll, b.rollRate, h * ay, c.rollStiffness, c.rollInertia);
+  [b.pitch, b.pitchRate] = mode(b.pitch, b.pitchRate, -h * ax, c.pitchStiffness, c.pitchInertia);
+  [b.heave, b.heaveRate] = mode(b.heave, b.heaveRate, downforce, c.heaveStiffness, c.mass);
+  return b;
 }
 
 export const steadySlipAngle = (lateralSpeed, forwardSpeed) =>
@@ -234,6 +256,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1) {
   const dragFactor = 1 / (1 + 0.5 * c.airDensity * c.dragArea * Math.hypot(nextU, nextV) * dt / c.mass);
   fx += nextU * (dragFactor - 1) * c.mass / dt;
   fy += nextV * (dragFactor - 1) * c.mass / dt;
+  updateBody(car, fx / c.mass, fy / c.mass, downforce, dt);
   // Filter acceleration used by quasi-static transfer, not the integrated forces.
   const response = 1 - Math.exp(-dt / 0.05);
   car.ax += (fx / c.mass - car.ax) * response;

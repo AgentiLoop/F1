@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, tireForce, relaxSlipAngle, engineTorque, shift, Simulation, FIXED_DT }
+import { createCar, step, wheelLoads, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, Simulation, FIXED_DT }
   from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
@@ -522,4 +522,42 @@ test('limited-slip differential improves split-grip traction over an open differ
   assert.ok(lsd.c.vx > open.c.vx * 1.05, `${lsd.c.vx} vs ${open.c.vx}`);
   assert.ok(lsd.maxDelta < open.maxDelta, `${lsd.maxDelta} vs ${open.maxDelta}`);
   assert.ok(open.maxDelta > 5, 'open differential lets the low-grip wheel spin up');
+});
+
+test('sprung body settles to the static roll, pitch and heave of a constant load', () => {
+  const car = createCar(), c = car.config, g = 9.81;
+  for (let i = 0; i < 480; i++) updateBody(car, -4 * g, 3 * g, 15000, FIXED_DT);
+  near(car.body.roll, c.mass * 3 * g * c.cgHeight / c.rollStiffness, 1e-5);
+  near(car.body.pitch, c.mass * 4 * g * c.cgHeight / c.pitchStiffness, 1e-5);
+  near(car.body.heave, 15000 / c.heaveStiffness, 1e-5);
+  // Signs: a left turn lifts the left side, braking dips the nose, downforce lowers the car.
+  assert.ok(car.body.roll > 0 && car.body.pitch > 0 && car.body.heave > 0);
+  // F1-like magnitudes: around a degree of roll/pitch, a couple of cm of aero squat.
+  assert.ok(car.body.roll * 180 / Math.PI < 2 && car.body.pitch * 180 / Math.PI < 2 && car.body.heave < 0.03);
+});
+
+test('body modes are damped and stay bounded at the coarsest allowed timestep', () => {
+  for (const dt of [FIXED_DT, 1 / 60]) {
+    const car = createCar();
+    let peak = 0;
+    for (let i = 0; i < 2 / dt; i++) {
+      updateBody(car, 0, i * dt < 0.5 ? 4 * 9.81 : 0, 0, dt);
+      peak = Math.max(peak, Math.abs(car.body.roll));
+    }
+    const settled = car.config.mass * 4 * 9.81 * car.config.cgHeight / car.config.rollStiffness;
+    // Underdamped overshoot (zeta 0.6 gives under 10%) then decay back to level.
+    assert.ok(peak < settled * 1.12, `overshoot ${peak / settled}`);
+    assert.ok(Math.abs(car.body.roll) < settled * 0.01 && Math.abs(car.body.rollRate) < 0.01);
+  }
+});
+
+test('driving the car rolls it out of a left turn, dips the nose on braking and squats at speed', () => {
+  const corner = run(rollingCar(40), 3, { steer: 0.15 });
+  assert.ok(corner.ay > 5 && corner.body.roll > 0, `ay ${corner.ay} roll ${corner.body.roll}`);
+  const fast = run(rollingCar(80), 0.5, { throttle: 0.6 });
+  assert.ok(fast.body.heave > 0.01, `heave ${fast.body.heave}`);
+  const braking = run(rollingCar(80), 0.5, { brake: 1 });
+  assert.ok(braking.body.pitch > 0.005, `pitch ${braking.body.pitch}`);
+  const accelerating = run(rollingCar(15), 0.5, { throttle: 1 });
+  assert.ok(accelerating.body.pitch < 0, 'acceleration lifts the nose');
 });
