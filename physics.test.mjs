@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, wheelLoads, tireForce, relaxSlipAngle, Simulation, FIXED_DT } from './physics.mjs';
+import { createCar, step, wheelLoads, tireForce, relaxSlipAngle, engineTorque, shift, Simulation, FIXED_DT }
+  from './physics.mjs';
 
 const run = (car, seconds, input, surface) => {
   for (let i = 0; i < Math.round(seconds / FIXED_DT); i++) step(car, input, FIXED_DT, surface);
@@ -10,25 +11,38 @@ const rollingCar = (speed, overrides = {}) => {
   const car = createCar(overrides);
   car.vx = speed;
   car.wheelOmega.fill(speed / car.config.wheelRadius);
+  // Start in the gear a driver would hold at this speed, so tests do not
+  // begin with a cascade of auto-upshifts from first gear.
+  const rpm = ratio => speed / car.config.wheelRadius * ratio * 60 / (2 * Math.PI);
+  const fit = car.config.gearRatios.findIndex(ratio => rpm(ratio) <= car.config.upshiftRpm);
+  car.gear = fit < 0 ? car.config.gearRatios.length : fit + 1;
   return car;
 };
 const kineticEnergy = c => c.config.mass * (c.vx ** 2 + c.vy ** 2) / 2
   + c.config.yawInertia * c.yawRate ** 2 / 2
   + c.wheelOmega.reduce((sum, omega) => sum + c.config.wheelInertia * omega ** 2 / 2, 0);
 const near = (a, b, tolerance = 1e-9) => assert.ok(Math.abs(a - b) <= tolerance, `${a} != ${b}`);
+// Peak crank power on the full-throttle curve, sampled every 10 rpm.
+const peakPower = c => {
+  let peak = 0;
+  for (let rpm = 0; rpm <= c.maxRpm; rpm += 10) peak = Math.max(peak, engineTorque(c, rpm, 1) * rpm * Math.PI / 30);
+  return peak;
+};
 
 test('rest is stable, including applied brakes and steering', () => {
   const c = run(createCar(), 10, { brake: 1, steer: 1 });
   near(c.x, 0); near(c.y, 0); near(c.yawRate, 0);
 });
 
-test('straight acceleration is symmetric and power limited', () => {
+test('straight acceleration is symmetric and limited by the engine curve', () => {
   const c = run(createCar(), 10, { throttle: 1 });
   assert.ok(c.vx > 60 && c.vx < 100);
   near(c.y, 0); near(c.heading, 0);
   const rear = c.telemetry.wheels.slice(2);
-  assert.ok(rear.reduce((sum, w) => sum + w.fx, 0) * c.vx < c.config.power * 1.001);
+  assert.ok(rear.reduce((sum, w) => sum + w.fx, 0) * c.vx
+    < peakPower(c.config) * c.config.drivelineEfficiency * 1.001);
 });
+
 
 test('aerodynamic forces scale with speed squared', () => {
   const a = createCar(), b = createCar();
@@ -132,7 +146,7 @@ test('mixed inputs remain finite through a two-minute stress run', () => {
 });
 
 test('free rolling preserves speed and zero slip without losses', () => {
-  const c = rollingCar(25, { dragArea: 0, rollingResistance: 0 });
+  const c = rollingCar(25, { dragArea: 0, rollingResistance: 0, engineBrakeTorque: 0 });
   run(c, 5, {});
   near(c.vx, 25);
   for (const w of c.telemetry.wheels) { near(w.fx, 0); near(w.slipRatio, 0); }
@@ -195,7 +209,8 @@ test('isolated rotating wheels obey torque balance and power bound', () => {
       near((w.omega - before[j]) * c.config.wheelInertia / FIXED_DT,
         w.driveTorque - c.config.wheelRadius * w.fx - w.resistanceTorque, 1e-7);
     }
-    assert.ok((kineticEnergy(c) - energy) / FIXED_DT <= c.config.power * 0.7 + 1e-6);
+    assert.ok((kineticEnergy(c) - energy) / FIXED_DT
+      <= peakPower(c.config) * c.config.drivelineEfficiency * 0.7 + 1e-6);
   }
 });
 
@@ -221,7 +236,8 @@ test('straight acceleration converges as timestep is reduced', () => {
     return c;
   };
   const coarse = simulate(1 / 60), normal = simulate(1 / 240), fine = simulate(1 / 960);
-  assert.ok(Math.abs(normal.vx - fine.vx) < Math.abs(coarse.vx - fine.vx));
+  // Coarse error can cross zero (shift timing), so ordering is only checked beyond 0.5%.
+  assert.ok(Math.abs(normal.vx - fine.vx) < Math.max(Math.abs(coarse.vx - fine.vx), 0.005 * fine.vx));
   assert.ok(Math.abs(normal.vx - fine.vx) / fine.vx < 0.01);
   assert.ok(Math.abs(normal.x - fine.x) / fine.x < 0.01);
 });
@@ -309,7 +325,7 @@ test('locked wheels lose cornering authority in forward and reverse travel', () 
         const a = rolling.telemetry.wheels[i], b = locked.telemetry.wheels[i];
         assert.ok(b.locked && b.sliding);
         assert.ok(Math.abs(b.fy) < Math.abs(a.fy) * 0.25);
-        assert.ok(b.utilization < 0.8);
+        assert.ok(b.utilization < locked.config.slidingGripRatio + 0.05);
       }
     }
   }
@@ -374,7 +390,8 @@ test('slip relaxation decays by e per relaxation length independent of timestep'
 });
 
 const stepSteer = (overrides, dt = FIXED_DT, speed = 50) => {
-  const car = rollingCar(speed, { dragArea: 0, rollingResistance: 0, ...overrides });
+  // Closed-throttle engine braking off: isolates the tire transient from shifts.
+  const car = rollingCar(speed, { dragArea: 0, rollingResistance: 0, engineBrakeTorque: 0, ...overrides });
   car.steer = 0.05;
   const frontForce = [];
   for (let i = 0; i < Math.round(1.5 / dt); i++) {
@@ -409,4 +426,100 @@ test('step steer with relaxation converges as timestep is reduced', () => {
   const normal = stepSteer({}, 1 / 240).car, fine = stepSteer({}, 1 / 960).car;
   assert.ok(Math.abs(normal.yawRate - fine.yawRate) / Math.abs(fine.yawRate) < 0.01);
   assert.ok(Math.abs(normal.y - fine.y) / Math.abs(fine.y) < 0.02);
+});
+
+test('engine torque follows the curve, cuts at the limiter and brakes when closed', () => {
+  const c = createCar().config;
+  near(engineTorque(c, 4000, 1), 250);
+  near(engineTorque(c, 10500, 1), 457.5);
+  near(engineTorque(c, 2000, 1), 250);
+  near(engineTorque(c, c.maxRpm, 1), 0);
+  near(engineTorque(c, c.maxRpm + 500, 1), 0);
+  near(engineTorque(c, 12000, 0), -c.engineBrakeTorque * 0.8);
+  near(engineTorque(c, 12000, 0.5), (455 - c.engineBrakeTorque * 0.8) / 2);
+  const peak = peakPower(c);
+  assert.ok(peak > 540000 && peak < 600000, `peak ${peak}`);
+});
+
+test('full-throttle run upshifts in sequence without exceeding the limiter', () => {
+  const c = createCar();
+  let gear = 1, shifts = 0, sawCut = false;
+  for (let i = 0; i < 240 * 12; i++) {
+    step(c, { throttle: 1 });
+    const p = c.telemetry.powertrain;
+    assert.ok(p.gear === gear || p.gear === gear + 1, `gear jump ${gear} -> ${p.gear}`);
+    if (p.gear !== gear) { shifts++; gear = p.gear; }
+    assert.ok(p.rpm <= c.config.maxRpm + 1e-9);
+    if (p.shifting) { sawCut = true; near(c.telemetry.wheels[2].driveTorque + c.telemetry.wheels[3].driveTorque, 0); }
+  }
+  assert.ok(gear >= 7 && shifts === gear - 1 && sawCut, `gear ${gear}, shifts ${shifts}`);
+  assert.ok(c.vx > 75, `speed ${c.vx}`);
+});
+
+test('braking from speed downshifts through the box', () => {
+  const c = rollingCar(80);
+  run(c, 1.5, { throttle: 1 });
+  const top = c.gear;
+  for (let i = 0; i < 240 * 6 && c.vx > 12; i++) {
+    const before = c.gear;
+    step(c, { brake: 0.6 });
+    assert.ok(c.gear === before || c.gear === before - 1);
+  }
+  assert.ok(top >= 6 && c.gear <= 2, `top ${top}, final ${c.gear}`);
+});
+
+test('manual gearbox holds gear on the limiter and refuses over-rev downshifts', () => {
+  const c = run(createCar({ autoShift: false }), 6, { throttle: 1 });
+  assert.equal(c.gear, 1);
+  assert.ok(c.telemetry.powertrain.limiter);
+  const limitSpeed = c.config.maxRpm / 60 * 2 * Math.PI / c.config.gearRatios[0] * c.config.wheelRadius;
+  assert.ok(c.vx < limitSpeed * 1.02, `${c.vx} vs ${limitSpeed}`);
+  assert.equal(shift(c, 1), true);
+  assert.equal(shift(c, 1), false, 'second request during the shift is ignored');
+  run(c, 0.5, { throttle: 1 });
+  assert.equal(shift(c, -1), false, 'downshift into gear 1 would exceed the limiter');
+  assert.equal(c.gear, 2);
+  const slow = rollingCar(10, { autoShift: false });
+  slow.gear = 8;
+  assert.equal(shift(slow, -1), true);
+  assert.equal(slow.gear, 7);
+  const bottom = createCar({ autoShift: false });
+  assert.equal(shift(bottom, -1), false);
+});
+
+test('clutch slips for launch, then locks, and a closed throttle never creeps', () => {
+  const idle = run(createCar(), 5, {});
+  near(idle.x, 0); near(idle.vx, 0);
+  assert.equal(idle.telemetry.powertrain.clutchLocked, false);
+  const c = createCar();
+  step(c, { throttle: 1 });
+  assert.equal(c.telemetry.powertrain.clutchLocked, false);
+  near(c.telemetry.powertrain.rpm, c.config.launchRpm);
+  run(c, 1, { throttle: 1 });
+  assert.equal(c.telemetry.powertrain.clutchLocked, true);
+});
+
+test('closed-throttle engine braking decelerates harder than coasting in neutral torque', () => {
+  const coast = engineBrakeTorque => run(rollingCar(50, { engineBrakeTorque, autoShift: false,
+    gearRatios: [5.35, 5.35, 5.35, 5.35, 5.35, 5.35, 5.35, 5.35] }), 2, {}).vx;
+  const free = coast(0), braked = coast(80);
+  assert.ok(braked < free - 1, `${braked} vs ${free}`);
+});
+
+test('limited-slip differential improves split-grip traction over an open differential', () => {
+  // Left-side wheels on a low-grip patch (y > 0), right side on dry track.
+  const surface = (x, y) => y > 0 ? 0.15 : 1;
+  const launch = overrides => {
+    const c = createCar(overrides);
+    let maxDelta = 0;
+    for (let i = 0; i < 240 * 2; i++) {
+      step(c, { throttle: 0.6 }, FIXED_DT, surface);
+      maxDelta = Math.max(maxDelta, c.wheelOmega[2] - c.wheelOmega[3]);
+    }
+    return { c, maxDelta };
+  };
+  const open = launch({ diffPreload: 0, diffRamp: 0 }), lsd = launch({});
+  assert.ok(lsd.c.vx > open.c.vx * 1.05, `${lsd.c.vx} vs ${open.c.vx}`);
+  assert.ok(lsd.maxDelta < open.maxDelta, `${lsd.maxDelta} vs ${open.maxDelta}`);
+  assert.ok(open.maxDelta > 5, 'open differential lets the low-grip wheel spin up');
 });

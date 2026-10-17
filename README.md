@@ -116,7 +116,7 @@ consume cornering authority:
 
 * q <= 2: |F| / F_peak = q (1 - q/4), with unit initial slope and peak 1 at q = 2.
 * q > 2: |F| / F_peak = s + (1 - s) exp(-((q - 2) / w)²), s = `slidingGripRatio`
-  (0.75), w = `slidingFalloff` (3). The curve and its slope are continuous at the
+  (0.85), w = `slidingFalloff` (3). The curve and its slope are continuous at the
   peak and decay monotonically to s.
 
 Telemetry adds `combinedDemand` (q) and `sliding` (q > 2); the browser shows
