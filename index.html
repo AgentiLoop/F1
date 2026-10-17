@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>F1 Dynamics Lab</title>
+<style>
+:root{color-scheme:dark;font:14px system-ui,sans-serif;background:#080d14;color:#e9f0f6}*{box-sizing:border-box}body{margin:0}header{height:76px;padding:15px 26px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #273442;background:#101822}h1{font-size:19px;margin:0;letter-spacing:.12em}h1 span{color:#6fffc3}.subtitle{font-size:11px;letter-spacing:.12em;color:#91a4b6;margin-top:6px}button{background:#1b2937;color:#e9f0f6;border:1px solid #3a5065;border-radius:7px;padding:9px 13px;cursor:pointer}button:hover,button:focus-visible{border-color:#6fffc3;outline:2px solid #6fffc344}nav{display:flex;gap:8px}main{height:calc(100vh - 76px);display:grid;grid-template-columns:minmax(0,1fr) 290px}.scene{position:relative;overflow:hidden;background:#162923}canvas{display:block;width:100%;height:100%}.tag{position:absolute;top:20px;left:20px;background:#0b151be6;border:1px solid #435449;border-radius:6px;padding:10px 14px;color:#b0c1cb;font-size:11px;letter-spacing:.1em}.tag strong{color:#6fffc3}#status{position:absolute;bottom:22px;left:22px;background:#0b151be6;border-radius:6px;padding:12px 16px;font-size:13px}aside{background:#101822;border-left:1px solid #273442;padding:24px 20px;overflow:auto}.label{font-size:10px;color:#91a4b6;letter-spacing:.14em;text-transform:uppercase}.speed{font-variant-numeric:tabular-nums;font-size:76px;font-weight:650;line-height:1.2;letter-spacing:-4px}.unit{color:#91a4b6;font-size:12px}.section{padding:20px 0;border-bottom:1px solid #273442}.stats{display:grid;grid-template-columns:1fr 1fr;gap:19px 12px}.number{font-variant-numeric:tabular-nums;font-size:21px;margin-top:5px}.wheels{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:13px}.wheel{background:#182330;border-radius:6px;padding:10px;font-size:11px}.wheel span{float:right;color:#9fb5c5}.wheel meter{display:block;width:100%;height:12px;margin-top:6px;accent-color:#6fffc3}.note{font-size:11px;line-height:1.6;color:#91a4b6}kbd{font:11px monospace;background:#233242;border:1px solid #3b5062;border-radius:3px;padding:2px 5px}.controls{line-height:2.2;font-size:12px;color:#b8c8d5}#pause-state{color:#ffc86f;margin-bottom:10px;min-height:16px}@media(max-width:760px){header{padding:12px;height:94px;align-items:flex-start}h1{font-size:15px}.subtitle{font-size:9px}nav{flex-wrap:wrap;justify-content:flex-end;max-width:180px}button{padding:6px 8px;font-size:11px}main{height:calc(100vh - 94px);grid-template-columns:minmax(0,1fr) 180px}aside{padding:15px 12px}.speed{font-size:54px}.stats{gap:12px 6px}.number{font-size:17px}.tag{left:8px;top:8px;font-size:9px;padding:8px}.wheels{gap:5px}.wheel{padding:6px}.controls{font-size:10px}}
+</style>
+</head>
+<body>
+<header><div><h1><span>F1</span> / DYNAMICS LAB</h1><div class="subtitle">OPEN-WHEEL RESEARCH PROTOTYPE · 001</div></div><nav aria-label="Simulation controls"><button id="pause" aria-pressed="false">Pause</button><button id="view" aria-pressed="false">Overview</button><button id="reset">Reset car</button></nav></header>
+<main><section class="scene" aria-label="Driving viewport"><canvas id="track" role="img" aria-label="Top-down open-wheel car on a stadium-shaped test circuit"></canvas><div class="tag"><strong>LIVE</strong> &nbsp; 240 Hz PHYSICS / SI UNITS</div><div id="status" role="status">Ready · W or ↑ to accelerate</div></section><aside aria-label="Vehicle telemetry">
+<div id="pause-state" role="status"></div><div class="label">Ground speed</div><div><span class="speed" id="speed">0</span> <span class="unit">km/h</span></div>
+<div class="section stats"><div><div class="label">Longitudinal</div><div class="number" id="long">0.00 g</div></div><div><div class="label">Lateral</div><div class="number" id="lat">0.00 g</div></div><div><div class="label">Downforce</div><div class="number" id="aero">0.0 kN</div></div><div><div class="label">Distance</div><div class="number" id="distance">0 m</div></div><div><div class="label">Sim time</div><div class="number" id="time">0.0 s</div></div><div><div class="label">Steering</div><div class="number" id="steer">0.0°</div></div></div>
+<div class="section"><div class="label">Tire force / available grip</div><div class="wheels" id="wheels"></div><p class="note">FL / FR / RL / RR · normal load in kN.<br>Bars show combined tire-force utilization.</p></div>
+<div class="section controls"><kbd>W</kbd> / <kbd>↑</kbd> Throttle<br><kbd>S</kbd> / <kbd>↓</kbd> Brake<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Steer<br><kbd>Space</kbd> Pause · <kbd>R</kbd> Reset<br><kbd>V</kbd> Chase / overview</div>
+<p class="note">Illustrative, uncalibrated dynamics. Keyboard steering is speed-scaled. No wheel locking, suspension travel, tire temperature, collisions, or race rules yet. This is a handling testbed, not a validated F1 simulator.</p>
+</aside></main>
+<script type="module">
+import { Simulation, createCar, clamp } from './physics.mjs';
+const $ = id => document.getElementById(id);
+const canvas = $('track'), ctx = canvas.getContext('2d');
+let sim, paused = false, overview = false, previousTime = null;
+let width = 1, height = 1, pixelRatio = 1;
+const keys = new Set();
+const halfStraight = 220, radius = 90, roadWidth = 15;
+const trackDistance = (x, y) => Math.abs(Math.hypot(x - clamp(x, -halfStraight, halfStraight), y) - radius);
+const surfaceAt = (x, y) => trackDistance(x, y) <= roadWidth / 2 ? 1 : 0.35;
+function reset() {
+  sim = new Simulation(createCar()); sim.car.y = -radius;
+  keys.clear(); previousTime = null;
+}
+function pause(value) {
+  paused = value; keys.clear(); previousTime = null;
+  $('pause').textContent = paused ? 'Resume' : 'Pause';
+  $('pause').setAttribute('aria-pressed', String(paused));
+  $('pause-state').textContent = paused ? 'SIMULATION PAUSED' : '';
+}
+function changeView() {
+  overview = !overview;
+  $('view').textContent = overview ? 'Chase view' : 'Overview';
+  $('view').setAttribute('aria-pressed', String(overview));
+}
+$('pause').onclick = () => pause(!paused);
+$('reset').onclick = reset;
+$('view').onclick = changeView;
+const drivingKeys = ['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+window.addEventListener('keydown', e => {
+  if (e.target.closest('button,input,select,textarea')) return;
+  if ([...drivingKeys,'Space','KeyR','KeyV'].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  if (e.code === 'Space') pause(!paused);
+  else if (e.code === 'KeyR') reset();
+  else if (e.code === 'KeyV') changeView();
+  else if (!paused) keys.add(e.code);
+});
+window.addEventListener('keyup', e => keys.delete(e.code));
+window.addEventListener('blur', () => pause(true));
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(true); });
+for (const name of ['FL', 'FR', 'RL', 'RR']) {
+  const box = document.createElement('div'); box.className = 'wheel';
+  box.innerHTML = `${name}<span id="load-${name}">0.0</span><meter id="grip-${name}" min="0" max="1" value="0" aria-label="${name} tire utilization"></meter>`;
+  $('wheels').append(box);
+}
+function resize() {
+  const bounds = canvas.getBoundingClientRect();
+  width = bounds.width; height = bounds.height; pixelRatio = Math.min(devicePixelRatio, 2);
+  canvas.width = Math.round(width * pixelRatio); canvas.height = Math.round(height * pixelRatio);
+}
+new ResizeObserver(resize).observe(canvas);
+function stadium() {
+  ctx.beginPath(); ctx.moveTo(-halfStraight, -radius); ctx.lineTo(halfStraight, -radius);
+  ctx.arc(halfStraight, 0, radius, -Math.PI / 2, Math.PI / 2);
+  ctx.lineTo(-halfStraight, radius); ctx.arc(-halfStraight, 0, radius, Math.PI / 2, Math.PI * 1.5);
+  ctx.closePath();
+}
+function strokeRoad(color, size, dash = []) {
+  stadium(); ctx.strokeStyle = color; ctx.lineWidth = size; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+}
+function render() {
+  const c = sim.car;
+  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  ctx.fillStyle = '#19352b'; ctx.fillRect(0, 0, width, height);
+  ctx.save();
+  if (overview) { const zoom = Math.min(width / 700, height / 280); ctx.translate(width / 2, height / 2); ctx.scale(zoom, -zoom); }
+  else {
+    const zoom = Math.min(width / 110, height / 140);
+    ctx.translate(width / 2, height * 0.72); ctx.scale(zoom, -zoom);
+    ctx.rotate(Math.PI / 2 - c.heading); ctx.translate(-c.x, -c.y);
+  }
+  ctx.strokeStyle = '#214233'; ctx.lineWidth = 0.25;
+  const minX = overview ? -400 : Math.floor((c.x - 250) / 20) * 20;
+  const minY = overview ? -200 : Math.floor((c.y - 250) / 20) * 20;
+  for (let x = minX; x < minX + 800; x += 20) { ctx.beginPath(); ctx.moveTo(x, minY); ctx.lineTo(x, minY + 500); ctx.stroke(); }
+  for (let y = minY; y < minY + 500; y += 20) { ctx.beginPath(); ctx.moveTo(minX, y); ctx.lineTo(minX + 800, y); ctx.stroke(); }
+  strokeRoad('#817d69', roadWidth + 14);
+  strokeRoad('#deded5', roadWidth + 2.4);
+  strokeRoad('#bd4945', roadWidth + 2.4, [5, 5]);
+  strokeRoad('#404952', roadWidth);
+  strokeRoad('#b2b9b9', 0.18, [4, 8]);
+  for (let x = 0; x < 2; x++) for (let y = 0; y < 15; y++) {
+    ctx.fillStyle = (x + y) % 2 ? '#17212b' : '#e4e9e6';
+    ctx.fillRect(x, -radius - roadWidth / 2 + y, 1, 1);
+  }
+  ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.heading);
+  ctx.fillStyle = '#0005'; ctx.fillRect(-2.9, -1.2, 5.7, 2.4);
+  ctx.strokeStyle = '#677581'; ctx.lineWidth = 0.12;
+  for (const x of [1.944, -1.656]) { ctx.beginPath(); ctx.moveTo(x, -0.8); ctx.lineTo(x, 0.8); ctx.stroke(); }
+  for (let i = 0; i < 4; i++) {
+    const x = i < 2 ? 1.944 : -1.656, y = i % 2 ? -0.8 : 0.8;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(i < 2 ? c.steer : 0);
+    ctx.fillStyle = '#080b0d'; ctx.fillRect(-0.36, -0.2, 0.72, 0.4);
+    ctx.fillStyle = '#9db2bd'; ctx.fillRect(-0.04, -0.2, 0.08, 0.4); ctx.restore();
+  }
+  ctx.fillStyle = '#39e0ae'; ctx.beginPath(); ctx.moveTo(2.7, -0.16); ctx.lineTo(0.4, -0.45); ctx.lineTo(-1.9, -0.64); ctx.lineTo(-2.2, 0); ctx.lineTo(-1.9, 0.64); ctx.lineTo(0.4, 0.45); ctx.lineTo(2.7, 0.16); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#bcfff0'; ctx.fillRect(2.1, -0.95, 0.3, 1.9); ctx.fillRect(-2.25, -0.85, 0.35, 1.7);
+  ctx.fillStyle = '#102a31'; ctx.beginPath(); ctx.ellipse(-0.2, 0, 0.6, 0.27, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#f2bf5e'; ctx.beginPath(); ctx.arc(-0.3, 0, 0.18, 0, Math.PI * 2); ctx.fill();
+  ctx.restore(); ctx.restore();
+  $('speed').textContent = Math.round(c.telemetry.speed * 3.6);
+  $('long').textContent = `${(c.ax / 9.81).toFixed(2)} g`;
+  $('lat').textContent = `${(c.ay / 9.81).toFixed(2)} g`;
+  $('aero').textContent = `${(c.telemetry.downforce / 1000).toFixed(1)} kN`;
+  $('distance').textContent = `${c.distance.toFixed(0)} m`;
+  $('time').textContent = `${c.time.toFixed(1)} s`;
+  $('steer').textContent = `${(c.steer * 180 / Math.PI).toFixed(1)}°`;
+  c.telemetry.wheels.forEach((wheel, i) => {
+    const name = ['FL', 'FR', 'RL', 'RR'][i];
+    $(`load-${name}`).textContent = (wheel.load / 1000).toFixed(1);
+    $(`grip-${name}`).value = wheel.utilization;
+  });
+  $('status').textContent = paused ? 'Paused · Space or Resume to continue' : surfaceAt(c.x, c.y) < 1 ? 'Off circuit · reduced grip · R to reset' : c.telemetry.speed < 0.5 ? 'Ready · W or ↑ to accelerate' : 'Test circuit · keyboard steering assist';
+}
+function frame(now) {
+  if (previousTime !== null && !paused) {
+    const has = (...codes) => codes.some(code => keys.has(code));
+    const steer = Number(has('KeyA', 'ArrowLeft')) - Number(has('KeyD', 'ArrowRight'));
+    sim.advance((now - previousTime) / 1000, {
+      throttle: Number(has('KeyW', 'ArrowUp')), brake: Number(has('KeyS', 'ArrowDown')),
+      steer: steer / (1 + (sim.car.telemetry.speed / 22) ** 2),
+    }, surfaceAt);
+  }
+  previousTime = now; render(); requestAnimationFrame(frame);
+}
+reset(); resize(); requestAnimationFrame(frame);
+// Read-only snapshots for browser smoke tests and telemetry tools.
+window.f1Lab = { snapshot: () => ({ car: structuredClone(sim.car), paused, overview, keys: [...keys] }) };
+</script>
+</body>
+</html>
