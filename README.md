@@ -365,13 +365,13 @@ illustrative, not FIA zone maps or wind-tunnel data.
   that are pitting, retired or finished do not count. DRS is enabled once the
   leader has completed 2 laps, so from lap 3, and is off after the chequered
   flag. `createRace(track, { drs: false })` turns it off.
-- Zones: the stadium gets one on each straight. A real circuit gets one on each
-  of its two longest straights of at least 450 m. Here a straight is where the
-  racing line curves no tighter than 1/200 m⁻¹. Each zone opens 60 m after the
-  corner exit and runs to the next corner, with its detection point 150 m
-  before the opening. `findDrsZones(track)` lists them. These are not the
-  official zones: Monza's are the main straight and the run from the first
-  chicane through Curva Grande, and Monaco gets two where the real circuit has one.
+- Zones: the stadium gets one on each straight. Each real circuit uses its
+  real zones, measured from race telemetry (cycle 31, below), with the
+  detection point 150 m before each opening. A circuit without zone data gets
+  one on each of its two longest straights of at least 450 m, where a
+  straight is where the racing line curves no tighter than 1/200 m⁻¹; each of
+  those opens 60 m after the corner exit and runs to the next corner.
+  `findDrsZones(track)` lists them.
 - The AI and the player's autopilot request DRS wherever it is allowed, and
   the flap closes as they brake. A request from a player who is driving is
   ignored outside an allowed zone. The HUD shows `DRS from lap 3`, the last
@@ -788,6 +788,48 @@ tests pass, and the Red Bull Ring browser race check passes. (At Spa the same
 browser check's "every car above 15 m/s at about 12 s" step catches the field
 inside La Source, whose planned apex speed is about 12 m/s, so it does not
 apply there.)
+
+### Real DRS zones from race telemetry (`circuits.mjs`, `circuit.mjs`, `race.mjs`, cycle 31)
+
+Until cycle 31 every circuit got DRS on its two longest straights. That gave
+Monaco zones in the tunnel and up Beau Rivage instead of the one on the pit
+straight, Monza one through Curva Grande instead of the back straight, and
+two zones everywhere where Bahrain, Jeddah, Miami, Montreal, the Red Bull
+Ring and Mexico have three.
+
+- Data: car telemetry (speed and DRS state, about 4 samples a second) from
+  the 2024 races in the OpenF1 API, for the first 8 drivers on lap 10: laps
+  from lap 4 on, not out-laps, within 3% of each driver's median. Interlagos
+  uses 2023 because the 2024 race was wet. Speed integrated over each lap gives lap
+  distance as a fraction of the lap. A zone is a stretch where the flap was
+  open on at least 15% as many samples as at the busiest point. It opens at
+  the 10th percentile of where drivers opened the flap and closes at the 90th
+  percentile of where they closed it.
+- Timing line: the traced layouts do not start at the real timing line.
+  Sliding the real median speed trace along a simulated time-trial lap of
+  each trace gives the offset with the best correlation. The correlations were
+  0.92–0.99, with offsets of 43–382 m on 16 circuits, 881 m at Monaco and
+  2839 m at Silverstone. `circuits.mjs` stores this as `timingLine` and the
+  zones as `drs: [[open, close], ...]` lap fractions from that line.
+  `createCircuitTrack` converts them to `track.drsZones` in lap progress.
+  The simulated lap still starts at the trace's first point; moving it to the
+  real line moves the grid, pit lane and turn-1 run. Tried this cycle: the
+  lap-1 field then had 130 contacts in 180 starts (Monza 90, Miami 40) and COTA
+  queues of 2.1 m/s, so that move is left for later.
+- Zones now: 1 at Monaco and Imola; 2 at Shanghai, Catalunya, Silverstone,
+  Hungaroring, Spa, Monza, COTA, Interlagos, Yas Marina and Zandvoort; 3 at
+  Bahrain, Montreal, the Red Bull Ring, Mexico, Jeddah and Miami. All of them are
+  304–914 m long. The tightest racing-line radius inside a zone is 118 m (the
+  banked last corner at Zandvoort, which the real zone runs through). Every
+  other circuit's tightest is at least 132 m.
+- Effect, 6-lap races on 18 circuits with 2 seeds each, before → after:
+  0 → 0 contacts, 0 → 0 wall hits, 26 → 16 passes (Monza 7 → 4, Miami 2 → 0,
+  Catalunya and Jeddah 2 each both times). DRS-open time over all cars was
+  6362 → 6266 s. Time-trial laps (3rd lap) change by −0.1 to +0.4 s (Spa
+  125.48 → 125.92 s, Miami 107.15 → 107.43 s, Monaco 90.95 → 91.00 s), with no
+  offs. The lap-1 field metrics are unchanged, because DRS opens from lap 3
+  and the geometry is untouched.
+- Not modelled: the real detection points, which the telemetry does not give.
 
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 

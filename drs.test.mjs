@@ -77,11 +77,27 @@ test('a driving player opens DRS only on request and only where it is allowed', 
   assert.equal(opened[0], false);
 });
 
-test('circuits get DRS zones on their longest straights, Monza including the main straight', () => {
-  const monza = createCircuitTrack(CIRCUITS.monza);
+test('circuits without zone data get DRS zones on their longest straights, Monza including the main straight', () => {
+  const monza = createCircuitTrack({ ...CIRCUITS.monza, drs: null });
   const race = createRace(monza, { grid: [] });
   assert.equal(race.drsZones.length, 2);
   const length = monza.length, span = z => ((z.end - z.start) % length + length) % length;
   assert.ok(race.drsZones.some(z => ((0 - z.start) % length + length) % length <= span(z)), 'a zone spans the start line');
   for (const z of race.drsZones) assert.ok(span(z) >= 390);
+});
+
+test('circuits use their real DRS zones from race telemetry, each on a straight', () => {
+  const count = { monaco: 1, imola: 1, monza: 2, spa: 2, silverstone: 2, bahrain: 3, jeddah: 3, 'red-bull-ring': 3, mexico: 3 };
+  for (const [key, def] of Object.entries(CIRCUITS)) {
+    const t = createCircuitTrack(def), zones = createRace(t, { grid: [] }).drsZones, L = t.length, k = t.samples.lineCurvature;
+    assert.equal(zones.length, def.drs.length, key);
+    if (count[key]) assert.equal(zones.length, count[key], key);
+    for (const z of zones) {
+      const span = ((z.end - z.start) % L + L) % L;
+      assert.ok(span > 250 && span < 1000, `${key} zone ${span.toFixed(0)} m`);
+      // The racing line through the zone bends no tighter than 100 m radius.
+      for (let d = 0; d <= span; d += 2) assert.ok(Math.abs(k[Math.floor(((z.start + d) % L) / L * k.length)]) < 1 / 100, `${key} zone at ${z.start.toFixed(0)}+${d}`);
+      assert.ok(Math.abs(((z.start - z.detection) % L + L) % L - 150) < 1e-6, 'detection 150 m before');
+    }
+  }
 });

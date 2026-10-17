@@ -123,7 +123,7 @@ function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, 
 }
 
 export function createCircuitTrack({ name = 'Circuit', points, length: officialLength, roadWidth = 13, wallOffset = roadWidth / 2 + 12,
-  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true }) {
+  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, drs = null }) {
   const pairs = points.length && typeof points[0] === 'number' ? Array.from({ length: points.length / 2 }, (_, i) => [points[2 * i], points[2 * i + 1]]) : points;
   let poly = spline(pairs, step);
   const polyLength = () => poly.reduce((L, a, i) => { const b = poly[(i + 1) % poly.length]; return L + Math.hypot(b[0] - a[0], b[1] - a[1]); }, 0);
@@ -234,6 +234,10 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
   };
   return {
     kind: 'circuit', name, length, roadWidth, wallOffset, step, offset, surface, progress, point, pit,
+    // DRS zones [open, close] (lap progress, m), or null: drs gives them as
+    // fractions of the lap from the real timing line, which lies timingLine m
+    // along the trace (the lap here still starts at its first point).
+    drsZones: drs && drs.map(z => z.map(f => ((f * length + timingLine) % length + length) % length)),
     samples: { x: xs, y: ys, s: ss, heading: headings, curvature, kerb, line, lineStep, lineCurvature },
     heading: s => headings[index(s)], curvatureAt: s => curvature[index(s)],
     // Racing-line offset (m, + right) at arc length s, interpolated.

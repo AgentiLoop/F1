@@ -47,14 +47,17 @@ export const RACE_DEFAULTS = Object.freeze({
   // rejoins over at least mergeSlope m per metre across to the racing line.
   pitCornerAccel: 12, pitPreview: 150, pitLimitMargin: 1.5, mergeSlope: 6,
   pitDecel: 14, boxDecel: 5, stopTimeMin: 2.1, stopTimeMax: 3.2, boxWindow: 3, pitSpeedingPenalty: 5, pitWear: 0.6, pitGap: 8, pitHeadway: 1.2, queueDistance: 200,
-  // DRS (after the 2011-25 sporting rules; zone placement illustrative): a car
-  // within drsGap s of the car ahead at a zone's detection point may open its
-  // flap in that zone, once the leader has completed drsEnableLaps laps and
-  // until the chequered flag. Zones open drsZoneDelay m after a corner exit and
-  // close at the next corner, detection drsDetection m before the opening; on a
-  // circuit the drsZones longest straights of at least drsMinStraight m get one,
-  // a straight being where the racing line curves no tighter than drsCurvature
-  // (1/m; looser than cornerCurvature so a zone runs on to the braking zone).
+  // DRS (after the 2011-25 sporting rules): a car within drsGap s of the car
+  // ahead at a zone's detection point may open its flap in that zone, once
+  // the leader has completed drsEnableLaps laps and until the chequered flag.
+  // A circuit with real zones (track.drsZones, from race telemetry) uses
+  // them, detection drsDetection m before each opening (the real detection
+  // points are not in the data). Otherwise (illustrative placement) zones open
+  // drsZoneDelay m after a corner exit and close at the next corner: on the
+  // stadium its two straights, on a circuit the drsZones longest straights of
+  // at least drsMinStraight m, a straight being where the racing line curves
+  // no tighter than drsCurvature (1/m; looser than cornerCurvature so a zone
+  // runs on to the braking zone).
   drsGap: 1, drsEnableLaps: 2, drsZoneDelay: 60, drsDetection: 150, drsZones: 2, drsMinStraight: 450, drsCurvature: 1 / 200,
 });
 
@@ -164,11 +167,13 @@ function circuitBends(track, o) {
   return { to, since, step, n };
 }
 
-// DRS zones { detection, start, end } (lap progress, m) in lap order: the
-// stadium's two straights, or a circuit's drsZones longest runs of the racing
-// line between corners of at least drsMinStraight m (see RACE_DEFAULTS).
+// DRS zones { detection, start, end } (lap progress, m) in lap order: a
+// circuit's real zones, the stadium's two straights, or a circuit's drsZones
+// longest runs of the racing line between corners of at least
+// drsMinStraight m (see RACE_DEFAULTS).
 export function findDrsZones(track, options = {}) {
   const o = { ...RACE_DEFAULTS, ...options }, length = track.length, ahead = d => ((d % length) + length) % length;
+  if (track.drsZones) return track.drsZones.map(([a, z]) => ({ detection: ahead(a - o.drsDetection), start: ahead(a), end: ahead(z) })).sort((x, y) => x.start - y.start);
   let straights;
   if (track.kind === 'circuit') {
     const b = circuitBends(track, { cornerCurvature: o.drsCurvature });
