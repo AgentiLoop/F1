@@ -25,6 +25,13 @@ The project code's licence does not cover these files; each keeps its own licenc
   meshopt using `@gltf-transform/cli optimize --simplify-ratio 0.15` (755 KB).
   `carmodel.mjs` puts it in place of the car model's own steering wheel and turns it with the steering.
 
+## rb22.glb
+
+- Model: "2026 Redbull RB22" by Tyler_Dave (Sketchfab)
+- Licence: [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
+- `rb22.mjs` keeps its own livery, splits the wheels per corner, turns the model's steering
+  wheel with the steering and fits it onto the physics car's axles. Loaded with `?car=rb22`.
+
 ## Vendored loaders (MIT)
 
 `vendor/GLTFLoader.js`, `vendor/BufferGeometryUtils.js` (three.js r170, MIT; see
