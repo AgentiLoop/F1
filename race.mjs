@@ -423,8 +423,13 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // On a circuit the gap kept grows with speed (followMin m plus followTime
     // s of travel, at most followGap): a fixed 14 m was ~0.7 s in a hairpin,
     // and that time gap carried down the next straight out of passing range.
-    // A car still crossing to its lane (e.g. off its grid slot) keeps the full gap.
-    const followGap = circuit && Math.abs(rel(car) - e.lane) < 1 ? Math.min(o.followGap, o.followMin + o.followTime * speed) : o.followGap;
+    // A car still crossing to its lane (e.g. off its grid slot: its target
+    // offset not yet at the lane) keeps the full gap. (Judged from the target,
+    // not where the car is: in a hairpin a car below its plan speed runs up to
+    // ~2 m inside its line, or a lane is clamped at the road edge, and counted
+    // as crossing it kept 14 m to the car ahead; the field behind then queued
+    // through Spa's La Source and COTA turn 1 at 1-2 m/s.)
+    const followGap = circuit && Math.abs(e.offset - e.lane) < 1 ? Math.min(o.followGap, o.followMin + o.followTime * speed) : o.followGap;
     const carLength = car.config.bodyFront + car.config.bodyRear;
     // Backing out from alongside drops back the full followGap (on a circuit the
     // speed-scaled gap: the full 14 m behind a car at hairpin speed was ~1 s,

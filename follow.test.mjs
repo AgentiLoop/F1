@@ -93,3 +93,23 @@ test('the lap-1 queue through the Red Bull Ring turn 1 hairpin keeps moving, wit
     assert.equal(contact, 0, `seed ${seed}`);
   }
 });
+
+test('lap-1 queues through Spa La Source and COTA turn 1 keep moving, without contact', () => {
+  // A car running inside its line in the hairpin (below its plan speed) or in
+  // a lane clamped at the road edge no longer counts as still crossing to its
+  // lane, which kept the full 14 m gap: before, these seeds crawled at 1-2 m/s.
+  for (const [key, seeds] of [['spa', [2, 6]], ['cota', [8]]]) {
+    const track = createCircuitTrack(CIRCUITS[key]);
+    for (const seed of seeds) {
+      const race = createRace(track, { grid: DEFAULT_GRID, start: { seed }, laps: 2 });
+      let slowest = Infinity, contact = 0;
+      while (Math.max(...race.entries.map(e => e.covered)) < track.length) {
+        race.advance(1 / 60, null, track.surfaceAt, track.barrierAt);
+        if (race.start.sinceLightsOut > 5) for (const e of race.entries) slowest = Math.min(slowest, e.car.telemetry.speed);
+        for (const e of race.entries) if (e.car.contact) contact = Math.max(contact, e.car.contact.speed);
+      }
+      assert.ok(slowest > 5, `${key} seed ${seed}: slowest ${slowest.toFixed(1)} m/s on lap 1`);
+      assert.equal(contact, 0, `${key} seed ${seed}`);
+    }
+  }
+});
