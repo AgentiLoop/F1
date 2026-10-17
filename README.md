@@ -561,6 +561,56 @@ illustrative, not FIA zone maps or wind-tunnel data.
   hairpin. It leaves a 10 m racing line at Monaco, close to the Fairmont
   hairpin.
 
+### ERS deployment plan (`autopilot.mjs`, cycle 25)
+- **Problem:** the circuit autopilot deployed the MGU-K on every throttle
+  application, so the 4 MJ lap allowance ran out part way round: at Monza
+  after ~3.2 km of 5.8 km (Spa ~3.3 of 7.0 km, Bahrain ~3.5 of 5.4 km). The
+  rest of the lap, including the main straight, had no electric power.
+- **Model:** extra power P at speed v gives Δv = P·dt/(m·v) for P·dt joules.
+  The gain lasts until the next braking point D metres on, fading with drag
+  over L = m/(ρ·dragArea) ≈ 520 m. So the lap time saved per joule is
+  proportional to L·(1 − e^(−D/L)) / v³ (the score). A forward pass over the
+  speed plan (ICE peak + 120 kW, rear-axle traction with downforce, drag,
+  rolling resistance) gives each sample's speed, whether the car is
+  accelerating there, and the energy (P·ds/v) deploying there costs.
+- **Rule:** the MGU-K deploys where the score, rescaled by (plan speed /
+  actual speed)³, is at least a threshold. The threshold is set from the
+  samples sorted by score so the planned energy matches the lap target. A car
+  slower than the plan (traffic, a poor exit) scores higher and deploys more.
+  Steady corners (not accelerating in the plan) get none. If the target covers
+  the whole plan (Monaco), it deploys on every throttle application as before.
+- **Per-lap recalibration:** when the lap count resets, the ratio of energy
+  actually deployed to the plan's estimate is measured, counting only the
+  samples passed while deploying was still possible. The next target is what
+  the store recovered that lap plus half its charge above `ersReserve` (50%)
+  of capacity, capped at the allowance. That keeps the store from running
+  flat (Monaco used to lose ~0.2 MJ a lap) or sitting full.
+- `createCircuitAutopilot(track, { ersPlan: false })` restores the old
+  behaviour. The command carries `ers` (physics already honours
+  `input.ers === false`). `drive.ers(car)` exposes the plan.
+- **Measured, time trial (3rd flying lap, old → new):** Monza 95.42 → 94.90 s,
+  Spa 125.92 → 125.37 s, Jeddah 111.72 → 111.05 s, Bahrain 112.67 → 112.27 s,
+  Imola 94.97 → 94.52 s, Silverstone 113.40 → 113.07 s, and 0.1–0.3 s on the
+  rest. Monaco 90.95 → 91.05 s (the store target holds it back slightly). At
+  Monza the allowance now runs out at ~5.37 km (about 0.4 km before the line)
+  instead of at 3.2 km.
+- **Measured, races:**
+  - All 18 circuits, 3 laps, full field: no contact, no wall impact, no spin.
+  - 2-car pace pairs (+1/+2/+3 m/s corner speed, 5 laps): 22 of 54 passes (was
+    24), none with contact. The leading car now spends its energy as well as
+    the chaser does, so a small pace edge is worth less. Variants tried and
+    dropped: deploying everywhere when within 1 s of the car ahead (10 of 54:
+    it empties the allowance early in the lap) and only while passing (21);
+    scoring by plan speed alone (20).
+  - The Interlagos out-braking test now uses a +3 m/s car (+2 no longer gets
+    alongside within 5 laps).
+- **Test:** at Monza, deploying on every throttle application empties the
+  allowance before 60% of the lap. The plan lasts past 90%, laps more than
+  0.3 s faster and keeps the store above half.
+- **Assumptions:** the score is a first-order estimate, not an optimal-control
+  solution. The ICE is taken at constant peak power in the forward pass. The
+  50% store reserve is a chosen value. There is no overtake or defend mode
+  yet.
 ### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
 
 Pick a circuit from the menu in the header, or open `?track=<key>`. The keys
@@ -1095,8 +1145,8 @@ the circuit browser check passes.
    hand-shaped envelope, pressure, camber and measured brake/tire/thermal parameters.
 2. Suspension travel per corner, road elevation, roll-sensitive aero, plank
    wear/friction and porpoising from a measured aero map.
-3. Engine/transmission, differential, setup controls, and ERS deployment
-   strategy (where to spend the energy each lap, overtake mode).
+3. Engine/transmission, differential, setup controls, and ERS overtake and
+   defend modes (saving energy for an attack) on top of the lap plan.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
 5. Wheel/pedal calibration and

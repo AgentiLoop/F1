@@ -14,7 +14,7 @@ import { clamp } from './physics.mjs';
 // the road edge.
 export function createCircuitAutopilot(track, tuning = {}) {
   const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100, edgeMargin: 2, laneSmoothing: 100, lateBrake: 1.2, recoverySpeed: 8, coastThrottle: 0.15, coastSpeed: 15,
-    slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ...tuning };
+    slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ersPlan: true, ersReserve: 0.5, ...tuning };
   const { lineCurvature: curvature, lineStep } = track.samples, n = curvature.length, step = track.length / n;
   let plan = null;
   // Deceleration (m/s²) the plan brakes at from speed v: brakeGrip of the tire
@@ -64,6 +64,74 @@ export function createCircuitAutopilot(track, tuning = {}) {
     lanePlans.set(key, v);
     return v;
   }
+  // ERS deployment plan. The lap allowance (ersDeployPerLap) runs out part way
+  // round a power circuit if the MGU-K deploys on every throttle application,
+  // so it goes where a joule buys the most lap time. Extra power P at speed v
+  // gains Δv = P·dt/(m·v) for P·dt joules, and the gain lasts until the next
+  // braking point D metres on, fading with drag over L = m/(ρ·dragArea)
+  // metres: lap time saved per joule ∝ L·(1 − e^(−D/L)) / v³ (score). A
+  // forward pass (ICE + MGU-K power, rear traction, drag) over the speed plan
+  // gives each sample's speed, whether it is on the throttle (accelerating)
+  // and the energy deploying there costs; the MGU-K deploys where the score,
+  // rescaled by (plan speed / actual speed)³ (a car held up in traffic or
+  // slow out of a corner gains more), is at least a threshold set so the
+  // planned energy matches the lap target. Off the plan's throttle samples
+  // it holds back (a steady corner gains nothing from it), unless the target
+  // covers the whole plan (threshold 0: deploy on every throttle application).
+  // Each lap (detected by the per-lap count resetting) recalibrates: the
+  // ratio of energy actually deployed to the plan's estimate for the samples
+  // passed while deploying was possible, and a target of what the store
+  // recovered that lap plus half its charge above ersReserve of the capacity
+  // (at most the allowance), so the store neither runs flat nor sits full.
+  let ers = null;
+  function ersPlan(c) {
+    const g = 9.81, m = c.mass, base = plan ?? speedPlan(c), ds = lineStep;
+    const rpmOf = 60 / (2 * Math.PI), ice = c.drivelineEfficiency * Math.max(...c.torqueCurve.map(([r, q]) => q * r / rpmOf));
+    const accel = (v, power) => Math.min(c.tireMu * (g * (1 - c.frontWeight) + 0.5 * c.airDensity * c.downforceArea * (1 - c.frontAero) / m * v * v),
+      power / (m * Math.max(v, 1)) - 0.5 * c.airDensity * c.dragArea / m * v * v - c.rollingResistance * g);
+    const v = Float64Array.from(base), on = new Uint8Array(n);
+    for (let lap = 0; lap < 2; lap++) for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, reach = Math.sqrt(Math.max(0, v[i] * v[i] + 2 * accel(v[i], ice + c.ersPower) * ds[i]));
+      on[i] = reach <= base[j] + 1e-9 ? 1 : 0;
+      v[j] = Math.min(base[j], reach);
+    }
+    const L = m / (c.airDensity * c.dragArea), D = new Float64Array(n), score = new Float64Array(n).fill(-1), energy = new Float64Array(n);
+    for (let lap = 0; lap < 2; lap++) for (let i = n - 1; i >= 0; i--) { const j = (i + 1) % n; D[i] = v[j] < v[i] - 1e-6 ? 0 : D[j] + ds[i]; }
+    for (let i = 0; i < n; i++) if (on[i] && v[i] > c.ersMinSpeed) {
+      energy[i] = c.ersPower * ds[i] / v[i];
+      score[i] = L * (1 - Math.exp(-D[i] / L)) / v[i] ** 3;
+    }
+    // Samples by falling score with the planned energy deployed down to each.
+    const order = Array.from({ length: n }, (_, i) => i).filter(i => score[i] >= 0).sort((a, b) => score[b] - score[a]);
+    const cumulative = new Float64Array(order.length);
+    order.forEach((i, k) => { cumulative[k] = (k ? cumulative[k - 1] : 0) + energy[i]; });
+    const threshold = target => { const k = cumulative.findIndex(e => e >= target); return k < 0 ? 0 : score[order[k]]; };
+    return { speed: v, score, energy, total: cumulative.at(-1) ?? 0, threshold, ratio: 0.9, lambda: threshold(c.ersDeployPerLap), last: -1, passed: 0, prev: 0, lineCharge: null };
+  }
+  function ersCommand(car, s) {
+    const c = car.config, store = car.ers;
+    if (!store || !t.ersPlan) return undefined;
+    ers ??= ersPlan(c);
+    if (store.deployed < ers.prev - 1) {
+      // New lap: recalibrate on the one just finished.
+      if (ers.passed > 0.2 * c.ersDeployPerLap) ers.ratio = clamp(ers.prev / ers.passed, 0.5, 2);
+      const recovered = ers.lineCharge === null ? null : store.charge - ers.lineCharge + ers.prev;
+      const target = recovered === null ? c.ersDeployPerLap
+        : clamp(recovered + 0.5 * (store.charge - t.ersReserve * c.ersCapacity), 0, c.ersDeployPerLap);
+      ers.lambda = ers.threshold(target / ers.ratio);
+      ers.lineCharge = store.charge; ers.passed = 0;
+    }
+    ers.prev = store.deployed;
+    const i = index(s), deploying = ers.lambda <= 0 || (ers.score[i] >= 0 && ers.score[i] * (ers.speed[i] / Math.max(car.telemetry.speed, 1)) ** 3 >= ers.lambda);
+    // Plan energy of the samples passed while the MGU-K could still deploy.
+    if (i !== ers.last) {
+      const skipped = ers.last < 0 ? 0 : (i - ers.last + n) % n;
+      if (skipped > 0 && skipped < 50 && store.deployed < c.ersDeployPerLap - 1 && store.charge > 1)
+        for (let k = 1; k <= skipped; k++) { const j = (ers.last + k) % n; if (deploying) ers.passed += ers.energy[j]; }
+      ers.last = i;
+    }
+    return deploying;
+  }
   let turn = 0; // turning round after a spin: steer direction (±1), 0 = not
   // offset: metres to the right of the racing line; lane: the passing lane
   // the car is on or heading for (its path's plan also caps the speed);
@@ -106,8 +174,10 @@ export function createCircuitAutopilot(track, tuning = {}) {
       // just over the target in traffic) would snap the rear loose mid-corner.
       throttle: understeer ? 0 : Math.max(err > 0 ? clamp(err / 3, 0, 1) * traction : 0, err >= -1 && speed > t.coastSpeed ? t.coastThrottle : 0),
       brake: err < -1 ? clamp(-err / 8, 0, 1) : 0,
+      ers: ersCommand(car, s),
     };
   };
+  drive.ers = car => (ers ??= ersPlan(car.config));
   drive.plan = car => (plan ??= speedPlan(car.config));
   drive.planSpeed = (car, s) => (plan ??= speedPlan(car.config), at(s));
   drive.path = path;

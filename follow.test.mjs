@@ -56,7 +56,7 @@ test('a faster car closes up behind on Monza, gets DRS and passes, without conta
 
 test('a much faster car out-brakes a slower one down the inside at Interlagos, and the slower car yields, without contact', () => {
   const track = createCircuitTrack(CIRCUITS.interlagos);
-  const race = createRace(track, { player: { cornerSpeed: 42, brakeDecel: 26 }, grid: [{ ...DEFAULT_GRID[0], cornerSpeed: 44, brakeDecel: 26 }], laps: 5 });
+  const race = createRace(track, { player: { cornerSpeed: 42, brakeDecel: 26 }, grid: [{ ...DEFAULT_GRID[0], cornerSpeed: 45, brakeDecel: 26 }], laps: 5 });
   const [slow, fast] = race.entries;
   let contact = 0, overlaps = 0, yieldedOutside = false, was = false;
   while (!race.finish.done) {
