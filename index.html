@@ -6,11 +6,11 @@
 <title>AgentiLoop Racing · F1 Simulator</title>
 <link rel="icon" href="data:,">
 <style>
-:root{color-scheme:dark;font:14px system-ui,sans-serif;background:#080d14;color:#e9f0f6}*{box-sizing:border-box}body{margin:0}header{height:76px;padding:15px 26px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #273442;background:#101822}h1{font-size:19px;margin:0;letter-spacing:.12em}h1 span{color:#6fffc3}.subtitle{font-size:11px;letter-spacing:.12em;color:#91a4b6;margin-top:6px}button{background:#1b2937;color:#e9f0f6;border:1px solid #3a5065;border-radius:7px;padding:9px 13px;cursor:pointer}button:hover,button:focus-visible{border-color:#6fffc3;outline:2px solid #6fffc344}nav{display:flex;gap:8px}main{height:calc(100vh - 76px);display:grid;grid-template-columns:minmax(0,1fr) 290px}.scene{position:relative;overflow:hidden;background:#162923}canvas{display:block;width:100%;height:100%}.tag{position:absolute;top:20px;left:20px;background:#0b151be6;border:1px solid #435449;border-radius:6px;padding:10px 14px;color:#b0c1cb;font-size:11px;letter-spacing:.1em}.tag strong{color:#6fffc3}#status{position:absolute;bottom:22px;left:22px;background:#0b151be6;border-radius:6px;padding:12px 16px;font-size:13px}aside{background:#101822;border-left:1px solid #273442;padding:24px 20px;overflow:auto}.label{font-size:10px;color:#91a4b6;letter-spacing:.14em;text-transform:uppercase}.speed{font-variant-numeric:tabular-nums;font-size:76px;font-weight:650;line-height:1.2;letter-spacing:-4px}.unit{color:#91a4b6;font-size:12px}.section{padding:20px 0;border-bottom:1px solid #273442}.stats{display:grid;grid-template-columns:1fr 1fr;gap:19px 12px}.number{font-variant-numeric:tabular-nums;font-size:21px;margin-top:5px}.wheels{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:13px}.wheel{background:#182330;border-radius:6px;padding:10px;font-size:11px}.wheel span{float:right;color:#9fb5c5}.wheel meter{display:block;width:100%;height:12px;margin-top:6px;accent-color:#6fffc3}.note{font-size:11px;line-height:1.6;color:#91a4b6}kbd{font:11px monospace;background:#233242;border:1px solid #3b5062;border-radius:3px;padding:2px 5px}.controls{line-height:2.2;font-size:12px;color:#b8c8d5}#timing{position:absolute;top:20px;right:20px;background:#0b151be6;border:1px solid #435449;border-radius:6px;padding:10px 14px;text-align:right;font-variant-numeric:tabular-nums}#lap-time{font-size:26px;font-weight:650}#lap-delta{font-size:15px;min-height:18px}.sectors{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}.sector{background:#182330;border-radius:5px;padding:6px;font-size:12px;font-variant-numeric:tabular-nums;border-bottom:3px solid #3a5065}.sector.best{border-color:#c77dff}.sector.slower{border-color:#ffc86f}.invalid{color:#ff8e86}#standings{list-style:none;margin:10px 0 0;padding:0;font-size:12px;font-variant-numeric:tabular-nums}#standings li{display:grid;grid-template-columns:22px 12px 1fr auto;gap:6px;align-items:center;padding:4px 6px;border-radius:4px}#standings li.you{background:#1b2937;color:#6fffc3}#standings i{width:10px;height:10px;border-radius:2px;display:block}#standings b{font-weight:500;color:#91a4b6}#race-pos{font-size:13px;color:#6fffc3;letter-spacing:.08em}#pause-state{color:#ffc86f;margin-bottom:10px;min-height:16px}#lights{position:absolute;top:22px;left:50%;transform:translateX(-50%);display:flex;gap:10px;background:#05080ce6;border:1px solid #2a3540;border-radius:8px;padding:10px 14px}#lights[hidden]{display:none}#lights span{width:30px;height:30px;border-radius:50%;background:#2a1010;border:2px solid #1a0a0a}#pit-info{font-size:12px;color:#b8c8d5;margin-top:4px;min-height:15px}.tyre{display:inline-block;width:15px;height:15px;line-height:13px;border-radius:50%;border:2px solid;font:700 9px system-ui;text-align:center;margin-right:4px;vertical-align:-3px}#standings .tyre{margin:0 0 0 4px}#lights span.on{background:#ff2a1f;box-shadow:0 0 16px #ff2a1f}@media(max-width:760px){#timing{top:8px;right:8px;padding:6px 8px}#lap-time{font-size:17px}header{padding:12px;height:94px;align-items:flex-start}h1{font-size:15px}.subtitle{font-size:9px}nav{flex-wrap:wrap;justify-content:flex-end;max-width:180px}button{padding:6px 8px;font-size:11px}main{height:calc(100vh - 94px);grid-template-columns:minmax(0,1fr) 180px}aside{padding:15px 12px}.speed{font-size:54px}.stats{gap:12px 6px}.number{font-size:17px}.tag{left:8px;top:8px;font-size:9px;padding:8px}.wheels{gap:5px}.wheel{padding:6px}.controls{font-size:10px}}
+:root{color-scheme:dark;font:14px system-ui,sans-serif;background:#080d14;color:#e9f0f6}*{box-sizing:border-box}body{margin:0}header{height:76px;padding:15px 26px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #273442;background:#101822}h1{font-size:19px;margin:0;letter-spacing:.12em}h1 span{color:#6fffc3}.subtitle{font-size:11px;letter-spacing:.12em;color:#91a4b6;margin-top:6px}button{background:#1b2937;color:#e9f0f6;border:1px solid #3a5065;border-radius:7px;padding:9px 13px;cursor:pointer}select{background:#1b2937;color:#e9f0f6;border:1px solid #3a5065;border-radius:7px;padding:8px 10px;max-width:220px}button:disabled{opacity:.5;cursor:default}button:hover,button:focus-visible{border-color:#6fffc3;outline:2px solid #6fffc344}nav{display:flex;gap:8px}main{height:calc(100vh - 76px);display:grid;grid-template-columns:minmax(0,1fr) 290px}.scene{position:relative;overflow:hidden;background:#162923}canvas{display:block;width:100%;height:100%}.tag{position:absolute;top:20px;left:20px;background:#0b151be6;border:1px solid #435449;border-radius:6px;padding:10px 14px;color:#b0c1cb;font-size:11px;letter-spacing:.1em}.tag strong{color:#6fffc3}#status{position:absolute;bottom:22px;left:22px;background:#0b151be6;border-radius:6px;padding:12px 16px;font-size:13px}aside{background:#101822;border-left:1px solid #273442;padding:24px 20px;overflow:auto}.label{font-size:10px;color:#91a4b6;letter-spacing:.14em;text-transform:uppercase}.speed{font-variant-numeric:tabular-nums;font-size:76px;font-weight:650;line-height:1.2;letter-spacing:-4px}.unit{color:#91a4b6;font-size:12px}.section{padding:20px 0;border-bottom:1px solid #273442}.stats{display:grid;grid-template-columns:1fr 1fr;gap:19px 12px}.number{font-variant-numeric:tabular-nums;font-size:21px;margin-top:5px}.wheels{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:13px}.wheel{background:#182330;border-radius:6px;padding:10px;font-size:11px}.wheel span{float:right;color:#9fb5c5}.wheel meter{display:block;width:100%;height:12px;margin-top:6px;accent-color:#6fffc3}.note{font-size:11px;line-height:1.6;color:#91a4b6}kbd{font:11px monospace;background:#233242;border:1px solid #3b5062;border-radius:3px;padding:2px 5px}.controls{line-height:2.2;font-size:12px;color:#b8c8d5}#timing{position:absolute;top:20px;right:20px;background:#0b151be6;border:1px solid #435449;border-radius:6px;padding:10px 14px;text-align:right;font-variant-numeric:tabular-nums}#lap-time{font-size:26px;font-weight:650}#lap-delta{font-size:15px;min-height:18px}.sectors{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}.sector{background:#182330;border-radius:5px;padding:6px;font-size:12px;font-variant-numeric:tabular-nums;border-bottom:3px solid #3a5065}.sector.best{border-color:#c77dff}.sector.slower{border-color:#ffc86f}.invalid{color:#ff8e86}#standings{list-style:none;margin:10px 0 0;padding:0;font-size:12px;font-variant-numeric:tabular-nums}#standings li{display:grid;grid-template-columns:22px 12px 1fr auto;gap:6px;align-items:center;padding:4px 6px;border-radius:4px}#standings li.you{background:#1b2937;color:#6fffc3}#standings i{width:10px;height:10px;border-radius:2px;display:block}#standings b{font-weight:500;color:#91a4b6}#race-pos{font-size:13px;color:#6fffc3;letter-spacing:.08em}#pause-state{color:#ffc86f;margin-bottom:10px;min-height:16px}#lights{position:absolute;top:22px;left:50%;transform:translateX(-50%);display:flex;gap:10px;background:#05080ce6;border:1px solid #2a3540;border-radius:8px;padding:10px 14px}#lights[hidden]{display:none}#lights span{width:30px;height:30px;border-radius:50%;background:#2a1010;border:2px solid #1a0a0a}#pit-info{font-size:12px;color:#b8c8d5;margin-top:4px;min-height:15px}.tyre{display:inline-block;width:15px;height:15px;line-height:13px;border-radius:50%;border:2px solid;font:700 9px system-ui;text-align:center;margin-right:4px;vertical-align:-3px}#standings .tyre{margin:0 0 0 4px}#lights span.on{background:#ff2a1f;box-shadow:0 0 16px #ff2a1f}@media(max-width:760px){#timing{top:8px;right:8px;padding:6px 8px}#lap-time{font-size:17px}header{padding:12px;height:94px;align-items:flex-start}h1{font-size:15px}.subtitle{font-size:9px}nav{flex-wrap:wrap;justify-content:flex-end;max-width:180px}button{padding:6px 8px;font-size:11px}main{height:calc(100vh - 94px);grid-template-columns:minmax(0,1fr) 180px}aside{padding:15px 12px}.speed{font-size:54px}.stats{gap:12px 6px}.number{font-size:17px}.tag{left:8px;top:8px;font-size:9px;padding:8px}.wheels{gap:5px}.wheel{padding:6px}.controls{font-size:10px}}
 </style>
 </head>
 <body>
-<header><div><h1><span>AgentiLoop</span> RACING</h1><div class="subtitle">F1 DYNAMICS SIMULATOR · 240 Hz PHYSICS</div></div><nav aria-label="Simulation controls"><button id="autopilot" aria-pressed="true">Autopilot: on</button><button id="pause" aria-pressed="false">Pause</button><button id="cockpit" aria-pressed="false">Cockpit</button><button id="view" aria-pressed="false">Overview</button><button id="sound" aria-pressed="true">Sound: on</button><button id="field" aria-pressed="true">Opponents: on</button><button id="reset">Reset car</button></nav></header>
+<header><div><h1><span>AgentiLoop</span> RACING</h1><div class="subtitle">F1 DYNAMICS SIMULATOR · 240 Hz PHYSICS</div></div><nav aria-label="Simulation controls"><button id="autopilot" aria-pressed="true">Autopilot: on</button><button id="pause" aria-pressed="false">Pause</button><button id="cockpit" aria-pressed="false">Cockpit</button><button id="view" aria-pressed="false">Overview</button><button id="sound" aria-pressed="true">Sound: on</button><button id="field" aria-pressed="true">Opponents: on</button><button id="reset">Reset car</button><select id="track-select" aria-label="Circuit"></select></nav></header>
 <main><section class="scene" aria-label="Driving viewport"><canvas id="track" role="img" aria-label="3D view of an open-wheel race car on a stadium-shaped test circuit"></canvas><div class="tag"><strong>LIVE</strong> &nbsp; THREE.JS 3D · 240 Hz PHYSICS / SI UNITS</div><div id="timing" aria-label="Lap timing"><div id="race-pos" aria-label="Race position"></div><div class="label" id="lap-label">Out lap</div><div id="lap-time">–:––.–––</div><div id="lap-delta"></div><div id="pit-info" aria-label="Tyres and pit stop"></div></div><div id="lights" role="img" aria-label="Start lights" hidden><span></span><span></span><span></span><span></span><span></span></div><div id="status" role="status">Ready · W or ↑ to accelerate</div></section><aside aria-label="Vehicle telemetry">
 <div id="pause-state" role="status"></div><div class="label">Ground speed</div><div><span class="speed" id="speed">0</span> <span class="unit">km/h</span></div>
 <div class="section"><div class="stats"><div><div class="label">Last lap</div><div class="number" id="last-lap">–:––.–––</div></div><div><div class="label">Best lap</div><div class="number" id="best-lap">–:––.–––</div></div></div><div class="sectors" id="sectors"></div><p class="note">Sectors: purple = session best, yellow = slower. Track limits: a lap is deleted when all four tires are beyond the road edge.</p></div>
@@ -28,8 +28,11 @@ import { RoomEnvironment } from './vendor/RoomEnvironment.js';
 import { DEFAULT_CAR, TIRE_COMPOUNDS } from './physics.mjs';
 import { createRace, DEFAULT_GRID } from './race.mjs';
 import { buildF1Car } from './car3d.mjs';
-import { buildWorld } from './world3d.mjs';
+import { buildWorld, buildCircuitWorld } from './world3d.mjs';
 import { createStadiumTrack } from './track.mjs';
+import { createCircuitTrack } from './circuit.mjs';
+import { CIRCUITS } from './circuits.mjs';
+import { createTimeTrial } from './trial.mjs';
 import { createLapTimer, formatLapTime } from './laptimer.mjs';
 import { createDriverInput, readGamepad } from './input.mjs';
 import { createSoundModel, createAudioEngine } from './audio.mjs';
@@ -39,10 +42,13 @@ let sim, paused = false, overview = false, cockpit = false, previousTime = null,
 let width = 1, height = 1;
 const keys = new Set();
 const halfStraight = 220, radius = 90, roadWidth = 15;
-const track = createStadiumTrack({ halfStraight, radius, roadWidth });
+// ?track=<key> (circuits.mjs) drives a real circuit as a solo time trial;
+// without it, the stadium test track hosts the race against the AI field.
+const circuitKey = Object.hasOwn(CIRCUITS, new URLSearchParams(location.search).get('track')) ? new URLSearchParams(location.search).get('track') : null;
+const track = circuitKey ? createCircuitTrack(CIRCUITS[circuitKey]) : createStadiumTrack({ halfStraight, radius, roadWidth });
 const { surfaceAt, barrierAt } = track;
-const timer = createLapTimer(track);
-let autopilot = true, command = { throttle: 0, brake: 0, steer: 0 }, opponents = true;
+const timer = createLapTimer(track, circuitKey ? { lineProgress: 0 } : undefined);
+let autopilot = true, command = { throttle: 0, brake: 0, steer: 0 }, opponents = !circuitKey;
 const driver = createDriverInput();
 // Sound: the AudioContext is created on the first key press or click (autoplay policy).
 const soundModel = createSoundModel(DEFAULT_CAR);
@@ -71,7 +77,7 @@ function reset() {
   // Tyres: start compound ?tyre=soft|medium|hard (default medium); with opponents
   // the two-compound rule applies (races of 2+ laps).
   const query = new URLSearchParams(location.search), tyre = TIRE_COMPOUNDS[query.get('tyre')] ? query.get('tyre') : 'medium';
-  sim = createRace(track, { grid: opponents ? DEFAULT_GRID : [], start: opponents && !query.has('nostart'), laps: opponents ? Math.max(1, Math.round(Number(query.get('laps')) || 10)) : 0,
+  sim = circuitKey ? createTimeTrial(track, { tyre }) : createRace(track, { grid: opponents ? DEFAULT_GRID : [], start: opponents && !query.has('nostart'), laps: opponents ? Math.max(1, Math.round(Number(query.get('laps')) || 10)) : 0,
     compoundRule: opponents, player: { tyres: [tyre, tyre === 'hard' ? 'medium' : 'hard'] } }); timer.restart();
   rivals.forEach(r => { r.model.group.visible = opponents; r.wheelAngle.fill(0); });
   keys.clear(); driver.reset(); soundModel.reset(); previousTime = null; snapCamera = true;
@@ -99,6 +105,7 @@ $('view').onclick = changeView;
 $('autopilot').onclick = toggleAutopilot;
 $('sound').onclick = toggleSound;
 function toggleOpponents() {
+  if (circuitKey) return; // real circuits: time trial only (no AI field or pit lane yet)
   opponents = !opponents; reset();
   $('field').textContent = `Opponents: ${opponents ? 'on' : 'off'}`;
   $('field').setAttribute('aria-pressed', String(opponents));
@@ -154,7 +161,10 @@ sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 140 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target);
-scene.add(buildWorld({ halfStraight, radius, roadWidth, boxColors: [0x39e0ae, ...DEFAULT_GRID.map(g => g.color)] }));
+const world = circuitKey ? buildCircuitWorld(track) : buildWorld({ halfStraight, radius, roadWidth, boxColors: [0x39e0ae, ...DEFAULT_GRID.map(g => g.color)] });
+scene.add(world);
+// Real circuits span kilometres: see the far side of the layout from the overview.
+if (circuitKey) camera.far = 2 * world.userData.extent + 3000;
 const model = buildF1Car(DEFAULT_CAR);
 scene.add(model.group);
 const wheelAngle = [0, 0, 0, 0];
@@ -195,7 +205,9 @@ function placeScene(dt) {
   forward.set(Math.cos(c.heading), 0, -Math.sin(c.heading));
   model.driver.forEach(m => { m.visible = !(cockpit && !overview); });
   if (overview) {
-    camera.fov = 42; camera.near = 0.1; camera.position.set(0, 300, 420); camera.lookAt(0, 0, 0);
+    camera.fov = 42; camera.near = 0.1;
+    if (circuitKey) { const [x, y] = world.userData.center, e = world.userData.extent; camera.position.set(x, 1.6 * e, -y + 1.2 * e); camera.lookAt(x, 0, -y); }
+    else { camera.position.set(0, 300, 420); camera.lookAt(0, 0, 0); }
   } else if (cockpit) {
     // Driver's eye, carried by the sprung body. The head is thrown opposite to the
     // body-frame acceleration (illustrative neck compliance, ~80 ms lag, clamped).
@@ -300,7 +312,7 @@ function render(dt = 0) {
   const startNote = !start.enabled || start.sinceLightsOut > 4 ? null : start.phase === 'lights' ? (me.jumpStart ? `Jump start · +${me.penalty} s penalty` : 'Lights · hold the brake, go when they go out')
     : me.jumpStart ? `Jump start · +${me.penalty} s penalty` : me.reaction !== null ? `Lights out · reaction ${me.reaction.toFixed(3)} s` : 'Lights out · go!';
   const flagNote = !result ? null : result.dsq ? 'Chequered flag · disqualified: one compound all race (pit for a different one) · R to restart' : result.finished ? `Chequered flag · P${result.position} · ${formatLapTime(result.total)}${result.penalty ? ` incl. ${result.penalty} s penalty` : ''} · R to restart` : 'Chequered flag · complete this lap to finish';
-  $('status').textContent = paused ? 'Paused · Space or Resume to continue' : startNote ? startNote : flagNote ? flagNote : pitNote ? pitNote : impact ? `Wall impact · ${Math.round(impact.speed * 3.6)} km/h into the barrier · R to reset` : contact ? `Contact · ${Math.round(contact.speed * 3.6)} km/h closing speed` : !['asphalt', 'pit'].includes(surface) ? `On the ${surface} · reduced grip · R to reset` : autopilot ? 'Autopilot · P to take control' : c.telemetry.speed < 0.5 ? 'Ready · W or ↑ to accelerate' : `Test circuit · ${driver.source} input`;
+  $('status').textContent = paused ? 'Paused · Space or Resume to continue' : startNote ? startNote : flagNote ? flagNote : pitNote ? pitNote : impact ? `Wall impact · ${Math.round(impact.speed * 3.6)} km/h into the barrier · R to reset` : contact ? `Contact · ${Math.round(contact.speed * 3.6)} km/h closing speed` : !['asphalt', 'pit'].includes(surface) ? `On the ${surface} · reduced grip · R to reset` : autopilot ? 'Autopilot · P to take control' : c.telemetry.speed < 0.5 ? 'Ready · W or ↑ to accelerate' : `${circuitKey ? track.name : 'Test circuit'} · ${driver.source} input`;
   $('input-source').textContent = autopilot ? 'autopilot' : driver.source;
   $('in-throttle').value = command.throttle ?? 0; $('in-brake').value = command.brake ?? 0;
 }
@@ -325,10 +337,16 @@ function frame(now) {
   }
   previousTime = now; render(dt); requestAnimationFrame(frame);
 }
+// Circuit picker: reloads with ?track=<key> (stadium = no key), keeping other options.
+$('track-select').innerHTML = `<option value="">Stadium test track · race</option>${Object.entries(CIRCUITS).map(([k, c]) => `<option value="${k}">${c.name} · time trial</option>`).join('')}`;
+$('track-select').value = circuitKey ?? '';
+$('track-select').onchange = e => { const q = new URLSearchParams(location.search); if (e.target.value) q.set('track', e.target.value); else q.delete('track'); location.search = q.toString(); };
+if (circuitKey) { $('field').disabled = true; $('field').textContent = 'Opponents: stadium only'; $('race-section').hidden = true; }
 reset(); resize(); requestAnimationFrame(frame);
 // Read-only snapshots for browser smoke tests and telemetry tools.
 window.f1Lab = {
   snapshot: () => ({ car: structuredClone(sim.car), timing: structuredClone(timer.state), paused, overview, cockpit, keys: [...keys], command: { ...command }, inputSource: autopilot ? 'autopilot' : driver.source }),
+  track: () => ({ key: circuitKey, name: circuitKey ? track.name : 'Stadium test track', length: track.length, surface: track.surface(sim.car.x, sim.car.y), offset: track.offset(sim.car.x, sim.car.y), progress: track.progress(sim.car.x, sim.car.y) }),
   race: () => ({ opponents, finish: sim.finish, classification: sim.classification(), standings: opponents ? sim.standings() : [], cars: sim.entries.map(e => ({ name: e.name, x: e.car.x, y: e.car.y, speed: e.car.telemetry.speed, lane: e.lane, compound: e.car.compound, pit: e.pit?.phase ?? null, pitRequest: e.pitRequest, stops: structuredClone(e.stops), compounds: [...e.compounds], penalty: e.penalty, wake: e.car.wake.strength ?? 0, contact: e.car.contact ?? null, ...(m => ({ visible: m.group.visible, drawn: [m.group.position.x, -m.group.position.z] }))(e.player ? model : rivals[e.index - 1].model) })) }),
   start: () => (m => ({ ...sim.start, jumpStart: m.jumpStart, penalty: m.penalty, reaction: m.reaction, shown: !$('lights').hidden, litShown: $('lights').querySelectorAll('.on').length, status: $('status').textContent }))(sim.entries[0]),
   sound: () => ({ on: soundOn, state: audioCtx?.state ?? null, params: soundParams && { ...soundParams } }),

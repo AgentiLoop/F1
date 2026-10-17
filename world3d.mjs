@@ -250,6 +250,174 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
   return world;
 }
 
+// Scenery for a real circuit (circuit.mjs track): road, white edge lines,
+// kerbs only where the track flags them, runoff, walls and catch fence at
+// wallOffset (left out where another part of the circuit runs closer), a
+// start/finish line and light gantry at s = 0, a grandstand beside it,
+// hoardings, trees off the circuit and a hill ring sized to the layout.
+export function buildCircuitWorld(track) {
+  const world = new THREE.Group(), half = track.roadWidth / 2, wallAt = track.wallOffset;
+  const { x: X, y: Y, s: S, heading: H, kerb } = track.samples, n = X.length;
+  const pts = Array.from({ length: n + 1 }, (_, k) => { const i = k % n; return { x: X[i], y: Y[i], nx: -Math.sin(H[i]), ny: Math.cos(H[i]), s: k < n ? S[i] : track.length, i }; });
+  // Consecutive runs of samples meeting a predicate (each run shares its end point).
+  const runs = keep => { const out = []; let cur = null; for (const p of pts) { if (keep(p)) (cur ??= (out.push([]), out.at(-1))).push(p); else cur = null; } return out.filter(r => r.length > 1); };
+  const std = (o) => new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, ...o });
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < n; i++) { minX = Math.min(minX, X[i]); maxX = Math.max(maxX, X[i]); minY = Math.min(minY, Y[i]); maxY = Math.max(maxY, Y[i]); }
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, extent = Math.hypot(maxX - minX, maxY - minY) / 2;
+
+  const skyR = extent + 1500, sky = new THREE.SphereGeometry(skyR, 32, 16), col = [];
+  for (let i = 0; i < sky.attributes.position.count; i++) {
+    const t = Math.max(0, sky.attributes.position.getY(i) / skyR);
+    const c = new THREE.Color(0xdfe9f1).lerp(new THREE.Color(0x3d78b8), Math.pow(t, 0.6)); col.push(c.r, c.g, c.b);
+  }
+  sky.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const skyMesh = new THREE.Mesh(sky, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  skyMesh.position.set(cx, 0, -cy); world.add(skyMesh);
+  const size = 2 * extent + 1200;
+  const grass = texture(256, (g, s) => {
+    noise(g, s, '#3f6b2e', 0.25, 9000);
+    for (let i = 0; i < s; i += 64) { g.fillStyle = 'rgba(255,255,255,0.035)'; g.fillRect(0, i, s, 32); }
+  }, size / 8, size / 8);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -0.03, -cy); ground.receiveShadow = true; world.add(ground);
+
+  const asphalt = texture(512, (g, s) => noise(g, s, '#45494d', 0.35, 60000), 3, 1);
+  const kerbTex = texture(64, (g, s) => { g.fillStyle = '#d8dad6'; g.fillRect(0, 0, s, s); g.fillStyle = '#c3302b'; g.fillRect(0, 0, s, s / 2); });
+  const wallTex = texture(128, (g, s) => {
+    g.fillStyle = '#c9ccc8'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#13263a'; g.fillRect(0, 0, s, s * 0.55);
+    g.fillStyle = '#6fffc3'; g.fillRect(0, s * 0.55, s, s * 0.05);
+  });
+  const runoffTex = texture(256, (g, s) => noise(g, s, '#8b8170', 0.3, 20000), 4, 1);
+  const meshTex = texture(64, (g, s) => {
+    g.clearRect(0, 0, s, s); g.strokeStyle = '#b9c0c4'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(s, s); g.moveTo(s, 0); g.lineTo(0, s); g.stroke();
+  }, 20, 1);
+  const fenceMat = new THREE.MeshStandardMaterial({ map: meshTex, alphaTest: 0.4, side: THREE.DoubleSide, metalness: 0.6, roughness: 0.5 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x2b2f35, metalness: 0.7, roughness: 0.4 });
+  world.add(ribbon(pts, -half, half, 0, std({ map: asphalt, roughness: 0.92 }), 30));
+  const postSpots = [];
+  for (const side of [-1, 1]) {
+    world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
+    for (const r of runs(p => kerb[p.i])) world.add(ribbon(r, side * half, side * (half + 1.2), 0.012, std({ map: kerbTex, roughness: 0.7 }), 4));
+    world.add(ribbon(pts, side * (half + 1.2), side * (half + 8), 0.004, std({ map: runoffTex, roughness: 1 }), 20));
+    // Barrier where its line is still nearest this part of the circuit.
+    const clear = p => Math.abs(track.offset(p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt)) > wallAt - 1;
+    for (const r of runs(clear)) {
+      const w = ribbon(r, side * wallAt, 0, 0, std({ map: wallTex, roughness: 0.8 }), 6, 1.1); w.castShadow = true; world.add(w);
+      world.add(ribbon(r, side * wallAt, 0, 1.1, fenceMat, 0.16, 4.2));
+      r.forEach((p, k) => { if (k % 4 === 0) postSpots.push([p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt]); });
+    }
+  }
+  const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.06, 4.2, 6), steel, postSpots.length);
+  postSpots.forEach(([x, y], i) => posts.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, 2.1, -y)));
+  world.add(posts);
+
+  // Start/finish at s = 0 in a local frame: +x along the track, +z to the right.
+  const start = new THREE.Group(); start.position.set(X[0], 0, -Y[0]); start.rotation.y = H[0]; world.add(start);
+  const chequer = texture(128, (g, s) => { for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) { g.fillStyle = (i + j) % 2 ? '#111' : '#eee'; g.fillRect(i * s / 8, j * s / 8, s / 8, s / 8); } }, 1, track.roadWidth / 2);
+  const line = new THREE.Mesh(new THREE.PlaneGeometry(1.6, track.roadWidth), new THREE.MeshStandardMaterial({ map: chequer, roughness: 0.6 }));
+  line.rotation.x = -Math.PI / 2; line.position.set(0, 0.014, 0); line.receiveShadow = true; start.add(line);
+  for (const z of [-half - 2, half + 2]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7, 0.5), steel); post.position.set(-6, 3.5, z); post.castShadow = true; start.add(post);
+  }
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, track.roadWidth + 4.5), steel); beam.position.set(-6, 7, 0); beam.castShadow = true; start.add(beam);
+  for (let i = 0; i < 5; i++) {
+    const l = new THREE.Mesh(new THREE.CircleGeometry(0.25, 16), new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff2010, emissiveIntensity: 0.6 }));
+    l.rotation.y = -Math.PI / 2; l.position.set(-6.41, 7, -2 + i); start.add(l);
+  }
+  // Grandstand on whichever side of the straight before the line has room.
+  const crowd = texture(512, (g, s) => {
+    g.fillStyle = '#2a3440'; g.fillRect(0, 0, s, s);
+    const seat = s / 16;
+    for (let i = 0; i < 16; i++) {
+      const x = i * seat;
+      g.fillStyle = '#1d5f8c'; g.fillRect(x + 2, s * 0.55, seat - 4, s * 0.45);
+      if (Math.random() < 0.12) continue;
+      g.fillStyle = `hsl(${Math.random() * 360},${40 + Math.random() * 40}%,${30 + Math.random() * 40}%)`;
+      g.fillRect(x + seat * 0.18, s * 0.38, seat * 0.64, s * 0.62);
+      g.fillStyle = `hsl(${20 + Math.random() * 15},${30 + Math.random() * 30}%,${35 + Math.random() * 40}%)`;
+      g.beginPath(); g.arc(x + seat / 2, s * 0.26, seat * 0.26, 0, Math.PI * 2); g.fill();
+    }
+  }, 110 / 8, 1);
+  const concrete = new THREE.MeshStandardMaterial({ map: texture(128, (g, s) => noise(g, s, '#a7aaa6', 0.18, 3000), 4, 2), roughness: 0.95 });
+  const crowdMat = new THREE.MeshStandardMaterial({ map: crowd, roughness: 0.9 });
+  const stepMats = [concrete, concrete, crowdMat, concrete, concrete, crowdMat];
+  const room = side => [-120, -60, 0].every(d => { const [x, y] = track.point(d, side * (wallAt + 20)); return Math.abs(track.offset(x, y)) > wallAt + 10; });
+  const standSide = room(-1) ? -1 : room(1) ? 1 : 0;
+  if (standSide) {
+    const stand = new THREE.Group(); stand.position.copy(start.position); stand.rotation.y = H[0]; world.add(stand);
+    const z0 = wallAt + 6;
+    for (let r = 0; r < 8; r++) {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(110, 1.2, 2), stepMats); step.castShadow = step.receiveShadow = true;
+      step.position.set(-60, 0.6 + r * 1.2, standSide * (z0 + r * 2)); stand.add(step);
+    }
+    const back = new THREE.Mesh(new THREE.BoxGeometry(111.2, 14, 0.6), concrete); back.position.set(-60, 7, standSide * (z0 + 16)); back.castShadow = true; stand.add(back);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(114, 0.4, 20), std({ color: 0xe6e9ec, roughness: 0.5 })); roof.position.set(-60, 14.2, standSide * (z0 + 7)); roof.castShadow = true; stand.add(roof);
+    for (let i = 0; i < 7; i++) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.35, 14, 0.35), steel); c.position.set(-114.4 + i * 18.13, 7, standSide * (z0 - 1.6)); stand.add(c); }
+  }
+
+  // Hoardings every ~36 m both sides, facing the track.
+  const logo = (w, h) => { const t = texture(1, () => {}); const cv = t.image; cv.width = w; cv.height = h; drawLogo(cv.getContext('2d'), w, h, true); t.needsUpdate = true; return t; };
+  const logoMat = new THREE.MeshStandardMaterial({ map: logo(1024, 128), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.08 });
+  logoMat.emissiveMap = logoMat.map;
+  const boardBack = new THREE.MeshStandardMaterial({ color: 0x1a2430, roughness: 0.8 });
+  const boardSpots = [];
+  for (const side of [-1, 1]) pts.forEach((p, k) => {
+    if (k % 18 !== 9 || k === n) return;
+    const off = side * (half + 10.5);
+    if (Math.abs(track.offset(p.x + p.nx * off, p.y + p.ny * off)) > half + 10) boardSpots.push([p, off]);
+  });
+  const boards = new THREE.InstancedMesh(new THREE.BoxGeometry(8, 1, 0.12), [boardBack, boardBack, boardBack, boardBack, logoMat, boardBack], boardSpots.length);
+  const dummy = new THREE.Object3D();
+  boardSpots.forEach(([p, off], i) => {
+    dummy.position.set(p.x + p.nx * off, 0.75, -(p.y + p.ny * off));
+    dummy.lookAt(p.x, 0.75, -p.y); dummy.updateMatrix(); boards.setMatrixAt(i, dummy.matrix);
+  });
+  boards.castShadow = true; world.add(boards);
+
+  // Hill ring beyond the circuit.
+  const hillGeo = new THREE.BufferGeometry(), hp = [], hc = [], hi = [], A = 160, R = 7, r0 = extent + 450;
+  const forest = new THREE.Color(0x2c4a2a), meadow = new THREE.Color(0x5d7a3e);
+  for (let a = 0; a <= A; a++) for (let r = 0; r < R; r++) {
+    const th = a / A * Math.PI * 2, rr = r0 + r * 90;
+    const h = (45 + 30 * Math.sin(th * 3 + 1) + 20 * Math.sin(th * 7 + 2) + 10 * Math.sin(th * 17)) * Math.pow(r / (R - 1), 0.7);
+    hp.push(cx + Math.cos(th) * rr, h - 1, -cy + Math.sin(th) * rr);
+    const c = meadow.clone().lerp(forest, Math.min(1, r / 2 + 0.2 * Math.sin(th * 23))); hc.push(c.r, c.g, c.b);
+    if (a && r) { const k = a * R + r, j = k - R; hi.push(j - 1, k - 1, j, j, k - 1, k); }
+  }
+  hillGeo.setAttribute('position', new THREE.Float32BufferAttribute(hp, 3));
+  hillGeo.setAttribute('color', new THREE.Float32BufferAttribute(hc, 3));
+  hillGeo.setIndex(hi); hillGeo.computeVertexNormals();
+  world.add(new THREE.Mesh(hillGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
+
+  // Tree clusters anywhere at least 20 m clear of the road.
+  const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+  const spots = [];
+  for (let tries = 0; spots.length < 900 && tries < 600; tries++) {
+    const tx = cx + (rng() - 0.5) * (maxX - minX + 300), ty = cy + (rng() - 0.5) * (maxY - minY + 300), m = 3 + Math.floor(rng() * 9);
+    for (let i = 0; i < m; i++) {
+      const x = tx + (rng() - 0.5) * 40, y = ty + (rng() - 0.5) * 40;
+      if (Math.abs(track.offset(x, y)) > half + 20) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
+    }
+  }
+  const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+  world.add(...[treeGeometry('conifer'), treeGeometry('broadleaf')].map((geo, k) => {
+    const list = spots.filter(t => (t[4] < 0.45) === (k === 0));
+    const mesh = new THREE.InstancedMesh(geo, treeMat, list.length);
+    list.forEach(([x, y, sc, rot, v], i) => {
+      dummy.position.set(x, 0, -y); dummy.rotation.set(0, rot, 0); dummy.scale.set(sc, sc * (0.85 + v * 0.3), sc);
+      dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
+      const tint = 0.8 + rng() * 0.35; mesh.setColorAt(i, new THREE.Color(tint * (0.95 + rng() * 0.15), tint, tint * (0.85 + rng() * 0.15)));
+    });
+    mesh.castShadow = mesh.receiveShadow = true;
+    return mesh;
+  }));
+  world.userData = { center: [cx, cy], extent };
+  return world;
+}
+
 // "AgentiLoop Racing" wordmark with a two-ring loop mark; transparent background when bg is false.
 export function drawLogo(g, w, h, bg = true) {
   g.clearRect(0, 0, w, h);

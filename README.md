@@ -248,6 +248,62 @@ beyond the planned lap.
   1.2-1.4 kg left and no car-to-car contact. A 10-lap race carries only
   ~5 kg, so the effect grows with `?laps=N`.
 
+### Real circuits: time trial (`circuit.mjs`, `circuits.mjs`, `trial.mjs`, cycle 15)
+
+Pick a circuit from the menu in the header, or open `?track=<key>`. The keys
+are `monza`, `silverstone`, `spa`, `interlagos`, `red-bull-ring`,
+`hungaroring`, `catalunya`, `zandvoort`, `cota`, `monaco`, `bahrain`,
+`montreal`, `yas-marina`, `imola`, `mexico`, `jeddah`, `miami` and `shanghai`.
+A real circuit is a solo time trial. It has no AI field, start lights or pit
+lane yet; those stay on the stadium track. The car starts 150 m before the line
+and the lap timer starts when it crosses.
+
+* **Layouts:** traced centrelines from
+  [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT,
+  © 2019–2025 Tomislav Bacinger), converted to local metres. Each trace is
+  splined, smoothed and scaled to the official lap length. The first point is
+  used as the start/finish line. The source order is assumed to be the race
+  direction; this was not checked against official maps.
+  The traces are approximate. They have no elevation, no camber and no real
+  track width: every circuit is 13 m wide.
+* **Surfaces:** the same grip bands as the stadium track: asphalt, a 1.2 m
+  kerb, runoff to 8 m past the edge, then grass. Kerbs are only laid where the
+  line curves; on straights the road edge runs straight into runoff. Walls sit
+  18.5 m from the centreline. Where two parts of a circuit run closer than that,
+  the wall is the midline between them. Barrier and surface queries use a
+  25 m grid of centreline segments.
+* **Racing line:** a minimum-curvature line within ±4.9 m of the centreline,
+  solved by relaxation from coarse to fine. On every bundled circuit its ideal
+  speed plan is about 10–18% faster than the centreline's. It is the classic geometric
+  line. It does not trade curvature for longer braking or earlier throttle the
+  way a true minimum-time line does. In hairpins tighter than the traced
+  width, it can cut a tighter apex than the centreline.
+* **Autopilot (`createCircuitAutopilot`):** pure pursuit on the racing line.
+  Corner speed comes from v²|κ| = 0.74·μ·(g + q·v²), where q is the
+  downforce-to-mass term, so fast corners with downforce are taken flat. A
+  backward braking pass uses 0.62·μ·(g + q·v²) plus drag. The target is the
+  lowest planned speed over the next 0.3 s.
+* **Scenery (`buildCircuitWorld`):** road, edge lines, kerbs, runoff, walls
+  and fence (left out where the circuit doubles back on itself), a
+  start/finish gantry, a grandstand, hoardings, trees and hills sized to the
+  layout. The overview camera frames the whole circuit.
+
+**Measured** (autopilot, medium tyres, no fuel, second flying lap in Node):
+Monza 98.2 s, Silverstone 116.2 s, Spa 128.9 s, Interlagos 88.4 s, Red Bull
+Ring 83.3 s. Real dry pole laps are roughly 79 s, 86 s, 102 s, 70 s and 64 s
+(approximate, from recent seasons), so this car is about 24–35% slower. The gap comes from the uncalibrated car (about 575 kW and
+305 km/h top speed, about 2.8 g in fast corners at the autopilot's grip margin),
+the geometric racing line, and corners in the traces that are tighter than the
+real ones. Asking the autopilot for more grip (latGrip 0.82–0.9) made laps no
+faster and put the car off the road. No car calibration was changed this
+cycle.
+
+Not bundled: Suzuka (the figure-of-eight crossover breaks nearest-point
+progress); Baku (two parts of the trace lie 9.6 m apart, so the car takes a
+shortcut); Albert Park, Losail and Las Vegas (in a probe the autopilot left
+the road for 1.5–2.1 s over two laps); Marina Bay (its trace winds clockwise, which I
+could not reconcile with the race direction).
+
 ### Driver input (`input.mjs`, cycle 7)
 
 Keyboard keys are on/off, so they are rate-limited instead of stepping the
@@ -599,8 +655,11 @@ establish internal consistency, not real-car accuracy.
 4. Measured validation targets for acceleration, braking, steady-state cornering,
    and transient handling before making realism claims.
 5. Wheel/pedal calibration and
-   force feedback, damage, kerb geometry and bumps, real circuit geometry, race
+   force feedback, damage, kerb geometry and bumps, race
    rules (safety car, blue flags), undercut/overcut strategy and smarter AI racecraft.
+6. Real circuits: elevation, camber and surveyed track widths, a minimum-time
+   racing line, pit lanes and the AI field on real layouts, and car calibration
+   so lap times can be compared with real pole times.
 
 ## Repository / parity
 
