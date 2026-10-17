@@ -21,7 +21,22 @@ test('circuit brakeSpeed inverts the plan braking (a + b·v²) over a distance',
   assert.ok(drive.brakeSpeed(c, 30, 250) > Math.sqrt(30 ** 2 + 2 * 18 * 250));
 });
 
-test('a faster car closes up behind on Monza, gets DRS and finishes within a second, without contact', () => {
+test('a passing lane has its own speed plan: slower than the racing line where it is tighter, later braking when diving', () => {
+  const drive = createCircuitAutopilot(monza), car = createCar(), line = drive.plan(car);
+  for (const lane of [-3, 3]) {
+    const plan = drive.lanePlan(car, lane), late = drive.lanePlan(car, lane, true);
+    let slower = 0;
+    for (let i = 0; i < line.length; i++) {
+      // Smoothed path: no corner of the lane is slower than half the line's.
+      assert.ok(plan[i] > 0.5 * line[i], `lane ${lane} sample ${i}: ${plan[i].toFixed(1)} vs line ${line[i].toFixed(1)}`);
+      assert.ok(late[i] >= plan[i] - 1e-9);
+      if (plan[i] < 0.95 * line[i]) slower++;
+    }
+    assert.ok(slower > 50, `lane ${lane}: ${slower} samples slower than the line`);
+  }
+});
+
+test('a faster car closes up behind on Monza, gets DRS and passes, without contact', () => {
   const race = createRace(monza, { grid: [DEFAULT_GRID[0]], laps: 4 });
   const follower = race.entries[1], gaps = [];
   let drs = 0, contact = 0;
@@ -29,11 +44,33 @@ test('a faster car closes up behind on Monza, gets DRS and finishes within a sec
     race.advance(1 / 60, null, monza.surfaceAt, monza.barrierAt);
     if (follower.car.drs > 0.5) drs += 1 / 60;
     if (follower.car.contact) contact = Math.max(contact, follower.car.contact.speed);
-    if (follower.drsGap !== null && follower.drsGap !== gaps.at(-1)) gaps.push(follower.drsGap);
+    // Detection gaps to the car ahead (once in front there is none to time).
+    if (follower.drsGap !== null && follower.drsGap !== gaps.at(-1) && follower.drsGap < 5) gaps.push(follower.drsGap);
   }
-  const [row] = race.classification().filter(r => r.index === 1);
+  const [first] = race.classification();
   assert.ok(gaps.at(-1) < gaps[0] - 0.4, `detection gaps ${gaps.map(g => g.toFixed(2)).join(' ')}`);
   assert.ok(drs > 10, `DRS open ${drs.toFixed(1)} s`);
-  assert.ok(row.gap < 1, `finish gap ${row.gap.toFixed(2)} s`);
+  assert.equal(first.index, 1, 'the faster car wins');
+  assert.equal(contact, 0);
+});
+
+test('a much faster car out-brakes a slower one down the inside at Interlagos, and the slower car yields, without contact', () => {
+  const track = createCircuitTrack(CIRCUITS.interlagos);
+  const race = createRace(track, { player: { cornerSpeed: 42, brakeDecel: 26 }, grid: [{ ...DEFAULT_GRID[0], cornerSpeed: 44, brakeDecel: 26 }], laps: 5 });
+  const [slow, fast] = race.entries;
+  let contact = 0, overlaps = 0, yieldedOutside = false, was = false;
+  while (!race.finish.done) {
+    race.advance(1 / 60, null, track.surfaceAt, track.barrierAt);
+    for (const e of race.entries) if (e.car.contact) contact = Math.max(contact, e.car.contact.speed);
+    const alongside = !!fast.dive?.overlap;
+    if (alongside && !was) overlaps++;
+    // The car dived on moves to the lane on the other side to leave room.
+    if (alongside && slow.lane === -Math.sign(fast.lane) * race.options.passLane) yieldedOutside = true;
+    was = alongside;
+  }
+  const [first] = race.classification();
+  assert.equal(first.index, 1, 'the faster car wins');
+  assert.ok(overlaps >= 1, 'it gets alongside on the inside under braking');
+  assert.ok(yieldedOutside, 'the slower car leaves room');
   assert.equal(contact, 0);
 });

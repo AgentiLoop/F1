@@ -13,35 +13,64 @@ import { clamp } from './physics.mjs';
 // A per-call offset from the line (traffic) is kept edgeMargin metres inside
 // the road edge.
 export function createCircuitAutopilot(track, tuning = {}) {
-  const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100, edgeMargin: 2, recoverySpeed: 8, coastThrottle: 0.15, coastSpeed: 15,
+  const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100, edgeMargin: 2, laneSmoothing: 100, lateBrake: 1.2, recoverySpeed: 8, coastThrottle: 0.15, coastSpeed: 15,
     slipTarget: 0.1, slipBand: 0.15, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ...tuning };
   const { lineCurvature: curvature, lineStep } = track.samples, n = curvature.length, step = track.length / n;
   let plan = null;
   // Deceleration (m/s²) the plan brakes at from speed v: brakeGrip of the tire
   // limit with downforce, plus drag (a + b·v²).
   const brakeDecel = (c, v) => t.brakeGrip * c.tireMu * (9.81 + 0.5 * c.airDensity * c.downforceArea / c.mass * v * v) + 0.5 * c.airDensity * c.dragArea / c.mass * v * v;
-  function speedPlan(c) {
+  function speedPlan(c, k0 = curvature, ds = lineStep, late = 1) {
     const g = 9.81, mu = c.tireMu, q = 0.5 * c.airDensity * c.downforceArea / c.mass;
     const w = Math.round(t.curvatureWindow / step), v = new Float64Array(n);
     for (let i = 0; i < n; i++) {
-      let k = 0; for (let j = -w; j <= w; j++) k = Math.max(k, Math.abs(curvature[(i + j + n) % n]));
+      let k = 0; for (let j = -w; j <= w; j++) k = Math.max(k, Math.abs(k0[(i + j + n) % n]));
       const den = k - t.latGrip * mu * q;
       v[i] = den > 0 ? Math.min(t.maxSpeed, Math.sqrt(t.latGrip * mu * g / den)) : t.maxSpeed;
     }
     for (let lap = 0; lap < 2; lap++) for (let i = n - 1; i >= 0; i--) {
       const next = v[(i + 1) % n];
-      v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * brakeDecel(c, next) * lineStep[i]));
+      v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * late * brakeDecel(c, next) * ds[i]));
     }
     return v;
   }
-  const at = s => plan[Math.floor((((s % track.length) + track.length) % track.length) / step) % n];
+  const index = s => Math.floor((((s % track.length) + track.length) % track.length) / step) % n;
+  const at = s => plan[index(s)];
   const edge = track.roadWidth / 2 - t.edgeMargin;
   // Centreline offset of the path `offset` metres right of the line at s.
   const path = (s, offset) => offset ? clamp(track.lineOffset(s) + offset, -edge, edge) : track.lineOffset(s);
+  // Speed plan of the parallel path `lane` metres right of the line (a
+  // passing lane): its own curvature and arc lengths, so a tighter inside
+  // line brakes earlier and corners slower than the racing line (cached).
+  // late: a car diving down the inside brakes lateBrake times harder (later).
+  const lanePlans = new Map();
+  function lanePlan(c, lane, late = false) {
+    const key = `${lane}:${late}`;
+    if (lanePlans.has(key)) return lanePlans.get(key);
+    const { x: xs, y: ys, heading: hs, line } = track.samples, px = new Float64Array(n), py = new Float64Array(n);
+    // The clamp at the road edge leaves kinks the car never drives (pure
+    // pursuit rounds them off), so the offsets are smoothed first.
+    let off = Float64Array.from(line, o => clamp(o + lane, -edge, edge));
+    for (let pass = 0; pass < t.laneSmoothing; pass++) off = off.map((o, i) => 0.5 * o + 0.25 * (off[(i - 1 + n) % n] + off[(i + 1) % n]));
+    for (let i = 0; i < n; i++) { px[i] = xs[i] + Math.sin(hs[i]) * off[i]; py[i] = ys[i] - Math.cos(hs[i]) * off[i]; }
+    const ds = new Float64Array(n), k = new Float64Array(n);
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n; ds[i] = Math.hypot(px[j] - px[i], py[j] - py[i]); }
+    for (let i = 0; i < n; i++) {
+      const a = (i - 1 + n) % n, b = (i + 1) % n;
+      const h0 = Math.atan2(py[i] - py[a], px[i] - px[a]), h1 = Math.atan2(py[b] - py[i], px[b] - px[i]);
+      k[i] = Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0)) / Math.max(1e-6, (ds[a] + ds[i]) / 2);
+    }
+    const v = speedPlan(c, k, ds, late ? t.lateBrake : 1);
+    lanePlans.set(key, v);
+    return v;
+  }
   let turn = 0; // turning round after a spin: steer direction (±1), 0 = not
-  // offset: metres to the right of the racing line.
-  const drive = function drive(car, { offset = 0, maxSpeed = Infinity, grip = 1 } = {}) {
+  // offset: metres to the right of the racing line; lane: the passing lane
+  // the car is on or heading for (its path's plan also caps the speed);
+  // late: diving down the inside on that lane, its plan alone (braking later).
+  const drive = function drive(car, { offset = 0, lane = 0, late = false, maxSpeed = Infinity, grip = 1 } = {}) {
     plan ??= speedPlan(car.config);
+    const lp = lane ? lanePlan(car.config, lane, late) : plan, atLane = late && lane ? s => lp[index(s)] : s => Math.min(at(s), lp[index(s)]);
     const c = car.config, speed = car.telemetry.speed, s = track.progress(car.x, car.y);
     const ld = Math.max(t.minLookahead, speed * t.lookahead);
     const [px, py] = track.point(s + ld, path(s + ld, offset));
@@ -59,8 +88,8 @@ export function createCircuitAutopilot(track, tuning = {}) {
       + t.crossTrackGain * drift * Math.min(1, (t.crossTrackSpeed / Math.max(speed, 1)) ** 2)
       + (speed > 5 ? t.yawGain * c.wheelbase * (2 * Math.sin(alpha) / ld - car.yawRate / speed) : 0);
     // Target: the plan's lowest speed over the next `preview` seconds of travel.
-    let target = at(s);
-    for (let d = step; d <= speed * t.preview; d += step) target = Math.min(target, at(s + d));
+    let target = atLane(s);
+    for (let d = step; d <= speed * t.preview; d += step) target = Math.min(target, atLane(s + d));
     target = Math.min(maxSpeed, turning ? t.recoverySpeed : Infinity, target * Math.sqrt(grip));
     const err = target - speed;
     const wheels = car.telemetry.wheels, rearSlip = wheels.length ? Math.max(wheels[2].slipRatio ?? 0, wheels[3].slipRatio ?? 0) : 0;
@@ -82,6 +111,7 @@ export function createCircuitAutopilot(track, tuning = {}) {
   drive.plan = car => (plan ??= speedPlan(car.config));
   drive.planSpeed = (car, s) => (plan ??= speedPlan(car.config), at(s));
   drive.path = path;
+  drive.lanePlan = (car, lane, late) => lanePlan(car.config, lane, late);
   drive.brakeDecel = brakeDecel;
   // Highest speed from which that braking slows to v within d metres:
   // decel a + b·u² integrates to v0² = ((a + b·v²)·e^(2bd) − a) / b.
