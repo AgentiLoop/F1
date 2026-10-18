@@ -117,7 +117,7 @@ export const LIVERY_SLOTS = [
   ...sides({ role: 2, c: [0.62, 0.3, 2.42], n: v(1, 0, 0), w: 0.4, h: 0.16 }), // front wing endplates (the right one's decal area is cut short)
   ...sides({ role: 3, on: 'decals', c: [0.39, 0.16, 2.61], n: v(0, 1, 0), w: 0.55, h: 0.14 }), // front wing
   ...sides({ role: 3, c: [0.57, 0.8, -2.1], n: v(1, 0, 0), w: 0.4, h: 0.2 }), // rear wing endplates
-  { role: 'number', c: [0, 0.425, 2.38], n: v(0, 0.93, 0.36), w: 0.26, h: 0.24 }, // nose tip
+  { role: 'number', c: [0, 0.425, 2.38], n: v(0, 0.93, 0.36), b: v(1, 0, 0), w: 0.26, h: 0.24 }, // nose tip, upright seen from the front
   ...sides({ role: 'github', c: [0.54, 0.555, -0.35], n: v(1, 0.35, -0.3), w: 0.9, h: 0.07 }), // above the title
 ];
 // The halo's front cross bar, facing the driver: one label in the middle and the same one on
