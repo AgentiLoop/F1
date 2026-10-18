@@ -119,29 +119,39 @@ export const LIVERY_SLOTS = [
 ];
 // The halo's front cross bar, facing the driver: one label in the middle and the same one on
 // either side. Its UVs are mirrored and ~1 cm per texel, too coarse for text, so these are
-// decal meshes (the bar's own triangles lifted 2 mm) with their own texture.
+// decal meshes (the bar's own triangles lifted 2 mm) with their own texture. The bar curves
+// every way, so the labels are laid out as the driver sees it, flat in the cockpit camera's
+// image plane (x right, y up, as tangents of the view angle): there the middle of the bar's
+// visible band is level (y ~0.32) all the way across.
+const HALO_EYE = new THREE.Vector3(0, 0.77, 0.167), HALO_PITCH = 4 * Math.PI / 180; // cockpit camera, model space
 export const HALO_SLOTS = [
-  { role: 0, c: [0, 0.876, 0.583], n: v(0, -0.6, -0.8), w: 0.13, h: 0.032, depth: 0.03 },
-  ...sides({ role: 1, c: [-0.162, 0.868, 0.545], n: v(0.45, -0.6, -0.65), w: 0.1, h: 0.03, depth: 0.03 }),
+  { role: 0, x: 0, y: 0.32, w: 0.5, h: 0.075 },
+  { role: 1, x: -0.62, y: 0.32, w: 0.34, h: 0.07 },
+  { role: 1, x: 0.62, y: 0.32, w: 0.34, h: 0.07 },
 ];
 const HALO = new WeakMap(); // template -> one decal geometry per HALO_SLOTS entry
 
-// The paint triangles under each slot (any corner inside it, facing n), lifted off the
-// surface, with UVs across the slot's label (0..1; the label canvas is transparent outside).
+// The paint triangles of the bar facing the eye under each slot, lifted off the surface,
+// with UVs across the slot's label (0..1; the label canvas is transparent outside).
 function haloGeometries(template, slots = HALO_SLOTS) {
   let mesh; template.traverse(o => { if (o.isMesh && o.material.name.startsWith(LAYERS.paint)) mesh = o; });
   const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry, P = g.attributes.position, N = g.attributes.normal;
-  const p = new THREE.Vector3(), q = new THREE.Vector3(), nrm = new THREE.Vector3();
+  const F = new THREE.Vector3(0, -Math.sin(HALO_PITCH), Math.cos(HALO_PITCH)), U = new THREE.Vector3(0, Math.cos(HALO_PITCH), Math.sin(HALO_PITCH));
+  const p = new THREE.Vector3(), d = new THREE.Vector3(), nrm = new THREE.Vector3();
   return slots.map(s => {
-    const f = frameOf(s), pos = [], uv = [];
-    const inside = v => { q.subVectors(v, f.c); return Math.abs(q.dot(f.b)) < f.w && Math.abs(q.dot(f.u)) < f.h && Math.abs(q.dot(f.n)) < f.depth; };
+    const pos = [], uv = [];
     for (let i = 0; i < P.count; i += 3) {
-      nrm.set(0, 0, 0); let hit = false;
-      for (let k = 0; k < 3; k++) { nrm.add(q.fromBufferAttribute(N, i + k)); hit ||= inside(p.fromBufferAttribute(P, i + k)); }
-      if (!hit || nrm.normalize().dot(f.n) < 0.3) continue;
+      nrm.set(0, 0, 0); const st = [];
+      for (let k = 0; k < 3; k++) {
+        p.fromBufferAttribute(P, i + k); nrm.add(d.fromBufferAttribute(N, i + k));
+        d.subVectors(p, HALO_EYE);
+        if (p.y < 0.75 || p.z < 0.3 || p.z > 0.75 || d.dot(F) <= 0) break;
+        st.push([(-d.x / d.dot(F) - s.x) / s.w + 0.5, (d.dot(U) / d.dot(F) - s.y) / s.h + 0.5]);
+      }
+      if (st.length < 3 || nrm.dot(d) >= 0 || !st.some(([u, v]) => u > 0 && u < 1 && v > 0 && v < 1)) continue;
       for (let k = 0; k < 3; k++) {
         p.fromBufferAttribute(P, i + k).addScaledVector(nrm.fromBufferAttribute(N, i + k), 0.002); pos.push(p.x, p.y, p.z);
-        p.sub(f.c); uv.push(p.dot(f.b) / s.w + 0.5, p.dot(f.u) / s.h + 0.5);
+        uv.push(...st[k]);
       }
     }
     const out = new THREE.BufferGeometry();
@@ -304,7 +314,7 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
     if (!HALO.has(template)) HALO.set(template, haloGeometries(template));
     const names = SPONSORS.map((_, k) => SPONSORS[(k + index) % SPONSORS.length]);
     HALO.get(template).forEach((geometry, k) => {
-      const slot = HALO_SLOTS[k], map = new THREE.CanvasTexture(drawLabel(slot, names[slot.role], slot.role === 0 ? accent : inkFor(paint), 6000));
+      const slot = HALO_SLOTS[k], map = new THREE.CanvasTexture(drawLabel(slot, names[slot.role], slot.role === 0 ? accent : inkFor(paint), 2400));
       Object.assign(map, { colorSpace: THREE.SRGBColorSpace, anisotropy: 8 });
       const decal = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ map, transparent: true, depthWrite: false, roughness: 0.35, polygonOffset: true, polygonOffsetFactor: -4 }));
       decal.name = 'halo-label'; root.add(decal);
