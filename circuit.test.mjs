@@ -156,7 +156,8 @@ test('an offset from the racing line is kept edgeMargin inside the road edge; no
 
 test('the circuit autopilot turns a spun car round instead of driving the wrong way', () => {
   const track = createCircuitTrack(CIRCUITS.monza), drive = createCircuitAutopilot(track), sim = new Simulation(createCar());
-  const s0 = 300; [sim.car.x, sim.car.y] = track.point(s0, track.lineOffset(s0)); sim.car.heading = track.heading(s0) + Math.PI;
+  // 3 m left of the centreline: the full-lock turn round takes ~19 m across, so from mid-road it reaches the wall
+  const s0 = 300; [sim.car.x, sim.car.y] = track.point(s0, -3); sim.car.heading = track.heading(s0) + Math.PI;
   for (let i = 0; i < 12 / FIXED_DT; i++) sim.advance(FIXED_DT, drive(sim.car), track.surfaceAt, track.barrierAt);
   const s = track.progress(sim.car.x, sim.car.y), d = sim.car.heading - track.heading(s);
   assert.ok(Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) < 0.2, `heading error ${Math.atan2(Math.sin(d), Math.cos(d)).toFixed(2)} rad`);
