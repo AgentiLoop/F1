@@ -403,6 +403,11 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     if (Math.abs(track.offset(p.x + p.nx * off, p.y + p.ny * off)) > half + 10) boardSpots.push([p, off]);
   });
   const boards = new THREE.InstancedMesh(new THREE.BoxGeometry(8, 1, 0.12), [boardBack, boardBack, boardBack, boardBack, logoMat, boardBack], boardSpots.length);
+  // AgentiLoop Racing panels on both faces of the start-light gantry, as on the stadium track.
+  for (const side of [-1, 1]) {
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(track.roadWidth + 4.5, (track.roadWidth + 4.5) / 8), logoMat);
+    panel.rotation.y = -side * Math.PI / 2; panel.position.set(-6 + side * 0.42, 8.6, 0); start.add(panel);
+  }
   const dummy = new THREE.Object3D();
   boardSpots.forEach(([p, off], i) => {
     dummy.position.set(p.x + p.nx * off, 0.75, -(p.y + p.ny * off));
