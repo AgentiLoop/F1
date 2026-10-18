@@ -108,15 +108,48 @@ const v = (x, y, z) => new THREE.Vector3(x, y, z).normalize();
 const mirror = s => ({ ...s, c: [-s.c[0], s.c[1], s.c[2]], n: new THREE.Vector3(-s.n.x, s.n.y, s.n.z) });
 const sides = s => [s, mirror(s)];
 export const LIVERY_SLOTS = [
-  ...sides({ role: 0, c: [0.30, 0.53, -1.03], n: v(0.85, 0.47, -0.23), w: 0.72, h: 0.17 }), // engine cover
+  ...sides({ role: 0, c: [0.575, 0.41, -0.35], n: v(1, 0, -0.3), w: 1.0, h: 0.2 }), // sidepod
   ...sides({ role: 0, c: [0.062, 0.86, -1.0], n: v(0, 1, 0), b: v(0, 0, 1), w: 0.75, h: 0.09 }), // engine cover spine, either side of the fin
   { role: 1, on: 'decals', c: [0, 0.86, -2.21], n: v(0, 0.94, 0.33), w: 0.9, h: 0.16 }, // rear wing
-  ...sides({ role: 2, on: 'decals', c: [0.62, 0.3, 2.4], n: v(1, 0, 0), w: 0.34, h: 0.14 }), // front wing endplates
+  ...sides({ role: 2, c: [0.62, 0.3, 2.42], n: v(1, 0, 0), w: 0.4, h: 0.16 }), // front wing endplates (the right one's decal area is cut short)
   ...sides({ role: 3, on: 'decals', c: [0.39, 0.16, 2.61], n: v(0, 1, 0), w: 0.55, h: 0.14 }), // front wing
   ...sides({ role: 3, c: [0.57, 0.8, -2.1], n: v(1, 0, 0), w: 0.4, h: 0.2 }), // rear wing endplates
-  { role: 'number', c: [0, 0.42, 2.4], n: v(0, 0.93, 0.36), w: 0.24, h: 0.2 }, // nose tip
-  ...sides({ role: 'github', c: [0.255, 0.645, -1.0], n: v(0.85, 0.47, -0.23), w: 0.72, h: 0.06 }), // above the title
+  { role: 'number', c: [0, 0.425, 2.38], n: v(0, 0.93, 0.36), w: 0.26, h: 0.24 }, // nose tip
+  ...sides({ role: 'github', c: [0.54, 0.555, -0.35], n: v(1, 0.35, -0.3), w: 0.9, h: 0.07 }), // above the title
 ];
+// The halo's front cross bar, facing the driver: one label in the middle and the same one on
+// either side. Its UVs are mirrored and ~1 cm per texel, too coarse for text, so these are
+// decal meshes (the bar's own triangles lifted 2 mm) with their own texture.
+export const HALO_SLOTS = [
+  { role: 0, c: [0, 0.876, 0.583], n: v(0, -0.6, -0.8), w: 0.13, h: 0.032, depth: 0.03 },
+  ...sides({ role: 1, c: [-0.162, 0.868, 0.545], n: v(0.45, -0.6, -0.65), w: 0.1, h: 0.03, depth: 0.03 }),
+];
+const HALO = new WeakMap(); // template -> one decal geometry per HALO_SLOTS entry
+
+// The paint triangles under each slot (any corner inside it, facing n), lifted off the
+// surface, with UVs across the slot's label (0..1; the label canvas is transparent outside).
+function haloGeometries(template, slots = HALO_SLOTS) {
+  let mesh; template.traverse(o => { if (o.isMesh && o.material.name.startsWith(LAYERS.paint)) mesh = o; });
+  const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry, P = g.attributes.position, N = g.attributes.normal;
+  const p = new THREE.Vector3(), q = new THREE.Vector3(), nrm = new THREE.Vector3();
+  return slots.map(s => {
+    const f = frameOf(s), pos = [], uv = [];
+    const inside = v => { q.subVectors(v, f.c); return Math.abs(q.dot(f.b)) < f.w && Math.abs(q.dot(f.u)) < f.h && Math.abs(q.dot(f.n)) < f.depth; };
+    for (let i = 0; i < P.count; i += 3) {
+      nrm.set(0, 0, 0); let hit = false;
+      for (let k = 0; k < 3; k++) { nrm.add(q.fromBufferAttribute(N, i + k)); hit ||= inside(p.fromBufferAttribute(P, i + k)); }
+      if (!hit || nrm.normalize().dot(f.n) < 0.3) continue;
+      for (let k = 0; k < 3; k++) {
+        p.fromBufferAttribute(P, i + k).addScaledVector(nrm.fromBufferAttribute(N, i + k), 0.002); pos.push(p.x, p.y, p.z);
+        p.sub(f.c); uv.push(p.dot(f.b) / s.w + 0.5, p.dot(f.u) / s.h + 0.5);
+      }
+    }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    out.computeVertexNormals();
+    return out;
+  });
+}
 const PAINT_SIZE = 1024;
 const TEXELS = new WeakMap(); // template -> liveryTexels, worked out once
 
@@ -135,11 +168,14 @@ export function liveryTexels(template, slots = LIVERY_SLOTS, size = PAINT_SIZE) 
   return out;
 }
 
+// A slot's frame: centre c, facing n, reading direction b, up u, half sizes w and h.
+function frameOf(s) {
+  const n = s.n, b = (s.b ?? new THREE.Vector3(0, Math.abs(n.y) > 0.7 ? 0 : 1, Math.abs(n.y) > 0.7 ? 1 : 0).cross(n)).clone().normalize();
+  return { c: new THREE.Vector3(...s.c), n, b, u: n.clone().cross(b), w: s.w / 2, h: s.h / 2, depth: s.depth ?? 0.12 };
+}
+
 function rasterSlots(mesh, slots, size) {
-  const frames = slots.map(s => {
-    const n = s.n, b = (s.b ?? new THREE.Vector3(0, Math.abs(n.y) > 0.7 ? 0 : 1, Math.abs(n.y) > 0.7 ? 1 : 0).cross(n)).clone().normalize();
-    return { c: new THREE.Vector3(...s.c), n, b, u: n.clone().cross(b), w: s.w / 2, h: s.h / 2, depth: s.depth ?? 0.12 };
-  });
+  const frames = slots.map(frameOf);
   const first = new Float32Array(size * size * 3), seen = new Uint8Array(size * size), shared = new Uint8Array(size * size);
   const hits = frames.map(() => []);
   const g = mesh.geometry, P = g.attributes.position, N = g.attributes.normal, UV = g.attributes.uv, I = g.index;
@@ -177,6 +213,18 @@ const css = c => `#${new THREE.Color(c).getHexString()}`;
 // Light text on dark paint and dark on light.
 const inkFor = paint => { const c = new THREE.Color(paint); return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b > 0.45 ? 0x111418 : 0xf4f4f4; };
 
+// A slot's label drawn at PX pixels per metre, on a transparent canvas.
+function drawLabel(slot, text, color, PX) {
+  const lw = Math.ceil(slot.w * PX), lh = Math.ceil(slot.h * PX), label = document.createElement('canvas');
+  label.width = lw; label.height = lh;
+  const l = label.getContext('2d'), font = px => `${slot.role === 'github' ? 600 : 800} ${px}px "Helvetica Neue", Arial, sans-serif`;
+  let px = lh * 0.8; l.font = font(px);
+  px = Math.min(px, px * lw * 0.94 / l.measureText(text).width); l.font = font(px);
+  l.fillStyle = css(color);
+  l.textAlign = 'center'; l.textBaseline = 'middle'; l.fillText(text, lw / 2, lh / 2);
+  return label;
+}
+
 // One car's paint and decal textures (browser only): the paint refilled in the car's colour,
 // the decals cleared, and each slot's label baked into its layer.
 export function liveryTextures(texels, { paint, accent, index = 0 }, slots = LIVERY_SLOTS, size = PAINT_SIZE) {
@@ -191,14 +239,9 @@ export function liveryTextures(texels, { paint, accent, index = 0 }, slots = LIV
   slots.forEach((slot, k) => {
     const layer = slot.on ?? 'paint', out = layers[layer].image.data;
     const text = slot.role === 'github' ? GITHUB : slot.role === 'number' ? String(index + 1) : names[slot.role];
-    const lw = Math.ceil(slot.w * PX), lh = Math.ceil(slot.h * PX), label = document.createElement('canvas');
-    label.width = lw; label.height = lh;
-    const l = label.getContext('2d'), font = px => `${slot.role === 'github' ? 600 : 800} ${px}px "Helvetica Neue", Arial, sans-serif`;
-    let px = lh * 0.8; l.font = font(px);
-    px = Math.min(px, px * lw * 0.94 / l.measureText(text).width); l.font = font(px);
     // Decals sit on dark carbon: light text there.
-    l.fillStyle = css(slot.role === 0 || slot.role === 'number' ? accent : layer === 'paint' ? inkFor(paint) : 0xf4f4f4);
-    l.textAlign = 'center'; l.textBaseline = 'middle'; l.fillText(text, lw / 2, lh / 2);
+    const label = drawLabel(slot, text, slot.role === 0 || slot.role === 'number' ? accent : layer === 'paint' ? inkFor(paint) : 0xf4f4f4, PX);
+    const lw = label.width, lh = label.height, l = label.getContext('2d');
     const src = l.getImageData(0, 0, lw, lh).data, { idx, s, t } = texels[k];
     for (let i = 0; i < idx.length; i++) {
       const x = Math.min(lw - 1, Math.floor((s[i] / slot.w + 0.5) * lw)), y = Math.min(lh - 1, Math.floor((0.5 - t[i] / slot.h) * lh));
@@ -257,6 +300,14 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
       else if (name.startsWith('redbull_color')) repaint(o, { color: new THREE.Color(accent) });
       else if (name.startsWith('redbull_number')) o.visible = false;
       else if (name.startsWith('sw_decals')) repaint(o, { map: wheelDecals(o.material.map) });
+    });
+    if (!HALO.has(template)) HALO.set(template, haloGeometries(template));
+    const names = SPONSORS.map((_, k) => SPONSORS[(k + index) % SPONSORS.length]);
+    HALO.get(template).forEach((geometry, k) => {
+      const slot = HALO_SLOTS[k], map = new THREE.CanvasTexture(drawLabel(slot, names[slot.role], slot.role === 0 ? accent : inkFor(paint), 6000));
+      Object.assign(map, { colorSpace: THREE.SRGBColorSpace, anisotropy: 8 });
+      const decal = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ map, transparent: true, depthWrite: false, roughness: 0.35, polygonOffset: true, polygonOffsetFactor: -4 }));
+      decal.name = 'halo-label'; root.add(decal);
     });
   }
   const box = o => { car.updateMatrixWorld(true); return new THREE.Box3().setFromObject(o); };
