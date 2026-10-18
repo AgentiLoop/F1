@@ -12,6 +12,9 @@ const WHEEL_MATERIAL = /^(discs|redbull_wheel_hub|sidewall)/;
 // Parts wholly inside this box (model metres, nose at +z) make up the steering wheel.
 const STEERING_BOX = new THREE.Box3(new THREE.Vector3(-0.14, 0.48, 0.63), new THREE.Vector3(0.14, 0.69, 0.81));
 const CORNERS = ['front-left', 'front-right', 'rear-left', 'rear-right'];
+// A flat 4 cm plate on top of the bodywork, left of the cockpit (part of the detail mesh): its
+// magenta-and-white metallic texture flashes white in the cockpit view, so it is left out.
+const NOSE_PLATE = new THREE.Box3(new THREE.Vector3(0.07, 0.69, 1.11), new THREE.Vector3(0.125, 0.712, 1.165));
 
 // Load once (a URL in the browser, an ArrayBuffer in node, where textures are skipped);
 // bake every mesh into model space and split the merged wheel meshes per corner.
@@ -25,6 +28,7 @@ export async function loadRB22Template(source = RB22_URL) {
   const steering = new THREE.Group(); steering.name = 'steering';
   for (const m of meshes) {
     const geometry = toFloat(m.geometry).applyMatrix4(m.matrixWorld);
+    if (m.material.name.startsWith('redbull_detail')) dropTriangles(geometry, NOSE_PLATE);
     geometry.computeBoundingBox();
     if (WHEEL_MATERIAL.test(m.material.name)) {
       splitCorners(geometry).forEach((g, i) => g && wheels[i].add(new THREE.Mesh(g, m.material)));
@@ -46,6 +50,18 @@ export function toFloat(geometry) {
     out.setAttribute(name, new THREE.BufferAttribute(dst, n));
   }
   return out;
+}
+
+// Remove the triangles whose centroid lies inside box (in place).
+function dropTriangles(geometry, box) {
+  const pos = geometry.attributes.position, n = geometry.index ? geometry.index.count : pos.count;
+  const at = i => geometry.index ? geometry.index.getX(i) : i, c = new THREE.Vector3(), v = new THREE.Vector3(), keep = [];
+  for (let i = 0; i < n; i += 3) {
+    c.set(0, 0, 0); for (let k = 0; k < 3; k++) c.add(v.fromBufferAttribute(pos, at(i + k)));
+    if (!box.containsPoint(c.divideScalar(3))) keep.push(at(i), at(i + 1), at(i + 2));
+  }
+  geometry.setIndex(keep);
+  return geometry;
 }
 
 // Split a non-indexed copy of geometry into four by triangle centroid: +z front, +x left.
@@ -95,7 +111,6 @@ export const LIVERY_SLOTS = [
   ...sides({ role: 0, c: [0.30, 0.53, -1.03], n: v(0.85, 0.47, -0.23), w: 0.72, h: 0.17 }), // engine cover
   { role: 0, c: [0, 0.86, -1.0], n: v(0, 1, 0), b: v(0, 0, 1), w: 0.75, h: 0.16 }, // engine cover spine
   { role: 1, on: 'decals', c: [0, 0.86, -2.21], n: v(0, 0.94, 0.33), w: 0.9, h: 0.16 }, // rear wing
-  { role: 2, c: [0, 0.6, 1.85], n: v(0, 0.97, 0.23), b: v(0, 0, 1), w: 0.6, h: 0.12 }, // nose
   ...sides({ role: 2, on: 'decals', c: [0.62, 0.3, 2.3], n: v(1, 0, 0), w: 0.34, h: 0.14 }), // front wing endplates
   ...sides({ role: 3, on: 'decals', c: [0.39, 0.16, 2.61], n: v(0, 1, 0), w: 0.55, h: 0.14 }), // front wing
   ...sides({ role: 3, c: [0.57, 0.8, -2.1], n: v(1, 0, 0), w: 0.4, h: 0.2 }), // rear wing endplates
@@ -201,6 +216,24 @@ export function liveryTextures(texels, { paint, accent, index = 0 }, slots = LIV
   }));
 }
 
+// The steering wheel's decal texture without its two ORACLE logos (the wide one across the top
+// of the wheel and the small upright one), as [x0, y0, x1, y1] fractions of the image.
+const WHEEL_LOGOS = [[250 / 1024, 934 / 1024, 770 / 1024, 1008 / 1024], [976 / 1024, 704 / 1024, 1010 / 1024, 890 / 1024]];
+const WHEEL_DECALS = new WeakMap(); // source texture -> cleaned copy, shared by every car
+function wheelDecals(map) {
+  if (!map?.image) return map;
+  if (!WHEEL_DECALS.has(map)) {
+    const { width: w, height: h } = map.image, canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(map.image, 0, 0);
+    for (const [x0, y0, x1, y1] of WHEEL_LOGOS) ctx.clearRect(x0 * w, y0 * h, (x1 - x0) * w, (y1 - y0) * h);
+    const texture = new THREE.CanvasTexture(canvas);
+    for (const k of ['colorSpace', 'flipY', 'wrapS', 'wrapT', 'anisotropy', 'channel']) texture[k] = map[k];
+    WHEEL_DECALS.set(map, texture);
+  }
+  return WHEEL_DECALS.get(map);
+}
+
 // livery: { paint, accent, helmet } hex colours and index (the car's place in the sponsor
 // rotation and its race number, index + 1). Without a DOM (node) the paint stays as modelled.
 export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39e0ae, helmet = 0x1e2a6e, index = 0 } = {}) {
@@ -217,10 +250,13 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
     root.traverse(o => {
       if (!o.isMesh) return;
       const name = o.material.name;
-      if (name.startsWith(LAYERS.paint)) repaint(o, { map: maps.paint });
+      // The model's clearcoat is a perfect mirror (roughness 0): on sharp creases it pins the
+      // sun into tiny white specks. A little roughness spreads them into a soft sheen.
+      if (name.startsWith(LAYERS.paint)) repaint(o, { map: maps.paint, clearcoatRoughness: 0.18 });
       else if (name.startsWith(LAYERS.decals)) repaint(o, { map: maps.decals });
       else if (name.startsWith('redbull_color')) repaint(o, { color: new THREE.Color(accent) });
       else if (name.startsWith('redbull_number')) o.visible = false;
+      else if (name.startsWith('sw_decals')) repaint(o, { map: wheelDecals(o.material.map) });
     });
   }
   const box = o => { car.updateMatrixWorld(true); return new THREE.Box3().setFromObject(o); };
