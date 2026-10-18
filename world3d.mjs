@@ -19,6 +19,18 @@ function noise(g, s, base, spread, count) {
     g.fillRect(Math.random() * s, Math.random() * s, 1 + Math.random() * 2, 1 + Math.random() * 2);
   }
 }
+// Photo-scanned race-track asphalt (Poly Haven, CC0; models/CREDITS.md) for a
+// ribbon `width` metres across with v = s / vScale, at 2.5 m per tile.
+function asphaltMaterial(width, vScale = 30) {
+  const loader = new THREE.TextureLoader(), tile = 2.5;
+  const [map, normalMap, roughnessMap] = ['diff', 'nor_gl', 'rough'].map(m => {
+    const t = loader.load(new URL(`./models/asphalt_track_${m}_1k.jpg`, import.meta.url).href);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(width / tile, vScale / tile); t.anisotropy = 8;
+    if (m === 'diff') t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  });
+  return new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, map, normalMap, roughnessMap, roughness: 1 });
+}
 
 // Centerline samples (counter-clockwise from the start line) with left normals.
 export function centerline(halfStraight, radius, step = 2) {
@@ -75,7 +87,6 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.position.y = -0.03; ground.receiveShadow = true; world.add(ground);
 
-  const asphalt = texture(512, (g, s) => noise(g, s, '#45494d', 0.35, 60000), 3, 1);
   const kerb = texture(64, (g, s) => { g.fillStyle = '#d8dad6'; g.fillRect(0, 0, s, s); g.fillStyle = '#c3302b'; g.fillRect(0, 0, s, s / 2); });
   const wall = texture(128, (g, s) => {
     g.fillStyle = '#c9ccc8'; g.fillRect(0, 0, s, s);
@@ -83,7 +94,7 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
     g.fillStyle = '#6fffc3'; g.fillRect(0, s * 0.55, s, s * 0.05);
   });
   const runoff = texture(256, (g, s) => noise(g, s, '#8b8170', 0.3, 20000), 4, 1);
-  const road = std({ map: asphalt, roughness: 0.92 });
+  const road = asphaltMaterial(roadWidth);
   world.add(ribbon(pts, -half, half, 0, road, 30));
   for (const s of [-1, 1]) {
     world.add(ribbon(pts, s * half, s * (half + 1.2), 0.012, std({ map: kerb, roughness: 0.7 }), 4));
@@ -96,7 +107,7 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
   // the exit, a solid white line along the circuit edge, speed-limit lines,
   // painted boxes in each car's colour and a garage block behind the wall.
   const along = (a, b) => pts.filter(p => p.s >= a && p.s <= b);
-  world.add(ribbon(along(pit.entry, pit.exit), pit.inner, pit.outer, 0.006, std({ map: asphalt, roughness: 0.9 }), 30));
+  world.add(ribbon(along(pit.entry, pit.exit), pit.inner, pit.outer, 0.006, asphaltMaterial(Math.abs(pit.outer - pit.inner)), 30));
   world.add(ribbon(along(pit.entry, pit.exit), pit.inner, pit.inner + 0.25, 0.009, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
   const paint = (s, offset, length, width, color, y = 0.01) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(length, width), std({ color, roughness: 0.6 }));
@@ -282,7 +293,6 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -0.03, -cy); ground.receiveShadow = true; world.add(ground);
 
-  const asphalt = texture(512, (g, s) => noise(g, s, '#45494d', 0.35, 60000), 3, 1);
   const kerbTex = texture(64, (g, s) => { g.fillStyle = '#d8dad6'; g.fillRect(0, 0, s, s); g.fillStyle = '#c3302b'; g.fillRect(0, 0, s, s / 2); });
   const wallTex = texture(128, (g, s) => {
     g.fillStyle = '#c9ccc8'; g.fillRect(0, 0, s, s);
@@ -296,7 +306,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   }, 20, 1);
   const fenceMat = new THREE.MeshStandardMaterial({ map: meshTex, alphaTest: 0.4, side: THREE.DoubleSide, metalness: 0.6, roughness: 0.5 });
   const steel = new THREE.MeshStandardMaterial({ color: 0x2b2f35, metalness: 0.7, roughness: 0.4 });
-  world.add(ribbon(pts, -half, half, 0, std({ map: asphalt, roughness: 0.92 }), 30));
+  world.add(ribbon(pts, -half, half, 0, asphaltMaterial(track.roadWidth), 30));
   const postSpots = [];
   for (const side of [-1, 1]) {
     world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
@@ -371,7 +381,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     });
     // Ribbon offsets are positive to the left: centreline offset −(side × f).
     const r = f => -pit.side * f;
-    world.add(ribbon(strip(pit.entry, pit.exit), r(-half), r(-pit.outer), 0.006, std({ map: asphalt, roughness: 0.9 }), 30));
+    world.add(ribbon(strip(pit.entry, pit.exit), r(-half), r(-pit.outer), 0.006, asphaltMaterial(Math.abs(pit.outer - half)), 30));
     world.add(ribbon(strip(pit.limitStart, pit.limitEnd), r(-pit.inner), r(-pit.inner - 0.25), 0.009, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
     const flat = (s, f, length, width, color, y = 0.01) => {
       const [x, z] = track.point(s, pit.side * f), m = new THREE.Mesh(new THREE.PlaneGeometry(length, width), std({ color, roughness: 0.6 }));
@@ -393,6 +403,11 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const logo = (w, h) => { const t = texture(1, () => {}); const cv = t.image; cv.width = w; cv.height = h; drawLogo(cv.getContext('2d'), w, h, true); t.needsUpdate = true; return t; };
   const logoMat = new THREE.MeshStandardMaterial({ map: logo(1024, 128), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.08 });
   logoMat.emissiveMap = logoMat.map;
+  // AgentiLoop Racing panels on both faces of the start-light gantry, as on the stadium track.
+  for (const side of [-1, 1]) {
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(track.roadWidth + 4.5, (track.roadWidth + 4.5) / 8), logoMat);
+    panel.rotation.y = -side * Math.PI / 2; panel.position.set(-6 + side * 0.42, 8.6, 0); start.add(panel);
+  }
   const boardBack = new THREE.MeshStandardMaterial({ color: 0x1a2430, roughness: 0.8 });
   const boardSpots = [];
   for (const side of [-1, 1]) pts.forEach((p, k) => {
@@ -403,11 +418,6 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     if (Math.abs(track.offset(p.x + p.nx * off, p.y + p.ny * off)) > half + 10) boardSpots.push([p, off]);
   });
   const boards = new THREE.InstancedMesh(new THREE.BoxGeometry(8, 1, 0.12), [boardBack, boardBack, boardBack, boardBack, logoMat, boardBack], boardSpots.length);
-  // AgentiLoop Racing panels on both faces of the start-light gantry, as on the stadium track.
-  for (const side of [-1, 1]) {
-    const panel = new THREE.Mesh(new THREE.PlaneGeometry(track.roadWidth + 4.5, (track.roadWidth + 4.5) / 8), logoMat);
-    panel.rotation.y = -side * Math.PI / 2; panel.position.set(-6 + side * 0.42, 8.6, 0); start.add(panel);
-  }
   const dummy = new THREE.Object3D();
   boardSpots.forEach(([p, off], i) => {
     dummy.position.set(p.x + p.nx * off, 0.75, -(p.y + p.ny * off));

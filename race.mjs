@@ -9,7 +9,7 @@ import { step, createCar, carMass, fitTires, newErsLap, tireTempGrip, tireWearGr
 import { createAutopilot, createCircuitAutopilot } from './autopilot.mjs';
 
 export const RACE_DEFAULTS = Object.freeze({
-  wakeLength: 30, wakeWidth: 1.4, wakeMinGap: 4, towDragLoss: 0.35, dirtyAirLoss: 0.25,
+  wakeLength: 30, wakeWidth: 1.4, wakeMinGap: 4, towDragLoss: 0.35, dirtyAirLoss: 0.12,
   carRestitution: 0.3, carFriction: 0.4,
   // AI traffic: lane offset for passing (m from the centreline), how far ahead
   // a car counts as "in the way", the follow gap and lane-change rate (m/s).
@@ -18,7 +18,7 @@ export const RACE_DEFAULTS = Object.freeze({
   // (m) are explained in aiCommand. Grid slots are
   // gridSpacing m apart.
   cornerCurvature: 1 / 300, laneRoomAhead: 200, laneRoomExit: 80, laneReturn: 150, gridSpacing: 8,
-  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 1.2, passRoom: 250, pullOutBy: 250, towRange: 40, towClose: 0.5, towSpeed: 40, towBrake: 4, diveGap: 20, diveOverlap: 1, diveReach: 1.5, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, pullOutRate: 3, laneClearance: 2.6, sideGap: 3.1, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
+  passLane: 3, passCutoff: 60, exitClear: 40, passGain: 3, alongside: 7, pullOutTime: 1.2, passRoom: 150, pullOutBy: 250, towRange: 60, towClose: 0.5, towSpeed: 40, towBrake: 4, diveGap: 25, diveOverlap: 1, diveReach: 1.5, yieldGap: 2, diveTurnIn: 15, diveExit: 40, lookAhead: 45, followGap: 14, followMin: 8, followTime: 0.08, followSlow: 10, followDecel: 18, backOutTime: 1, anticipation: 0.4, laneRate: 2.2, pullOutRate: 3, laneClearance: 2.6, sideGap: 3.1, closeTime: 2.5, mergeTime: 5, creepSpeed: 1.5,
   // Standing start: five red lights come on one per lightInterval seconds, then
   // go out after a random hold in [holdMin, holdMax]. Moving more than
   // jumpDistance metres before lights out is a jump start (jumpPenalty seconds).
@@ -28,6 +28,12 @@ export const RACE_DEFAULTS = Object.freeze({
   // An AI car stopped against a wall tries a bounded reverse manoeuvre before
   // retiring. Fuel-starved cars and ordinary traffic queues do not reverse.
   coolDownSpeed: 45, retireAfter: 10,
+  // AI variation (illustrative): each lap an AI car's grip is scaled by a
+  // form factor drawn from 1 ± formSpread; with mistakeChance per lap it
+  // makes one mistake somewhere in the lap, running at mistakeLoss of its
+  // grip for mistakeTime seconds. Its tyres wear at a rate drawn once from
+  // 1 ± wearSpread of the nominal.
+  formSpread: 0.015, mistakeChance: 0.3, mistakeLoss: 0.8, mistakeTime: 1.5, wearSpread: 0.3,
   recoveryDelay: 2, recoveryTimeout: 20, recoveryMinDistance: 3, recoveryDistance: 20, recoveryAlign: 0.35, recoverySpeed: 2, recoveryAttempts: 2,
   // Pit stops (illustrative): planning decelerations to the speed-limit line
   // and to the box marks (m/s²), stationary time range (s), the window either
@@ -79,10 +85,10 @@ function random(seed) {
 // Fictional field; pace is the autopilot corner speed (m/s), the player's is 43.
 // tyres: the start compound, then the compound fitted at each planned stop.
 export const DEFAULT_GRID = Object.freeze([
-  { name: 'M. Kovač', color: 0xc8102e, accent: 0xf4f4f4, cornerSpeed: 43.6, brakeDecel: 26.5, tyres: ['medium', 'hard'] },
-  { name: 'L. Ferreira', color: 0xff7a00, accent: 0x1b2a6b, cornerSpeed: 42.4, brakeDecel: 25.5, tyres: ['soft', 'hard'] },
-  { name: 'J. Hart', color: 0xb9c2c9, accent: 0x00a19b, cornerSpeed: 43.9, brakeDecel: 26, tyres: ['medium', 'hard'] },
-  { name: 'S. Tanaka', color: 0xf2c500, accent: 0x111111, cornerSpeed: 42.8, brakeDecel: 27, tyres: ['medium', 'hard'] },
+  { name: 'M. Kovač', color: 0xc8102e, accent: 0xf4f4f4, cornerSpeed: 44.2, brakeDecel: 26.5, tyres: ['medium', 'hard'] },
+  { name: 'L. Ferreira', color: 0xff7a00, accent: 0x1b2a6b, cornerSpeed: 41.5, brakeDecel: 25.5, tyres: ['soft', 'hard'] },
+  { name: 'J. Hart', color: 0xb9c2c9, accent: 0x00a19b, cornerSpeed: 45, brakeDecel: 26, tyres: ['medium', 'hard'] },
+  { name: 'S. Tanaka', color: 0xf2c500, accent: 0x111111, cornerSpeed: 42.6, brakeDecel: 27, tyres: ['medium', 'hard'] },
 ]);
 
 // Wake strength (0..1) of `lead` felt at `car`: exponential decay with the gap
@@ -204,6 +210,9 @@ export const inDrsZone = (track, z, p) => { const L = track.length, a = d => ((d
 export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false, laps = 0, compoundRule = false, fuel = true, drs = true } = {}) {
   const o = { ...RACE_DEFAULTS, ...options };
   const rand = random(start?.seed ?? (Math.random() * 2 ** 32));
+  // Separate stream for AI form, mistakes and wear (fixed when unseeded, so
+  // races without a seeded start stay reproducible).
+  const vary = random((start?.seed ?? 12345) + 1);
   const lightsOn = start ? 5 * o.lightInterval : 0;
   const lightsOut = start ? lightsOn + o.holdMin + rand() * (o.holdMax - o.holdMin) : 0;
   // A real circuit (circuit.mjs) has its start/finish line at s = 0, lanes
@@ -218,6 +227,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
   const fuelLap = circuit ? o.fuelPerKm * length / 1000 : o.fuelPerLap;
   const entries = [{ name: 'You', player: true, cornerSpeed: 43, brakeDecel: 26, tyres: ['medium', 'hard'], ...player }, ...grid].map((spec, i) => {
     const car = createCar(spec.car), tyres = spec.tyres ?? ['medium', 'hard'];
+    if (!spec.player) car.config.tireWearEnergy /= 1 + o.wearSpread * (2 * vary() - 1);
     fitTires(car, tyres[0]);
     if (fuel && laps && spec.car?.fuelLoad === undefined) car.fuel = laps * fuelLap * (1 + o.fuelMargin) + o.fuelReserve;
     const slot = i === 0 ? grid.length : i - 1;
@@ -236,7 +246,9 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       // progress (phase in/service/out), this pit-lane visit, player request.
       tyres, box: pit ? pit.boxStart + pit.boxSpacing * i : null, compounds: [tyres[0]], stops: [], pit: null, pitVisit: null, pitRequest: null, drive,
       // DRS: zones this car may open its flap in, its latest detection gap (s).
-      drsArmed: new Set(), drsGap: null };
+      drsArmed: new Set(), drsGap: null,
+      // AI variation: lap the form was drawn for, form, pending mistake (covered m), mistake end (s).
+      formLap: null, form: 1, mistakeAt: null, mistakeUntil: -Infinity };
   });
   // Planned stop lap under the compound rule: 35-65% race distance.
   for (const e of entries) e.stopLap = rule ? clamp(Math.round(laps * (0.35 + 0.3 * rand())), 1, laps - 1) : null;
@@ -392,7 +404,13 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // that counts there (e.g. on an out lap on a set fitted at blanket temperature).
     const temp = Math.min(...car.tireTemp.map(t => tireTempGrip(car.config, t)))
       / (circuit ? tireTempGrip(car.config, { surface: car.config.tireStartTemp, carcass: car.config.tireStartTemp }) : 1);
-    const grip = (1 - (1 - car.wake.downforce) * 0.45) * TIRE_COMPOUNDS[car.compound].grip
+    if (!e.player) {
+      const lap = Math.floor(e.covered / length);
+      if (lap !== e.formLap) { e.formLap = lap; e.form = 1 + o.formSpread * (2 * vary() - 1); e.mistakeAt = vary() < o.mistakeChance ? (lap + vary()) * length : null; }
+      if (e.mistakeAt !== null && e.covered >= e.mistakeAt) { if (!e.pit) e.mistakeUntil = time + o.mistakeTime; e.mistakeAt = null; }
+    }
+    const pace = e.player ? 1 : e.form * (time < e.mistakeUntil ? o.mistakeLoss : 1);
+    const grip = pace * (1 - (1 - car.wake.downforce) * 0.45) * TIRE_COMPOUNDS[car.compound].grip
       * Math.min(1, temp) * tireWearGrip(car.config, Math.max(...car.tireWear));
     const lookAhead = Math.max(o.lookAhead, o.followGap + 1.5 * speed * speed / (2 * o.followDecel));
     // Cars on the other side of the pit-lane line are separate traffic, except

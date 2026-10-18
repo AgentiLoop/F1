@@ -2,35 +2,37 @@
 
 The project code's licence does not cover these files; each keeps its own licence.
 
-## f222.glb
+## f1-2022-generic-v3.glb
 
-- Model: ["Formula F222 Ultimate"](https://sketchfab.com/3d-models/formula-f222-ultimate-de780743451748d6b5567b1e190c7908)
-  by [CarlosCG31](https://sketchfab.com/CarlosCG31)
+- Model: ["F1 2022 Generic V3 (reuploaded from TheoDevF1)"](https://sketchfab.com/3d-models/f1-2022-generic-v3-reuploaded-from-theodevf1-55c119e7096a4322bc375c9b4f5a162d)
+  by [Hydra_Junie](https://sketchfab.com/DaniFold), originally by TheoDevF1
 - Licence: [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - A generic 2022-regulation car, with no team or sponsor logos.
-- Changes: the web version from [BadCodesGG/interactive-f1](https://github.com/BadCodesGG/interactive-f1)
-  (`public/models/f222.d2c1885a.glb`). That project grouped the parts into named nodes,
-  replaced the textures with plain materials, and compressed the file with meshopt.
-  `carmodel.mjs` replaces those materials at load time (livery paint, satin carbon,
-  rubber, dark rims) and turns and moves the model onto the physics car's axles.
-
-## mclaren-wheel.glb
-
-- Model: ["McLaren Formula 1 Steering Wheel"](https://sketchfab.com/3d-models/mclaren-formula-1-steering-wheel-4dc0ce4effbe43d0a027aa072b437818)
-  by [dhimasdc9](https://sketchfab.com/dhimasdc9)
-- Licence: [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
-- Changes: taken from the Sketchfab glTF export in [divitkashyap/f1-sim](https://github.com/divitkashyap/f1-sim)
-  (`assets/cockpit/mclaren_formula_1_steering_wheel.glb`, 10.9 MB, 332k triangles), simplified
-  to 56k triangles, its plain colours packed into a palette texture and compressed with
-  meshopt using `@gltf-transform/cli optimize --simplify-ratio 0.15` (755 KB).
-  `carmodel.mjs` puts it in place of the car model's own steering wheel and turns it with the steering.
+- Changes: the Sketchfab glTF download (11.8 MB) compressed with meshopt using
+  `@gltf-transform/cli meshopt` (3.9 MB). `carmodel.mjs` splits the wheels per corner,
+  repaints the red livery in each car's colour, turns the steering wheel with the steering
+  and scales the model onto the physics car's axles. The backup car if the RB22 fails to
+  load; chosen with `?car=generic`.
 
 ## rb22.glb
 
 - Model: "2026 Redbull RB22" by Tyler_Dave (Sketchfab)
 - Licence: [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
-- `rb22.mjs` keeps its own livery, splits the wheels per corner, turns the model's steering
-  wheel with the steering and fits it onto the physics car's axles. Loaded with `?car=rb22`.
+- Changes: `rb22.mjs` replaces the Red Bull livery at load time: the paint texture is refilled
+  in each car's colour, the decal texture is cleared, our sponsor names (AgentiLoop Racing,
+  InkPen.io, SuperBox64.com, AgentiLoop.si, github.com/AgentiLoop/F1) and a race number are
+  projected onto both, the accent-coloured parts take the car's accent colour and the race
+  number mesh is hidden. It also splits the wheels per corner, turns the model's steering
+  wheel with the steering and fits it onto the physics car's axles. Every car on the grid
+  uses it. In the model file itself, the gold fastener discs in the `redbull_detail` texture
+  are painted over in the surrounding dark grey (#212421).
+
+## asphalt_track_*_1k.jpg
+
+- Texture: ["Asphalt Track"](https://polyhaven.com/a/asphalt_track) by Dimitrios Savva (Poly Haven)
+- Licence: [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
+- Changes: the 2K colour (`diff`), OpenGL normal (`nor_gl`) and roughness maps scaled to 1024×1024.
+  `world3d.mjs` tiles them every 2.5 m on the track and pit lane.
 
 ## Vendored loaders (MIT)
 

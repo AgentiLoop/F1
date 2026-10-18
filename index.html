@@ -169,20 +169,26 @@ const world = circuitKey ? buildCircuitWorld(track, { boxColors }) : buildWorld(
 scene.add(world);
 // Real circuits span kilometres: see the far side of the layout from the overview.
 if (circuitKey) camera.far = 2 * world.userData.extent + 3000;
-// Photo-real CC BY model (models/CREDITS.md); ?car=procedural, or a failed load, uses the built-in car.
-// ?car=rb22 test-drives the 2026 Red Bull RB22 model (rb22.mjs).
+// Photo-real CC BY models (models/CREDITS.md): every car is the 2026 RB22 (rb22.mjs) in its own
+// colours with our sponsors, each car with a different title sponsor. The generic 2022 car
+// (carmodel.mjs) is the backup if it fails to load, or chosen with ?car=generic; ?car=procedural,
+// or no model loading, uses the built-in car.
 const carParam = new URLSearchParams(location.search).get('car');
-const carTemplate = carParam === 'procedural' ? null
-  : await (carParam === 'rb22' ? loadRB22Template() : loadCarTemplate()).catch(err => { console.warn('car model failed to load, using procedural car', err); return null; });
-const buildModel = carParam === 'rb22' ? buildRB22Car : buildModelCar;
+const MODELS = { generic: [loadCarTemplate, buildModelCar], rb22: [loadRB22Template, buildRB22Car] };
+let carTemplate = null, buildModel = null;
+for (const kind of carParam === 'procedural' ? [] : carParam === 'generic' ? ['generic'] : ['rb22', 'generic']) {
+  try { carTemplate = await MODELS[kind][0](); buildModel = MODELS[kind][1]; break; }
+  catch (err) { console.warn(`${kind} car model failed to load`, err); }
+}
 const buildCar = livery => carTemplate ? buildModel(carTemplate, DEFAULT_CAR, livery) : buildF1Car(DEFAULT_CAR, livery);
 const model = buildCar();
 scene.add(model.group);
 const wheelAngle = [0, 0, 0, 0];
 const MAX_SPIN_STEP = 0.3; // rad of drawn wheel rotation per frame
-// One model per AI opponent, in its livery (helmets match the accent).
-const rivals = DEFAULT_GRID.map(spec => {
-  const m = buildCar({ paint: spec.color, accent: spec.accent, helmet: spec.accent });
+// One model per AI opponent, in its livery (helmets match the accent); index: its place in the
+// sponsor rotation and race number (the player's car is 0).
+const rivals = DEFAULT_GRID.map((spec, i) => {
+  const m = buildCar({ paint: spec.color, accent: spec.accent, helmet: spec.accent, index: i + 1 });
   scene.add(m.group); return { model: m, wheelAngle: [0, 0, 0, 0] };
 });
 const hex = n => `#${n.toString(16).padStart(6, '0')}`;

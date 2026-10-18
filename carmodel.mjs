@@ -1,132 +1,140 @@
-// Photo-real car: "Formula F222 Ultimate" by CarlosCG31 (CC BY 4.0, see
-// models/CREDITS.md), a generic 2022-rules car, fitted to the physics car so it
-// is a drop-in for buildF1Car: same { group, body, wheels, driver, drsFlap, eye }.
+// Photo-real car: "F1 2022 Generic V3" by Hydra_Junie, reuploaded from TheoDevF1 (CC BY 4.0,
+// see models/CREDITS.md), fitted to the physics car so it is a drop-in for buildF1Car:
+// { group, body, wheels, driver, drsFlap, steeringWheel, eye }. Every car on the grid uses it,
+// its red livery repainted in the car's colour.
 import * as THREE from './vendor/three.module.js';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/meshopt_decoder.module.js';
-import { smoothGeometry } from './smooth.mjs';
-import { CARBON_PARTS, WEAVE_TILE, NAP_TILE, isHeadrest, splitTriangles, addBoxUV, cockpitMaterials } from './cockpit.mjs';
+import { toFloat, splitCorners } from './rb22.mjs';
 
-export const F222_URL = new URL('./models/f222.glb', import.meta.url).href;
-const WHEELS = ['front-left-wheel', 'front-right-wheel', 'rear-left-wheel', 'rear-right-wheel'];
-// Each part draws its mesh Loop-subdivided twice within SMOOTH_DISTANCE[0] m (close-up
-// and cockpit views), once within SMOOTH_DISTANCE[1] m and as authored beyond that.
-export const SMOOTH_DISTANCE = [12, 40];
-export const WHEEL_URL = new URL('./models/mclaren-wheel.glb', import.meta.url).href;
-const STEERING_WHEEL = 'mclaren-steering-wheel';
-// The model's own steering wheel (rim, centre, paddles) in the cockpit node.
-const PLAIN_WHEEL = ['Object_102', 'Object_104', 'Object_106', 'Object_108', 'Object_110'];
+export const GENERIC_URL = new URL('./models/f1-2022-generic-v3.glb', import.meta.url).href;
+// All four wheels of each of these materials are merged: split per corner at load.
+const WHEEL_MATERIAL = new Set(['tyres', 'rims', 'brake']);
+// Textured with the red livery, which buildModelCar repaints.
+const LIVERY_MATERIAL = new Set(['Livery', 'Livery_Wings']);
+const CORNERS = ['front-left', 'front-right', 'rear-left', 'rear-right'];
+// Parts wholly this far outboard (model units) are uprights and brake ducts: they steer, not spin.
+const OUTBOARD = 0.5;
 // Steering wheel turn per radian of road-wheel steer (full lock 0.38 rad -> about 110°).
 export const STEERING_RATIO = 5;
-// The detailed wheel is only drawn within this many metres (it is inside the cockpit).
-const WHEEL_DISTANCE = 6;
-// Headrest padding split from the bodywork around the cockpit opening (cockpit.mjs).
-export const HEADREST = 'cockpit-padding';
 
-// Load the GLB once (a URL in the browser, an ArrayBuffer in node) and return its scene.
-// Each mesh becomes a LOD of smoothed copies (smooth.mjs keeps the author's hard edges)
-// and the original. Subdivided geometry is shared by every car built from the template.
-// The detailed steering wheel ("McLaren Formula 1 Steering Wheel" by dhimasdc9, CC BY 4.0)
-// replaces the model's plain one; null keeps the plain wheel. Outside a browser (node
-// tests) its textures are skipped, since there is nothing to decode images with.
-export async function loadCarTemplate(source = F222_URL, wheelSource = WHEEL_URL) {
+// Load the GLB once (a URL in the browser, an ArrayBuffer in node): bake every mesh into model
+// space (nose +z, left +x, up +y) and split the merged wheel meshes per corner. Outside a
+// browser (node tests) textures are skipped, since there is nothing to decode images with.
+export async function loadCarTemplate(source = GENERIC_URL) {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  const load = (src, l = loader) => typeof src === 'string' ? l.loadAsync(src) : l.parseAsync(src, '');
-  const wheelLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  if (typeof document === 'undefined') wheelLoader.register(() => ({ name: 'no-textures', loadTexture: () => Promise.resolve(null) }));
-  const [gltf, wheel] = await Promise.all([load(source),
-    wheelSource ? load(wheelSource, wheelLoader).catch(err => { console.warn('steering wheel failed to load', err); return null; }) : null]);
-  // Cockpit finish (cockpit.mjs): carbon weave tub and suede headrest padding.
-  const cockpit = cockpitMaterials();
-  for (const n of CARBON_PARTS) gltf.scene.getObjectByName(n).material = cockpit['cockpit-carbon'];
-  splitTriangles(gltf.scene.getObjectByName('Object_60'), isHeadrest, HEADREST).material = cockpit['cockpit-padding'];
-  const meshes = []; gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
-  for (const mesh of meshes) {
-    const lod = new THREE.LOD(); lod.name = mesh.name;
-    lod.position.copy(mesh.position); lod.quaternion.copy(mesh.quaternion); lod.scale.copy(mesh.scale);
-    mesh.parent.children[mesh.parent.children.indexOf(mesh)] = lod; lod.parent = mesh.parent; mesh.parent = null;
-    mesh.position.set(0, 0, 0); mesh.quaternion.identity(); mesh.scale.set(1, 1, 1);
-    lod.addLevel(new THREE.Mesh(smoothGeometry(mesh.geometry, { levels: 2 }), mesh.material), 0);
-    lod.addLevel(new THREE.Mesh(smoothGeometry(mesh.geometry), mesh.material), SMOOTH_DISTANCE[0]);
-    lod.addLevel(mesh, SMOOTH_DISTANCE[1]);
-  }
+  if (typeof document === 'undefined') loader.register(() => ({ name: 'no-textures', loadTexture: () => Promise.resolve(null) }));
+  const gltf = await (typeof source === 'string' ? loader.loadAsync(source) : loader.parseAsync(source, ''));
   gltf.scene.updateMatrixWorld(true);
-  for (const [names, tile] of [[CARBON_PARTS, WEAVE_TILE], [[HEADREST], NAP_TILE]])
-    for (const lod of names.map(n => gltf.scene.getObjectByName(n))) lod.levels.forEach(l => addBoxUV(l.object.geometry, lod.matrixWorld, tile));
-  if (wheel) { wheel.scene.name = STEERING_WHEEL; gltf.scene.add(wheel.scene); }
-  return gltf.scene;
+  const meshes = []; gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
+  const template = new THREE.Group(), steering = Object.assign(new THREE.Group(), { name: 'steering' });
+  const corners = CORNERS.map(name => Object.assign(new THREE.Group(), { name }));
+  const uprights = CORNERS.map(name => Object.assign(new THREE.Group(), { name: `${name}-upright` }));
+  for (const m of meshes) {
+    const geometry = toFloat(m.geometry).applyMatrix4(m.matrixWorld), name = m.material.name;
+    // The model's tyres are glossy (roughness 0.23): at grazing angles they mirror the bright
+    // environment as white outlines. Rubber is matte, and even rough the sidewalls catch a white
+    // Fresnel sheen side-on, so the specular is cut too.
+    if (name === 'tyres') {
+      m.material = new THREE.MeshPhysicalMaterial({ name, map: m.material.map,
+        roughness: 0.9, specularIntensity: 0.05, envMapIntensity: 0.15 });
+      // The texture paints white, yellow and red markings on the sidewalls (rubber is sRGB ~40,
+      // linear ~0.02); dimmed they still showed as white streaks side-on: paint them rubber black.
+      m.material.onBeforeCompile = s => { s.fragmentShader = s.fragmentShader.replace('#include <map_fragment>',
+        '#include <map_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.02), smoothstep(0.03, 0.06, max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b))));'); };
+    }
+    geometry.computeBoundingBox();
+    const b = geometry.boundingBox, outboard = b.min.x > OUTBOARD || b.max.x < -OUTBOARD;
+    if (WHEEL_MATERIAL.has(name) || outboard) {
+      splitCorners(geometry).forEach((g, i) => g && (outboard && !WHEEL_MATERIAL.has(name) ? uprights : corners)[i].add(new THREE.Mesh(g, m.material)));
+      continue;
+    }
+    // Glossy dark paint mirrors the bright room environment as a pale grey-white sheen over whole
+    // panels: keep a satin finish with weak reflections so the paint colour shows.
+    const material = LIVERY_MATERIAL.has(name) ? new THREE.MeshPhysicalMaterial({ name, map: m.material.map,
+      roughness: 0.55, specularIntensity: 0.4, envMapIntensity: 0.3, clearcoat: 0.1, clearcoatRoughness: 0.4 }) : m.material;
+    const mesh = new THREE.Mesh(geometry, material); mesh.name = m.name;
+    (name === 'Steer' ? steering : template).add(mesh);
+  }
+  template.add(steering, ...corners, ...uprights);
+  return template;
 }
-const meshOf = o => o.isLOD ? o.levels[0].object : o;
+
+// A copy of a livery material whose red (strongly red texels; the white and black markings
+// stay) is repainted `paint`, keeping the texture's shading.
+function paintMaterial(material, paint) {
+  const m = material.clone(), color = { value: new THREE.Color(paint) };
+  m.userData.paint = color.value;
+  m.customProgramCacheKey = () => 'livery-paint';
+  m.onBeforeCompile = shader => {
+    shader.uniforms.paint = color;
+    shader.fragmentShader = 'uniform vec3 paint;\n' + shader.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      float red = smoothstep(0.3, 0.8, (diffuseColor.r - max(diffuseColor.g, diffuseColor.b)) / max(diffuseColor.r, 1e-4));
+      diffuseColor.rgb = mix(diffuseColor.rgb, paint * min(diffuseColor.r / 0.296, 1.0), red);`);
+  };
+  return m;
+}
+
+// A tyre's axle direction in car space (+z side): a tyre is a ring, so its vertices vary least
+// along the axle (smallest eigenvector of their covariance). Needs current world matrices.
+export function axleOf(mesh) {
+  const pos = mesh.geometry.attributes.position, v = new THREE.Vector3(), mean = new THREE.Vector3(), pts = [];
+  for (let k = 0; k < pos.count; k++) { pts.push(v.fromBufferAttribute(pos, k).applyMatrix4(mesh.matrixWorld).clone()); mean.add(pts[k]); }
+  mean.divideScalar(pts.length);
+  const c = [0, 0, 0, 0, 0, 0]; // xx xy xz yy yz zz
+  for (const p of pts) { const x = p.x - mean.x, y = p.y - mean.y, z = p.z - mean.z; c[0] += x * x; c[1] += x * y; c[2] += x * z; c[3] += y * y; c[4] += y * z; c[5] += z * z; }
+  const inv = new THREE.Matrix3().set(c[0], c[1], c[2], c[1], c[3], c[4], c[2], c[4], c[5]).invert();
+  const axis = new THREE.Vector3(0, 0, 1);
+  for (let k = 0; k < 50; k++) axis.applyMatrix3(inv).normalize(); // inverse power iteration
+  return axis.multiplyScalar(Math.sign(axis.z) || 1);
+}
 
 // livery: { paint, accent, helmet } hex colours, as buildF1Car.
 export function buildModelCar(template, config, { paint = 0x0d2340, accent = 0x39e0ae, helmet = 0xf2bf5e } = {}) {
   const physical = o => new THREE.MeshPhysicalMaterial(o);
-  const M = {
-    'livery-pearl': physical({ color: paint, metalness: 0.45, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.04 }),
-    'livery-satin': physical({ color: 0x15171b, metalness: 0.25, roughness: 0.42, clearcoat: 0.8, clearcoatRoughness: 0.15 }),
-    'livery-tyre': new THREE.MeshStandardMaterial({ color: 0x1b1b1c, roughness: 0.93 }),
-    'showroom-Cover': new THREE.MeshStandardMaterial({ color: 0x2a2e33, metalness: 0.9, roughness: 0.32 }),
-  };
   const car = new THREE.Group(); car.name = 'f1-car';
   const root = template.clone(true);
-  // The model's nose points to -x with its left side at +z: turn it to +x (left at -z),
-  // then slide it so the front axle sits on the physics front axle.
-  root.rotation.y = Math.PI; car.add(root);
+  // Nose +z, left +x -> nose +x, left -z.
+  root.rotation.y = Math.PI / 2; car.add(root);
+  const painted = new Map();
   root.traverse(o => {
     if (!o.isMesh) return;
-    o.material = M[o.material.name] ?? o.material; o.castShadow = true; o.receiveShadow = true;
+    const name = o.material.name;
+    if (LIVERY_MATERIAL.has(name)) { if (!painted.has(name)) painted.set(name, paintMaterial(o.material, paint)); o.material = painted.get(name); }
+    o.castShadow = true; o.receiveShadow = true;
   });
   const box = o => { car.updateMatrixWorld(true); return new THREE.Box3().setFromObject(o); };
-  const tyre = name => root.getObjectByName(name).children.find(m => meshOf(m).material === M['livery-tyre']);
+  const tyre = name => box(root.getObjectByName(name).children.find(m => m.material.name === 'tyres'));
+  const hub = name => tyre(name).getCenter(new THREE.Vector3());
+  // Scale to the physics wheelbase, put the front axle on the physics front axle and the tyres on the ground.
+  root.scale.setScalar(config.wheelbase / (hub(CORNERS[0]).x - hub(CORNERS[2]).x));
   const F = config.wheelbase * (1 - config.frontWeight);
-  root.position.x = F - box(tyre(WHEELS[0])).getCenter(new THREE.Vector3()).x;
+  root.position.x = F - hub(CORNERS[0]).x;
+  root.position.y = -Math.min(...CORNERS.map(n => tyre(n).min.y));
 
-  // Wheels: round parts (tyre, rim, disc, cover) spin; uprights and ducts only steer.
-  const wheels = WHEELS.map((name, i) => {
-    const node = root.getObjectByName(name), hub = box(tyre(name)).getCenter(new THREE.Vector3());
-    const pivot = new THREE.Group(); pivot.position.copy(hub); car.add(pivot);
-    const spin = new THREE.Group(); pivot.add(spin); car.updateMatrixWorld(true);
-    for (const m of [...node.children]) {
-      const b = box(m), c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
-      const round = Math.abs(s.x - s.y) < 0.02 && Math.hypot(c.x - hub.x, c.y - hub.y) < 0.02;
-      (round ? spin : pivot).attach(m);
-    }
+  // Wheels: tyre, rim and disc spin about the hub, on the tyre's own axle (the front wheels
+  // are modelled with camber and toe: spun about the car's lateral axis they wobble); the
+  // uprights and brake ducts only steer.
+  const wheels = CORNERS.map((name, i) => {
+    const centre = hub(name), pivot = new THREE.Group(); pivot.position.copy(centre); car.add(pivot);
+    const tyreMesh = root.getObjectByName(name).children.find(m => m.material.name === 'tyres');
+    const axle = new THREE.Group(); axle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axleOf(tyreMesh)); pivot.add(axle);
+    const spin = new THREE.Group(); axle.add(spin); car.updateMatrixWorld(true);
+    spin.attach(root.getObjectByName(name)); pivot.attach(root.getObjectByName(`${name}-upright`));
     return { pivot, spin, front: i < 2 };
   });
 
-  // DRS flap: the upper rear-wing element, hinged at its trailing edge. Its authored
-  // pose is the closed flap, which poseCar asks for as -35° (it opens toward -5°).
-  const flap = root.getObjectByName('rear-wing').children
-    .filter(m => { const s = box(m).getSize(new THREE.Vector3()); return s.x < 0.3 && s.z > 0.5; })
-    .sort((a, b) => box(b).getCenter(new THREE.Vector3()).y - box(a).getCenter(new THREE.Vector3()).y)[0];
-  const fb = box(flap), drsFlap = new THREE.Group(), rest = new THREE.Group();
-  drsFlap.position.set(fb.min.x, fb.max.y, 0); drsFlap.rotation.z = -35 * Math.PI / 180;
-  rest.rotation.z = 35 * Math.PI / 180; drsFlap.add(rest); car.add(drsFlap);
-  car.updateMatrixWorld(true); rest.attach(flap);
+  // The rear wing is part of the merged bodywork, so the DRS flap is a placeholder.
+  const drsFlap = new THREE.Group(); car.add(drsFlap);
 
-  // Steering wheel: the detailed wheel takes the plain one's place, as wide as it and
-  // facing the driver, and turns about its column (steeringWheel.rotation.x).
-  let steeringWheel = null;
-  const detail = root.getObjectByName(STEERING_WHEEL);
-  if (detail) {
-    const plain = PLAIN_WHEEL.map(n => root.getObjectByName(n)), pb = new THREE.Box3();
-    plain.forEach(o => pb.union(box(o)));
-    plain.forEach(o => o.removeFromParent());
-    detail.removeFromParent(); detail.rotation.set(0, -Math.PI / 2, 0);
-    const db = new THREE.Box3().setFromObject(detail), dc = db.getCenter(new THREE.Vector3());
-    const column = new THREE.Box3().setFromObject(detail.getObjectByName('Circle004_connector_0')).getCenter(new THREE.Vector3());
-    const s = pb.getSize(new THREE.Vector3()).z / db.getSize(new THREE.Vector3()).z, pc = pb.getCenter(new THREE.Vector3());
-    detail.scale.setScalar(s); detail.position.set(-dc.x * s, -column.y * s, -column.z * s);
-    steeringWheel = new THREE.Group(); steeringWheel.name = 'steering-wheel';
-    steeringWheel.position.set(pc.x, pc.y + (column.y - dc.y) * s, pc.z + (column.z - dc.z) * s);
-    steeringWheel.add(detail);
-    // Only drawn near the car: from further away it is hidden inside the cockpit anyway.
-    const lod = new THREE.LOD(); lod.addLevel(steeringWheel, 0); lod.addLevel(new THREE.Object3D(), WHEEL_DISTANCE);
-    car.add(lod);
-  }
+  // Steering wheel turns about its column (steeringWheel.rotation.x).
+  const steer = root.getObjectByName('steering'), sc = box(steer).getCenter(new THREE.Vector3());
+  const steeringWheel = new THREE.Group(); steeringWheel.name = 'steering-wheel';
+  steeringWheel.position.copy(sc); car.add(steeringWheel); car.updateMatrixWorld(true);
+  steeringWheel.attach(steer);
 
   // The model has no driver: a helmet sits in the cockpit behind the steering wheel.
-  const head = new THREE.Vector3(F - 1.53, 0.70, 0);
+  const head = new THREE.Vector3(sc.x - 0.6, 0.70, 0);
   const helmetMesh = new THREE.Mesh(new THREE.SphereGeometry(0.125, 32, 20), physical({ color: helmet, roughness: 0.25, clearcoat: 1 }));
   helmetMesh.scale.set(1.1, 1, 0.95); helmetMesh.position.copy(head);
   const visor = new THREE.Mesh(new THREE.SphereGeometry(0.127, 32, 12, -0.9, 1.8, 1.2, 0.45),

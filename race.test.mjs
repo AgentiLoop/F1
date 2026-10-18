@@ -41,7 +41,7 @@ test('a car in the tow gains on an identical car in clean air and loses downforc
   }
   assert.ok(tow.x - clean.x > 1, `tow gained ${(tow.x - clean.x).toFixed(2)} m`);
   assert.ok(tow.telemetry.speed > clean.telemetry.speed);
-  assert.ok(minDownforceRatio < 0.9, `downforce ratio ${minDownforceRatio.toFixed(3)}`);
+  assert.ok(minDownforceRatio < 0.95, `downforce ratio ${minDownforceRatio.toFixed(3)}`);
 });
 
 test('car-to-car contact separates the cars, conserves momentum and never adds energy', () => {

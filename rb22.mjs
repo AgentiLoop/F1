@@ -1,6 +1,7 @@
 // Test-drive car: "2026 Redbull RB22" by Tyler_Dave (CC BY 4.0, see models/CREDITS.md),
 // fitted to the physics car as a drop-in for buildModelCar: { group, body, wheels, driver,
-// drsFlap, steeringWheel, eye }. Loaded with ?car=rb22. Keeps the authored Red Bull livery.
+// drsFlap, steeringWheel, eye }. The standard car; each car is repainted in its own colours
+// with our sponsors in place of the Red Bull livery.
 import * as THREE from './vendor/three.module.js';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/meshopt_decoder.module.js';
@@ -12,10 +13,12 @@ const WHEEL_MATERIAL = /^(discs|redbull_wheel_hub|sidewall)/;
 const STEERING_BOX = new THREE.Box3(new THREE.Vector3(-0.14, 0.48, 0.63), new THREE.Vector3(0.14, 0.69, 0.81));
 const CORNERS = ['front-left', 'front-right', 'rear-left', 'rear-right'];
 
-// Load once; bake every mesh into model space and split the merged wheel meshes per corner.
+// Load once (a URL in the browser, an ArrayBuffer in node, where textures are skipped);
+// bake every mesh into model space and split the merged wheel meshes per corner.
 export async function loadRB22Template(source = RB22_URL) {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  const gltf = await loader.loadAsync(source);
+  if (typeof document === 'undefined') loader.register(() => ({ name: 'EXT_texture_webp', loadTexture: () => Promise.resolve(null) }));
+  const gltf = await (typeof source === 'string' ? loader.loadAsync(source) : loader.parseAsync(source, ''));
   gltf.scene.updateMatrixWorld(true);
   const meshes = []; gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
   const template = new THREE.Group(), wheels = CORNERS.map(name => Object.assign(new THREE.Group(), { name }));
@@ -35,7 +38,7 @@ export async function loadRB22Template(source = RB22_URL) {
 }
 
 // A copy with float attributes (meshopt quantizes them, which a transform would clip).
-function toFloat(geometry) {
+export function toFloat(geometry) {
   const out = new THREE.BufferGeometry(); out.setIndex(geometry.index);
   for (const [name, attr] of Object.entries(geometry.attributes)) {
     const n = attr.itemSize, dst = new Float32Array(attr.count * n), get = ['getX', 'getY', 'getZ', 'getW'];
@@ -46,7 +49,7 @@ function toFloat(geometry) {
 }
 
 // Split a non-indexed copy of geometry into four by triangle centroid: +z front, +x left.
-function splitCorners(geometry) {
+export function splitCorners(geometry) {
   const g = geometry.index ? geometry.toNonIndexed() : geometry, pos = g.attributes.position;
   const buckets = [[], [], [], []];
   for (let t = 0; t < pos.count; t += 3) {
@@ -77,14 +80,149 @@ function axleOf(corner) {
   return axis.normalize();
 }
 
-// livery: { helmet } hex colour (the car keeps its own paint).
-export function buildRB22Car(template, config, { accent = 0x39e0ae, helmet = 0x1e2a6e } = {}) {
+// Our livery replaces Red Bull's: the paint is refilled in the car's colour, the decals are
+// cleared, the sponsor names are projected onto both, and the race-number mesh is hidden.
+export const SPONSORS = ['AgentiLoop Racing', 'InkPen.io', 'SuperBox64.com', 'AgentiLoop.si'];
+export const GITHUB = 'github.com/AgentiLoop/F1';
+// Label slots in model space (nose +z, left +x, up +y): centre c, facing n, w x h metres.
+// Text reads along b (default: left to right seen from outside, tops up, or forward on
+// upward faces) and is projected along n onto the texels within `depth` that face n.
+// role: the index into the car's rotated sponsor list, 'github' or 'number'.
+const v = (x, y, z) => new THREE.Vector3(x, y, z).normalize();
+const mirror = s => ({ ...s, c: [-s.c[0], s.c[1], s.c[2]], n: new THREE.Vector3(-s.n.x, s.n.y, s.n.z) });
+const sides = s => [s, mirror(s)];
+export const LIVERY_SLOTS = [
+  ...sides({ role: 0, c: [0.30, 0.53, -1.03], n: v(0.85, 0.47, -0.23), w: 0.72, h: 0.17 }), // engine cover
+  { role: 0, c: [0, 0.86, -1.0], n: v(0, 1, 0), b: v(0, 0, 1), w: 0.75, h: 0.16 }, // engine cover spine
+  { role: 1, on: 'decals', c: [0, 0.86, -2.21], n: v(0, 0.94, 0.33), w: 0.9, h: 0.16 }, // rear wing
+  { role: 2, c: [0, 0.6, 1.85], n: v(0, 0.97, 0.23), b: v(0, 0, 1), w: 0.6, h: 0.12 }, // nose
+  ...sides({ role: 2, on: 'decals', c: [0.62, 0.3, 2.3], n: v(1, 0, 0), w: 0.34, h: 0.14 }), // front wing endplates
+  ...sides({ role: 3, on: 'decals', c: [0.39, 0.16, 2.61], n: v(0, 1, 0), w: 0.55, h: 0.14 }), // front wing
+  ...sides({ role: 3, c: [0.57, 0.8, -2.1], n: v(1, 0, 0), w: 0.4, h: 0.2 }), // rear wing endplates
+  { role: 'number', c: [0, 0.42, 2.4], n: v(0, 0.93, 0.36), w: 0.24, h: 0.2 }, // nose tip
+  ...sides({ role: 'github', c: [0.255, 0.645, -1.0], n: v(0.85, 0.47, -0.23), w: 0.72, h: 0.06 }), // above the title
+];
+const PAINT_SIZE = 1024;
+const TEXELS = new WeakMap(); // template -> liveryTexels, worked out once
+
+// The texels under each slot, from rasterising the UVs (they wrap) of its layer's mesh,
+// slot.on: the paint (default) or the decals, which only exist where Red Bull's logos were.
+// Per slot { idx, s, t } (texel index, local metres along b and up). Texels the UV layout
+// shares between two places (mirrored panels) are left out, or a label would show twice.
+export const LAYERS = { paint: 'redbull_paint', decals: 'redbull_decals' };
+export function liveryTexels(template, slots = LIVERY_SLOTS, size = PAINT_SIZE) {
+  const out = [];
+  for (const [layer, material] of Object.entries(LAYERS)) {
+    const keys = slots.flatMap((s, k) => (s.on ?? 'paint') === layer ? [k] : []);
+    let mesh; template.traverse(o => { if (o.isMesh && o.material.name.startsWith(material)) mesh = o; });
+    rasterSlots(mesh, keys.map(k => slots[k]), size).forEach((texels, j) => { out[keys[j]] = texels; });
+  }
+  return out;
+}
+
+function rasterSlots(mesh, slots, size) {
+  const frames = slots.map(s => {
+    const n = s.n, b = (s.b ?? new THREE.Vector3(0, Math.abs(n.y) > 0.7 ? 0 : 1, Math.abs(n.y) > 0.7 ? 1 : 0).cross(n)).clone().normalize();
+    return { c: new THREE.Vector3(...s.c), n, b, u: n.clone().cross(b), w: s.w / 2, h: s.h / 2, depth: s.depth ?? 0.12 };
+  });
+  const first = new Float32Array(size * size * 3), seen = new Uint8Array(size * size), shared = new Uint8Array(size * size);
+  const hits = frames.map(() => []);
+  const g = mesh.geometry, P = g.attributes.position, N = g.attributes.normal, UV = g.attributes.uv, I = g.index;
+  const p = new THREE.Vector3(), nrm = new THREE.Vector3(), d = new THREE.Vector3(), vi = [0, 0, 0], ux = [0, 0, 0], uy = [0, 0, 0];
+  for (let i = 0; i < (I ? I.count : P.count); i += 3) {
+    for (let k = 0; k < 3; k++) { vi[k] = I ? I.getX(i + k) : i + k; ux[k] = UV.getX(vi[k]) * size; uy[k] = UV.getY(vi[k]) * size; }
+    const det = (uy[1] - uy[2]) * (ux[0] - ux[2]) + (ux[2] - ux[1]) * (uy[0] - uy[2]);
+    if (!det) continue;
+    for (let y = Math.floor(Math.min(...uy)); y < Math.ceil(Math.max(...uy)); y++)
+      for (let x = Math.floor(Math.min(...ux)); x < Math.ceil(Math.max(...ux)); x++) {
+        const a = ((uy[1] - uy[2]) * (x + 0.5 - ux[2]) + (ux[2] - ux[1]) * (y + 0.5 - uy[2])) / det;
+        const bb = ((uy[2] - uy[0]) * (x + 0.5 - ux[2]) + (ux[0] - ux[2]) * (y + 0.5 - uy[2])) / det, cc = 1 - a - bb;
+        if (a < 0 || bb < 0 || cc < 0) continue;
+        p.set(0, 0, 0); nrm.set(0, 0, 0);
+        [a, bb, cc].forEach((w, k) => { p.x += w * P.getX(vi[k]); p.y += w * P.getY(vi[k]); p.z += w * P.getZ(vi[k]);
+          nrm.x += w * N.getX(vi[k]); nrm.y += w * N.getY(vi[k]); nrm.z += w * N.getZ(vi[k]); });
+        const t = ((y % size) + size) % size * size + ((x % size) + size) % size;
+        if (!seen[t]) { seen[t] = 1; p.toArray(first, t * 3); }
+        else if (Math.hypot(p.x - first[t * 3], p.y - first[t * 3 + 1], p.z - first[t * 3 + 2]) > 0.05) { shared[t] = 1; continue; }
+        nrm.normalize();
+        frames.forEach((f, k) => {
+          d.subVectors(p, f.c);
+          const s = d.dot(f.b), up = d.dot(f.u);
+          if (Math.abs(s) < f.w && Math.abs(up) < f.h && Math.abs(d.dot(f.n)) < f.depth && nrm.dot(f.n) > 0.5) hits[k].push(t, s, up);
+        });
+      }
+  }
+  return hits.map(h => {
+    const keep = []; for (let k = 0; k < h.length; k += 3) if (!shared[h[k]]) keep.push(k);
+    return { idx: Int32Array.from(keep, k => h[k]), s: Float32Array.from(keep, k => h[k + 1]), t: Float32Array.from(keep, k => h[k + 2]) };
+  });
+}
+
+const css = c => `#${new THREE.Color(c).getHexString()}`;
+// Light text on dark paint and dark on light.
+const inkFor = paint => { const c = new THREE.Color(paint); return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b > 0.45 ? 0x111418 : 0xf4f4f4; };
+
+// One car's paint and decal textures (browser only): the paint refilled in the car's colour,
+// the decals cleared, and each slot's label baked into its layer.
+export function liveryTextures(texels, { paint, accent, index = 0 }, slots = LIVERY_SLOTS, size = PAINT_SIZE) {
+  const names = SPONSORS.map((_, k) => SPONSORS[(k + index) % SPONSORS.length]);
+  const PX = 800; // label pixels per metre
+  const layers = Object.fromEntries(Object.keys(LAYERS).map(layer => {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (layer === 'paint') { ctx.fillStyle = css(paint); ctx.fillRect(0, 0, size, size); }
+    return [layer, { canvas, ctx, image: ctx.getImageData(0, 0, size, size) }];
+  }));
+  slots.forEach((slot, k) => {
+    const layer = slot.on ?? 'paint', out = layers[layer].image.data;
+    const text = slot.role === 'github' ? GITHUB : slot.role === 'number' ? String(index + 1) : names[slot.role];
+    const lw = Math.ceil(slot.w * PX), lh = Math.ceil(slot.h * PX), label = document.createElement('canvas');
+    label.width = lw; label.height = lh;
+    const l = label.getContext('2d'), font = px => `${slot.role === 'github' ? 600 : 800} ${px}px "Helvetica Neue", Arial, sans-serif`;
+    let px = lh * 0.8; l.font = font(px);
+    px = Math.min(px, px * lw * 0.94 / l.measureText(text).width); l.font = font(px);
+    // Decals sit on dark carbon: light text there.
+    l.fillStyle = css(slot.role === 0 || slot.role === 'number' ? accent : layer === 'paint' ? inkFor(paint) : 0xf4f4f4);
+    l.textAlign = 'center'; l.textBaseline = 'middle'; l.fillText(text, lw / 2, lh / 2);
+    const src = l.getImageData(0, 0, lw, lh).data, { idx, s, t } = texels[k];
+    for (let i = 0; i < idx.length; i++) {
+      const x = Math.min(lw - 1, Math.floor((s[i] / slot.w + 0.5) * lw)), y = Math.min(lh - 1, Math.floor((0.5 - t[i] / slot.h) * lh));
+      const q = (y * lw + x) * 4, a = src[q + 3] / 255, o = idx[i] * 4, da = out[o + 3] / 255, oa = a + da * (1 - a);
+      if (!oa) continue;
+      for (let c = 0; c < 3; c++) out[o + c] = (src[q + c] * a + out[o + c] * da * (1 - a)) / oa;
+      out[o + 3] = oa * 255;
+    }
+  });
+  return Object.fromEntries(Object.entries(layers).map(([layer, { canvas, ctx, image }]) => {
+    ctx.putImageData(image, 0, 0);
+    const texture = new THREE.CanvasTexture(canvas);
+    Object.assign(texture, { colorSpace: THREE.SRGBColorSpace, flipY: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, anisotropy: 8 });
+    return [layer, texture];
+  }));
+}
+
+// livery: { paint, accent, helmet } hex colours and index (the car's place in the sponsor
+// rotation and its race number, index + 1). Without a DOM (node) the paint stays as modelled.
+export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39e0ae, helmet = 0x1e2a6e, index = 0 } = {}) {
   const physical = o => new THREE.MeshPhysicalMaterial(o);
   const car = new THREE.Group(); car.name = 'f1-car';
   const root = template.clone(true);
   // Nose +z, left +x -> nose +x, left -z; then put the front axle on the physics front axle.
   root.rotation.y = Math.PI / 2; car.add(root);
   root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  if (typeof document !== 'undefined') {
+    if (!TEXELS.has(template)) TEXELS.set(template, liveryTexels(template));
+    const maps = liveryTextures(TEXELS.get(template), { paint, accent, index }), materials = new Map();
+    const repaint = (o, set) => { if (!materials.has(o.material)) materials.set(o.material, Object.assign(o.material.clone(), set)); o.material = materials.get(o.material); };
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      const name = o.material.name;
+      if (name.startsWith(LAYERS.paint)) repaint(o, { map: maps.paint });
+      else if (name.startsWith(LAYERS.decals)) repaint(o, { map: maps.decals });
+      else if (name.startsWith('redbull_color')) repaint(o, { color: new THREE.Color(accent) });
+      else if (name.startsWith('redbull_number')) o.visible = false;
+    });
+  }
   const box = o => { car.updateMatrixWorld(true); return new THREE.Box3().setFromObject(o); };
   const F = config.wheelbase * (1 - config.frontWeight);
   root.position.x = F - box(root.getObjectByName(CORNERS[0])).getCenter(new THREE.Vector3()).x;
