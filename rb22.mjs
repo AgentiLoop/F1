@@ -109,7 +109,7 @@ const mirror = s => ({ ...s, c: [-s.c[0], s.c[1], s.c[2]], n: new THREE.Vector3(
 const sides = s => [s, mirror(s)];
 export const LIVERY_SLOTS = [
   ...sides({ role: 0, c: [0.30, 0.53, -1.03], n: v(0.85, 0.47, -0.23), w: 0.72, h: 0.17 }), // engine cover
-  { role: 0, c: [0, 0.86, -1.0], n: v(0, 1, 0), b: v(0, 0, 1), w: 0.75, h: 0.16 }, // engine cover spine
+  ...sides({ role: 0, c: [0.062, 0.86, -1.0], n: v(0, 1, 0), b: v(0, 0, 1), w: 0.75, h: 0.09 }), // engine cover spine, either side of the fin
   { role: 1, on: 'decals', c: [0, 0.86, -2.21], n: v(0, 0.94, 0.33), w: 0.9, h: 0.16 }, // rear wing
   ...sides({ role: 2, on: 'decals', c: [0.62, 0.3, 2.3], n: v(1, 0, 0), w: 0.34, h: 0.14 }), // front wing endplates
   ...sides({ role: 3, on: 'decals', c: [0.39, 0.16, 2.61], n: v(0, 1, 0), w: 0.55, h: 0.14 }), // front wing
