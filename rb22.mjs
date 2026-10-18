@@ -349,7 +349,7 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
   steeringWheel.attach(steer);
 
   // The model has no driver: a helmet sits behind the steering wheel.
-  const head = new THREE.Vector3(sc.x - 0.62, 0.70, 0);
+  const head = new THREE.Vector3(sc.x - 0.80, 0.70, 0);
   const helmetMesh = new THREE.Mesh(new THREE.SphereGeometry(0.125, 32, 20), physical({ color: helmet, roughness: 0.25, clearcoat: 1 }));
   helmetMesh.scale.set(1.1, 1, 0.95); helmetMesh.position.copy(head);
   const visor = new THREE.Mesh(new THREE.SphereGeometry(0.127, 32, 12, -0.9, 1.8, 1.2, 0.45),
@@ -363,5 +363,5 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
   const pivots = new Set(wheels.map(w => w.pivot));
   car.children.filter(o => !pivots.has(o)).forEach(o => body.add(o));
   car.add(body);
-  return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, steeringWheel, eye: [head.x + 0.07, head.y + 0.07] };
+  return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, steeringWheel, eye: [sc.x - 0.55, head.y + 0.07] };
 }
