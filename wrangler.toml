@@ -1,0 +1,8 @@
+name = "f1"
+compatibility_date = "2026-09-01"
+workers_dev = true
+routes = [
+  { pattern = "f1.gokart.games", custom_domain = true },
+]
+[assets]
+directory = "."

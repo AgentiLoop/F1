@@ -1,0 +1,13 @@
+.git
+.agent
+.DS_Store
+.gitignore
+.assetsignore
+wrangler.toml
+README.md
+*.test.mjs
+tools
+models/local
+models/paint_test.png
+node_modules
+.wrangler

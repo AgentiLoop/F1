@@ -1,9 +1,21 @@
 # F1 Dynamics Lab
 
+**Play it in your browser: [f1.gokart.games](https://f1.gokart.games)**
+
+Race an open-wheel car against an AI field in 3D, on a stadium test track or on
+18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts built
+from real car positions). It has a standing start, pit stops and tyre
+compounds, fuel, ERS and DRS, plus engine and tyre sound made from the physics.
+It needs a WebGL browser, with keyboard or gamepad. The [controls](#controls)
+are listed below. Useful URLs:
+[a race at Monza](https://f1.gokart.games/?track=monza&race),
+[the Spa time trial](https://f1.gokart.games/?track=spa).
+
 A playable browser testbed for an open-wheel vehicle model, rendered in 3D with
 Three.js (r170, vendored under `vendor/`, MIT licence in `vendor/LICENSE-three`).
 **Prototype, not a validated Formula 1 simulator.** All vehicle parameters are
 illustrative assumptions, not measured F1 data or a season's regulations.
+3D models and textures keep their own licences; see `models/CREDITS.md`.
 
 ## Run
 
@@ -14,6 +26,11 @@ dependencies, or bundler. A WebGL-capable browser is required.
 
 Run validation with `node --test` (all `*.test.mjs` files).
 Node's built-in test runner is the only test dependency.
+
+The site is a Cloudflare Worker that serves only static assets (`wrangler.toml`).
+`npx wrangler deploy` publishes the repository to f1.gokart.games. Files listed
+in `.assetsignore` (tests, tools, this README) are not uploaded.
+
 
 ## 3D view and car model
 
