@@ -125,12 +125,13 @@ export const LIVERY_SLOTS = [
 // decal meshes (the bar's own triangles lifted 2 mm) with their own texture. The bar curves
 // every way, so the labels are laid out as the driver sees it, flat in the cockpit camera's
 // image plane (x right, y up, as tangents of the view angle): there the middle of the bar's
-// visible band is level (y ~0.32) all the way across.
+// visible band is level (y ~0.32) all the way across; the labels sit above it so they
+// don't look like they bend off the bar's lower edge as it curves away.
 const HALO_EYE = new THREE.Vector3(0, 0.77, 0.167), HALO_PITCH = 4 * Math.PI / 180; // cockpit camera, model space
 export const HALO_SLOTS = [
-  { role: 0, x: 0, y: 0.32, w: 0.5, h: 0.075 },
-  { role: 1, x: -0.62, y: 0.32, w: 0.34, h: 0.07 },
-  { role: 1, x: 0.62, y: 0.32, w: 0.34, h: 0.07 },
+  { role: 0, x: 0, y: 0.347, w: 0.5, h: 0.075 },
+  { role: 1, x: -0.62, y: 0.347, w: 0.34, h: 0.07 },
+  { role: 1, x: 0.62, y: 0.347, w: 0.34, h: 0.07 },
 ];
 const HALO = new WeakMap(); // template -> one decal geometry per HALO_SLOTS entry
 
