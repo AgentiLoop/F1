@@ -347,6 +347,8 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
   const steeringWheel = new THREE.Group(); steeringWheel.name = 'steering-wheel';
   steeringWheel.position.copy(sc); car.add(steeringWheel); car.updateMatrixWorld(true);
   steeringWheel.attach(steer);
+  // Bring the wheel 12 cm back toward the driver (the eye and helmet keep their places).
+  steeringWheel.position.x -= 0.12;
 
   // The model has no driver: a helmet sits behind the steering wheel.
   const head = new THREE.Vector3(sc.x - 0.80, 0.70, 0);
