@@ -1,6 +1,6 @@
 // Test-drive car: "2026 Redbull RB22" by Tyler_Dave (CC BY 4.0, see models/CREDITS.md),
 // fitted to the physics car as a drop-in for buildModelCar: { group, body, wheels, driver,
-// drsFlap, steeringWheel, eye }. The standard car; each car is repainted in its own colours
+// drsFlap, steeringWheel, eye, mirrors }. The standard car; each car is repainted in its own colours
 // with our sponsors in place of the Red Bull livery.
 import * as THREE from './vendor/three.module.js';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
@@ -12,6 +12,7 @@ const WHEEL_MATERIAL = /^(discs|redbull_wheel_hub|sidewall)/;
 // Parts wholly inside this box (model metres, nose at +z) make up the steering wheel.
 const STEERING_BOX = new THREE.Box3(new THREE.Vector3(-0.14, 0.48, 0.63), new THREE.Vector3(0.14, 0.69, 0.81));
 const CORNERS = ['front-left', 'front-right', 'rear-left', 'rear-right'];
+const MIRRORS = ['mirror-left', 'mirror-right'];
 // A flat 4 cm plate on top of the bodywork, left of the cockpit (part of the detail mesh): its
 // magenta-and-white metallic texture flashes white in the cockpit view, so it is left out.
 const NOSE_PLATE = new THREE.Box3(new THREE.Vector3(0.07, 0.69, 1.11), new THREE.Vector3(0.125, 0.712, 1.165));
@@ -32,6 +33,11 @@ export async function loadRB22Template(source = RB22_URL) {
     geometry.computeBoundingBox();
     if (WHEEL_MATERIAL.test(m.material.name)) {
       splitCorners(geometry).forEach((g, i) => g && wheels[i].add(new THREE.Mesh(g, m.material)));
+      continue;
+    }
+    // Both mirrors' glass is one mesh: split left / right so each can reflect its own view.
+    if (m.material.name.startsWith('redbull_mirror')) {
+      splitCorners(geometry).slice(0, 2).forEach((g, i) => template.add(Object.assign(new THREE.Mesh(g, m.material), { name: MIRRORS[i] })));
       continue;
     }
     const mesh = new THREE.Mesh(geometry, m.material); mesh.name = m.name;
@@ -366,5 +372,6 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
   const pivots = new Set(wheels.map(w => w.pivot));
   car.children.filter(o => !pivots.has(o)).forEach(o => body.add(o));
   car.add(body);
-  return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, steeringWheel, eye: [sc.x - 0.55, head.y + 0.07] };
+  return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, steeringWheel, eye: [sc.x - 0.55, head.y + 0.07],
+    mirrors: MIRRORS.map(name => root.getObjectByName(name)) };
 }
