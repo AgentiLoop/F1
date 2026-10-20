@@ -1,6 +1,6 @@
 // Three.js circuit scenery for the stadium test track used by the physics
 // surface function. Physics (x, y) maps to world (x, 0, -y); y is up.
-import * as THREE from './vendor/three.module.js';
+import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
@@ -24,7 +24,7 @@ function noise(g, s, base, spread, count) {
 function asphaltMaterial(width, vScale = 30) {
   const loader = new THREE.TextureLoader(), tile = 2.5;
   const [map, normalMap, roughnessMap] = ['diff', 'nor_gl', 'rough'].map(m => {
-    const t = loader.load(new URL(`./models/asphalt_track_${m}_1k.jpg`, import.meta.url).href);
+    const t = loader.load(new URL(`../models/asphalt_track_${m}_1k.jpg`, import.meta.url).href);
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(width / tile, vScale / tile); t.anisotropy = 8;
     if (m === 'diff') t.colorSpace = THREE.SRGBColorSpace;
     return t;

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Simulation, createCar } from './physics.mjs';
-import { createStadiumTrack } from './track.mjs';
-import { createAutopilot } from './autopilot.mjs';
-import { createLapTimer, formatLapTime } from './laptimer.mjs';
+import { Simulation, createCar } from '../src/physics.mjs';
+import { createStadiumTrack } from '../src/track.mjs';
+import { createAutopilot } from '../src/autopilot.mjs';
+import { createLapTimer, formatLapTime } from '../src/laptimer.mjs';
 
 const halfStraight = 220, radius = 90, roadWidth = 15;
 const track = createStadiumTrack({ halfStraight, radius, roadWidth });

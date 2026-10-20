@@ -5,7 +5,7 @@
 .assetsignore
 wrangler.toml
 README.md
-*.test.mjs
+test
 tools
 models/local
 models/paint_test.png

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { loadRB22Template, buildRB22Car, liveryTexels, LIVERY_SLOTS, SPONSORS } from './rb22.mjs';
-import { DEFAULT_CAR } from './physics.mjs';
+import { loadRB22Template, buildRB22Car, liveryTexels, LIVERY_SLOTS, SPONSORS } from '../src/rb22.mjs';
+import { DEFAULT_CAR } from '../src/physics.mjs';
 
-const bytes = readFileSync(new URL('./models/rb22.glb', import.meta.url));
+const bytes = readFileSync(new URL('../models/rb22.glb', import.meta.url));
 const template = await loadRB22Template(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
 
 test('every livery slot lands on the bodywork', () => {

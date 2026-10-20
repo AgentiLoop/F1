@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SOUND_DEFAULTS, firingFrequency, createSoundModel, createAudioEngine } from './audio.mjs';
-import { createCar, step, DEFAULT_CAR, FIXED_DT } from './physics.mjs';
+import { SOUND_DEFAULTS, firingFrequency, createSoundModel, createAudioEngine } from '../src/audio.mjs';
+import { createCar, step, DEFAULT_CAR, FIXED_DT } from '../src/physics.mjs';
 
 const run = (car, seconds, input) => {
   for (let i = 0; i < Math.round(seconds / FIXED_DT); i++) step(car, input, FIXED_DT);

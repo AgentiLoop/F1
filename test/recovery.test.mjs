@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStadiumTrack } from './track.mjs';
-import { createCircuitTrack } from './circuit.mjs';
-import { CIRCUITS } from './circuits.mjs';
-import { createRace, DEFAULT_GRID, RACE_DEFAULTS } from './race.mjs';
+import { createStadiumTrack } from '../src/track.mjs';
+import { createCircuitTrack } from '../src/circuit.mjs';
+import { CIRCUITS } from '../src/circuits.mjs';
+import { createRace, DEFAULT_GRID, RACE_DEFAULTS } from '../src/race.mjs';
 
 const track = createStadiumTrack({ halfStraight: 220, radius: 90, roadWidth: 15 });
 // Nose-on to the outer wall of the main straight, 5 cm short of it.

@@ -26,10 +26,10 @@ illustrative assumptions, not measured F1 data or a season's regulations.
 
 From this directory, run `python3 -m http.server 5188 --bind 127.0.0.1`, then open
 `http://127.0.0.1:5188`. ES modules require HTTP; do not open the HTML as a file.
-Three.js is served from `vendor/`, so there are no runtime downloads, npm
+Game modules live in `src/`, tests in `test/`, and Three.js is served from `vendor/`, so there are no runtime downloads, npm
 dependencies, or bundler. A WebGL-capable browser is required.
 
-Run validation with `node --test` (all `*.test.mjs` files).
+Run validation with `node --test` (runs every `test/*.test.mjs` file).
 Node's built-in test runner is the only test dependency.
 
 The site is a Cloudflare Worker that serves only static assets (`wrangler.toml`).

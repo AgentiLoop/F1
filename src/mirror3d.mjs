@@ -2,7 +2,7 @@
 // viewer's eye reflected through the mirror's plane, through a frustum fitted to the glass
 // (its near plane on the mirror, so nothing behind the glass shows), and that image is
 // projected back onto the glass.
-import * as THREE from './vendor/three.module.js';
+import * as THREE from '../vendor/three.module.js';
 
 let rendering = false; // a mirror seen in another mirror keeps its last image
 

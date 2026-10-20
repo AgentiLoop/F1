@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCar, step, wheelLoads, aeroMap, tireForce, relaxSlipAngle, engineTorque, shift, updateBody, tireTempGrip, updateTireTemp, tireWearGrip, updateTireWear, fitTires, carMass, newErsLap, TIRE_COMPOUNDS, Simulation, FIXED_DT }
-  from './physics.mjs';
+  from '../src/physics.mjs';
 
 const run = (car, seconds, input, surface) => {
   for (let i = 0; i < Math.round(seconds / FIXED_DT); i++) step(car, input, FIXED_DT, surface);

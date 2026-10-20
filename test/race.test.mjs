@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, FIXED_DT } from './physics.mjs';
-import { createStadiumTrack } from './track.mjs';
-import { createRace, wakeStrength, resolveCarContact, RACE_DEFAULTS, DEFAULT_GRID } from './race.mjs';
+import { createCar, step, FIXED_DT } from '../src/physics.mjs';
+import { createStadiumTrack } from '../src/track.mjs';
+import { createRace, wakeStrength, resolveCarContact, RACE_DEFAULTS, DEFAULT_GRID } from '../src/race.mjs';
 
 const track = createStadiumTrack({ halfStraight: 220, radius: 90, roadWidth: 15 });
 const place = (x, y, heading = 0, speed = 0) => Object.assign(createCar(), { x, y, heading, vx: speed * Math.cos(heading), vy: speed * Math.sin(heading) });

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, DEFAULT_CAR } from './physics.mjs';
-import { createStadiumTrack } from './track.mjs';
-import { createCircuitTrack } from './circuit.mjs';
-import { CIRCUITS } from './circuits.mjs';
-import { createRace, DEFAULT_GRID } from './race.mjs';
+import { createCar, step, DEFAULT_CAR } from '../src/physics.mjs';
+import { createStadiumTrack } from '../src/track.mjs';
+import { createCircuitTrack } from '../src/circuit.mjs';
+import { CIRCUITS } from '../src/circuits.mjs';
+import { createRace, DEFAULT_GRID } from '../src/race.mjs';
 
 const track = createStadiumTrack({ halfStraight: 220, radius: 90, roadWidth: 15 });
 

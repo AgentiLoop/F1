@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as THREE from './vendor/three.module.js';
-import { buildF1Car, loft } from './car3d.mjs';
-import { DEFAULT_CAR } from './physics.mjs';
+import * as THREE from '../vendor/three.module.js';
+import { buildF1Car, loft } from '../src/car3d.mjs';
+import { DEFAULT_CAR } from '../src/physics.mjs';
 
 const { group, wheels } = buildF1Car(DEFAULT_CAR);
 group.updateMatrixWorld(true);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, resolveBarrier, FIXED_DT } from './physics.mjs';
-import { createStadiumTrack, SURFACE_GRIP } from './track.mjs';
+import { createCar, step, resolveBarrier, FIXED_DT } from '../src/physics.mjs';
+import { createStadiumTrack, SURFACE_GRIP } from '../src/track.mjs';
 
 const track = createStadiumTrack({ halfStraight: 220, radius: 90, roadWidth: 15 });
 // Footprint corners must stay inside both walls (small tolerance for one step of travel).

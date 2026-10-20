@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCircuitTrack } from './circuit.mjs';
-import { CIRCUITS } from './circuits.mjs';
-import { createTimeTrial } from './trial.mjs';
-import { createLapTimer } from './laptimer.mjs';
-import { SURFACE_GRIP } from './track.mjs';
-import { createCircuitAutopilot } from './autopilot.mjs';
-import { createCar, Simulation, FIXED_DT } from './physics.mjs';
-import { createRace, DEFAULT_GRID, RACE_DEFAULTS } from './race.mjs';
+import { createCircuitTrack } from '../src/circuit.mjs';
+import { CIRCUITS } from '../src/circuits.mjs';
+import { createTimeTrial } from '../src/trial.mjs';
+import { createLapTimer } from '../src/laptimer.mjs';
+import { SURFACE_GRIP } from '../src/track.mjs';
+import { createCircuitAutopilot } from '../src/autopilot.mjs';
+import { createCar, Simulation, FIXED_DT } from '../src/physics.mjs';
+import { createRace, DEFAULT_GRID, RACE_DEFAULTS } from '../src/race.mjs';
 
 // Anticlockwise circle of radius 200 m traced with 48 points.
 const ring = Array.from({ length: 48 }, (_, i) => [200 * Math.cos(i * Math.PI / 24), 200 * Math.sin(i * Math.PI / 24)]);

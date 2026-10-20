@@ -2,7 +2,7 @@
 // so wheelbase, track and wheel radius always match the simulated car.
 // Local frame: +x forward, +y up, +z right (physics y-left maps to -z).
 // Proportions are illustrative, not a CAD model of any real car.
-import * as THREE from './vendor/three.module.js';
+import * as THREE from '../vendor/three.module.js';
 
 const hasDOM = typeof document !== 'undefined';
 

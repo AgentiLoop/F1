@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCircuitTrack } from './circuit.mjs';
-import { CIRCUITS } from './circuits.mjs';
-import { createRace } from './race.mjs';
-import { FIXED_DT } from './physics.mjs';
+import { createCircuitTrack } from '../src/circuit.mjs';
+import { CIRCUITS } from '../src/circuits.mjs';
+import { createRace } from '../src/race.mjs';
+import { FIXED_DT } from '../src/physics.mjs';
 
 test('cars entering Monza\'s pit lane from different racing lanes keep apart until their paths merge', () => {
   // Seed 1, three laps with the compound rule: the outside-lane car braked

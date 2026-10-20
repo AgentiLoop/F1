@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { INPUT_DEFAULTS, shapeAxis, readGamepad, createDriverInput } from './input.mjs';
+import { INPUT_DEFAULTS, shapeAxis, readGamepad, createDriverInput } from '../src/input.mjs';
 
 const none = { throttle: false, brake: false, left: false, right: false };
 const run = (input, seconds, dt, keys, pad = null, speed = 0) => {

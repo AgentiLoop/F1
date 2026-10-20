@@ -2,11 +2,11 @@
 // fitted to the physics car as a drop-in for buildF1Car: { group, body, wheels, driver,
 // drsFlap, steeringWheel, eye, mirrors }. The standard car; each car is repainted in its own colours
 // with our sponsors in place of the Red Bull livery.
-import * as THREE from './vendor/three.module.js';
-import { GLTFLoader } from './vendor/GLTFLoader.js';
-import { MeshoptDecoder } from './vendor/meshopt_decoder.module.js';
+import * as THREE from '../vendor/three.module.js';
+import { GLTFLoader } from '../vendor/GLTFLoader.js';
+import { MeshoptDecoder } from '../vendor/meshopt_decoder.module.js';
 
-export const RB22_URL = new URL('./models/rb22.glb', import.meta.url).href;
+export const RB22_URL = new URL('../models/rb22.glb', import.meta.url).href;
 // All four wheels of each of these materials are one mesh: split per corner at load.
 const WHEEL_MATERIAL = /^(discs|redbull_wheel_hub|sidewall)/;
 // Parts wholly inside this box (model metres, nose at +z) make up the steering wheel.

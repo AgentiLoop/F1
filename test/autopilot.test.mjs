@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Simulation, createCar, clamp, newErsLap } from './physics.mjs';
-import { createAutopilot, createCircuitAutopilot } from './autopilot.mjs';
-import { createCircuitTrack } from './circuit.mjs';
-import { CIRCUITS } from './circuits.mjs';
+import { Simulation, createCar, clamp, newErsLap } from '../src/physics.mjs';
+import { createAutopilot, createCircuitAutopilot } from '../src/autopilot.mjs';
+import { createCircuitTrack } from '../src/circuit.mjs';
+import { CIRCUITS } from '../src/circuits.mjs';
 
 const halfStraight = 220, radius = 90, roadWidth = 15;
 const trackDistance = (x, y) => Math.abs(Math.hypot(x - clamp(x, -halfStraight, halfStraight), y) - radius);

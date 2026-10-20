@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCar, step, shift, FIXED_DT } from './physics.mjs';
+import { createCar, step, shift, FIXED_DT } from '../src/physics.mjs';
 
 const run = (car, seconds, input, barrier = null, dt = FIXED_DT) => {
   for (let i = 0; i < Math.round(seconds / dt); i++) step(car, input, dt, () => 1, barrier);
