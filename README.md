@@ -1,4 +1,4 @@
-# AgentiLoop Racing • F1 Dynamics Lab • PhotoType III
+# AgentiLoop Racing • F1 Dynamics Lab • ProtoType III
 
 **Play it in your browser: [f1.gokart.games](https://f1.gokart.games)**
 
