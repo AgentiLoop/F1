@@ -28,7 +28,7 @@ export function makeMirror(mesh, { width = 512 } = {}) {
 
   const target = new THREE.WebGLRenderTarget(width, Math.max(16, Math.round(width * (v1 - v0) / (u1 - u0))), { type: THREE.HalfFloatType, samples: 4 });
   const textureMatrix = new THREE.Matrix4(), mirrorCamera = new THREE.PerspectiveCamera();
-  mesh.material = new THREE.ShaderMaterial({
+  const modelled = mesh.material, glass = new THREE.ShaderMaterial({
     name: 'mirror',
     uniforms: { map: { value: target.texture }, textureMatrix: { value: textureMatrix } },
     vertexShader: `uniform mat4 textureMatrix; varying vec4 vMirror;
@@ -39,11 +39,13 @@ export function makeMirror(mesh, { width = 512 } = {}) {
       #include <colorspace_fragment>
       }`,
   });
+  // mesh.userData.mirror(on): the glass reflects (on) or goes back to its modelled material.
+  (mesh.userData.mirror = on => { mesh.material = on ? glass : modelled; })(true);
 
   const C = new THREE.Vector3(), N = new THREE.Vector3(), up = new THREE.Vector3(), eye = new THREE.Vector3(), p = new THREE.Vector3();
   const bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
   mesh.onBeforeRender = (renderer, scene, camera) => {
-    if (rendering) return;
+    if (rendering || mesh.material !== glass) return;
     C.copy(centre).applyMatrix4(mesh.matrixWorld);
     N.copy(n).transformDirection(mesh.matrixWorld); up.copy(v).transformDirection(mesh.matrixWorld);
     const dist = eye.setFromMatrixPosition(camera.matrixWorld).sub(C).dot(N);

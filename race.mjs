@@ -820,6 +820,18 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     // Player's pit request: the compound to fit at the next stop (null cancels).
     // On autopilot the car boxes at the next pit entry; driving, stop in the box.
     requestPit(compound) { if (pit) entries[0].pitRequest = compound === null || TIRE_COMPOUNDS[compound] ? compound : entries[0].pitRequest; },
+    // Grid position (1 = pole) of the player's car, from the grid distances.
+    get gridSlot() { return [...entries].sort((a, b) => b.grid - a.grid).indexOf(entries[0]) + 1; },
+    // Before lights out, the player takes grid position n (1 = pole): the car
+    // there swaps places with the player's. Returns that car's entry index (0:
+    // the player's own slot), or false outside the window.
+    takeGridSlot(n) {
+      const other = [...entries].sort((a, b) => b.grid - a.grid)[n - 1], me = entries[0];
+      if (!start || time >= lightsOut || !other) return false;
+      for (const k of ['x', 'y', 'heading', 'vx', 'vy', 'yawRate']) [me.car[k], other.car[k]] = [other.car[k], me.car[k]];
+      for (const k of ['offset', 'last', 'covered', 'grid', 'lane']) [me[k], other[k]] = [other[k], me[k]];
+      return other.index;
+    },
     get car() { return entries[0].car; },
     get time() { return time; },
     // Start sequence: phase 'lights' (lit = red lights showing, 0..5) until
