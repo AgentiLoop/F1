@@ -1,5 +1,5 @@
 // Test-drive car: "2026 Redbull RB22" by Tyler_Dave (CC BY 4.0, see models/CREDITS.md),
-// fitted to the physics car as a drop-in for buildModelCar: { group, body, wheels, driver,
+// fitted to the physics car as a drop-in for buildF1Car: { group, body, wheels, driver,
 // drsFlap, steeringWheel, eye, mirrors }. The standard car; each car is repainted in its own colours
 // with our sponsors in place of the Red Bull livery.
 import * as THREE from './vendor/three.module.js';
@@ -13,6 +13,8 @@ const WHEEL_MATERIAL = /^(discs|redbull_wheel_hub|sidewall)/;
 const STEERING_BOX = new THREE.Box3(new THREE.Vector3(-0.14, 0.48, 0.63), new THREE.Vector3(0.14, 0.69, 0.81));
 const CORNERS = ['front-left', 'front-right', 'rear-left', 'rear-right'];
 const MIRRORS = ['mirror-left', 'mirror-right'];
+// Steering wheel turn per radian of road-wheel steer (full lock 0.38 rad -> about 110°).
+export const STEERING_RATIO = 5;
 // A flat 4 cm plate on top of the bodywork, left of the cockpit (part of the detail mesh): its
 // magenta-and-white metallic texture flashes white in the cockpit view, so it is left out.
 const NOSE_PLATE = new THREE.Box3(new THREE.Vector3(0.07, 0.69, 1.11), new THREE.Vector3(0.125, 0.712, 1.165));

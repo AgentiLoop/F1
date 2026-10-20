@@ -2,18 +2,6 @@
 
 The project code's licence does not cover these files; each keeps its own licence.
 
-## f1-2022-generic-v3.glb
-
-- Model: ["F1 2022 Generic V3 (reuploaded from TheoDevF1)"](https://sketchfab.com/3d-models/f1-2022-generic-v3-reuploaded-from-theodevf1-55c119e7096a4322bc375c9b4f5a162d)
-  by [Hydra_Junie](https://sketchfab.com/DaniFold), originally by TheoDevF1
-- Licence: [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
-- A generic 2022-regulation car, with no team or sponsor logos.
-- Changes: the Sketchfab glTF download (11.8 MB) compressed with meshopt using
-  `@gltf-transform/cli meshopt` (3.9 MB). `carmodel.mjs` splits the wheels per corner,
-  repaints the red livery in each car's colour, turns the steering wheel with the steering
-  and scales the model onto the physics car's axles. The backup car if the RB22 fails to
-  load; chosen with `?car=generic`.
-
 ## rb22.glb
 
 - Model: "2026 Redbull RB22" by Tyler_Dave (Sketchfab)

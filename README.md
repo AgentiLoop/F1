@@ -41,9 +41,8 @@ in `.assetsignore` (tests, tools, this README) are not uploaded.
   `models/CREDITS.md`), repainted at load time in each car's colours with
   this project's sponsor names and a race number (`rb22.mjs`), with a turning
   steering wheel. In the player's car the mirrors render the scene reflected
-  through each glass (`mirror3d.mjs`). If the model fails to load, the generic
-  2022 model (`carmodel.mjs`, or `?car=generic`) is used; `?car=procedural`
-  picks the built-in car below.
+  through each glass (`mirror3d.mjs`). If the model fails to load, or with
+  `?car=procedural`, the built-in car below is used.
 * `car3d.mjs` builds a procedural 2022-era-layout open-wheel car from the physics
   config, so wheelbase (3.6 m), track and wheel radius always match the simulated
   car: superellipse-lofted monocoque/nose, coke-bottle sidepods with inlets,
@@ -204,7 +203,7 @@ P still switches the autopilot afterwards).
 | `?laps=N` | Race distance (default 10 on the stadium, 3 on a real circuit) |
 | `?tyre=soft\|medium\|hard` | Start compound |
 | `?nostart` | Skip the start lights |
-| `?car=generic` / `?car=procedural` | The generic 2022 model / the built-in procedural car instead of the RB22 |
+| `?car=procedural` | The built-in procedural car instead of the RB22 |
 
 For example [a race at Monza](https://f1.gokart.games/?track=monza&race) or
 [a 5-lap race at Spa on softs](https://f1.gokart.games/?track=spa&race&laps=5&tyre=soft).

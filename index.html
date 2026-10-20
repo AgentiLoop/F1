@@ -46,8 +46,7 @@ import { RoomEnvironment } from './vendor/RoomEnvironment.js';
 import { DEFAULT_CAR, TIRE_COMPOUNDS, shift } from './physics.mjs';
 import { createRace, DEFAULT_GRID } from './race.mjs';
 import { buildF1Car } from './car3d.mjs';
-import { loadCarTemplate, buildModelCar, STEERING_RATIO } from './carmodel.mjs';
-import { loadRB22Template, buildRB22Car } from './rb22.mjs';
+import { loadRB22Template, buildRB22Car, STEERING_RATIO } from './rb22.mjs';
 import { buildWorld, buildCircuitWorld } from './world3d.mjs';
 import { makeMirror } from './mirror3d.mjs';
 import { createStadiumTrack } from './track.mjs';
@@ -243,18 +242,15 @@ const world = circuitKey ? buildCircuitWorld(track, { boxColors }) : buildWorld(
 scene.add(world);
 // Real circuits span kilometres: see the far side of the layout from the overview.
 if (circuitKey) camera.far = 2 * world.userData.extent + 3000;
-// Photo-real CC BY models (models/CREDITS.md): every car is the 2026 RB22 (rb22.mjs) in its own
-// colours with our sponsors, each car with a different title sponsor. The generic 2022 car
-// (carmodel.mjs) is the backup if it fails to load, or chosen with ?car=generic; ?car=procedural,
-// or no model loading, uses the built-in car.
-const carParam = new URLSearchParams(location.search).get('car');
-const MODELS = { generic: [loadCarTemplate, buildModelCar], rb22: [loadRB22Template, buildRB22Car] };
-let carTemplate = null, buildModel = null;
-for (const kind of carParam === 'procedural' ? [] : carParam === 'generic' ? ['generic'] : ['rb22', 'generic']) {
-  try { carTemplate = await MODELS[kind][0](); buildModel = MODELS[kind][1]; break; }
-  catch (err) { console.warn(`${kind} car model failed to load`, err); }
+// Photo-real CC BY model (models/CREDITS.md): every car is the 2026 RB22 (rb22.mjs) in its own
+// colours with our sponsors, each car with a different title sponsor. ?car=procedural, or a
+// model that fails to load, uses the built-in car.
+let carTemplate = null;
+if (new URLSearchParams(location.search).get('car') !== 'procedural') {
+  try { carTemplate = await loadRB22Template(); }
+  catch (err) { console.warn('rb22 car model failed to load', err); }
 }
-const buildCar = livery => carTemplate ? buildModel(carTemplate, DEFAULT_CAR, livery) : buildF1Car(DEFAULT_CAR, livery);
+const buildCar = livery => carTemplate ? buildRB22Car(carTemplate, DEFAULT_CAR, livery) : buildF1Car(DEFAULT_CAR, livery);
 // One model per livery: the navy car, then each AI opponent's (helmets match the accent;
 // index: its place in the sponsor rotation and race number).
 const cars = [buildCar(), ...DEFAULT_GRID.map((spec, i) => buildCar({ paint: spec.color, accent: spec.accent, helmet: spec.accent, index: i + 1 }))]
