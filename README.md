@@ -84,9 +84,9 @@ contact position, has outward loft normals, and stays under 200k triangles.
   opens as a solo time trial; press **O** (or add `?race`) to race the field
   there (3 laps by default).
 * **Take the wheel.** Every session starts on autopilot, so the car drives
-  itself until you take over. Press **P**, touch a gamepad, shift gear, or pick
-  a grid slot on the start lights and you are driving. P (or the
-  *Autopilot* button) hands the car back at any time.
+  itself until you take over. Press **P** (gamepad right-stick click), touch
+  a gamepad, shift gear, or pick a grid slot on the start lights and you are
+  driving. P (or the *Autopilot* button) hands the car back at any time.
 * **The start.** Five red lights come on one per second, then go out after a
   random 0.2–3 s hold. Stay still until they go out: moving more than 0.5 m
   early is a jump start (+5 s). While the lights are on, **1–5** (gamepad
@@ -176,7 +176,7 @@ P still switches the autopilot afterwards).
 | D-pad ← / → | Steer (on/off, with the keyboard ramps) |
 | RB / LB (R1 / L1) | Shift up / down (manual gearbox); on the start lights: the grid slot behind / ahead |
 | Left-stick click (L3) | Automatic gearbox |
-| Right-stick click (R3, hold) | DRS |
+| Right-stick click (R3) | On autopilot: autopilot off (take the wheel); driving, hold: DRS |
 | A (Cross) | Units: km/h ↔ mph |
 | B (Circle) | Cockpit / chase camera |
 | X (Square) | Pause / resume |
@@ -189,9 +189,9 @@ P still switches the autopilot afterwards).
   Steering authority falls with speed, as for the keyboard.
 * Keyboard and gamepad can be used together: the larger pedal value wins, and
   a held steering key or D-pad direction overrides the stick.
-* Buttons act once per press. Pit request, overview camera, sound,
-  opponents and the autopilot have no gamepad button; use B, V, M, O and P on
-  the keyboard.
+* Buttons act once per press. R3 only turns the autopilot off; to hand the
+  car back to it use P. Pit request, overview camera, sound and opponents have
+  no gamepad button; use B, V, M and O on the keyboard.
 * There is no rumble, button remapping or calibration. Racing wheels and pads
   that report a non-standard layout are ignored.
 
@@ -1346,7 +1346,8 @@ Extended gamepad support (later cycles; the full map is under
   keyboard ramps and, like a steering key, overrides the stick while held.
 * RB / LB (5 / 4) shift up / down and switch the player's car to the manual
   gearbox; on the start lights they move the player one grid slot behind /
-  ahead instead. L3 (10) restores the automatic gearbox and R3 (11) held is DRS.
+  ahead instead. L3 (10) restores the automatic gearbox; R3 (11) pressed on autopilot turns
+  the autopilot off, and held while driving is DRS.
 * Face and centre buttons act once per press (edge-detected each frame):
   A (0) units, B (1) cockpit camera, X (2) pause, Y (3) full screen, View (8)
   reset, Menu (9) HUD.
