@@ -1,13 +1,16 @@
-# F1 Dynamics Lab
+# AgentiLoop Racing · F1 Dynamics Lab
 
 **Play it in your browser: [f1.gokart.games](https://f1.gokart.games)**
 
 Race an open-wheel car against an AI field in 3D, on a stadium test track or on
 18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts built
 from real car positions). It has a standing start, pit stops and tyre
-compounds, fuel, ERS and DRS, plus engine and tyre sound made from the physics.
-It needs a WebGL browser, with keyboard or gamepad. The [controls](#controls)
-are listed below. Useful URLs:
+compounds, fuel, ERS and DRS, an automatic or paddle-shift gearbox, plus engine
+and tyre sound made from the physics. Drive from the chase or cockpit camera,
+where the car's mirrors show the cars behind you. It needs a WebGL browser and
+plays with a keyboard or an Xbox (or other standard) controller, with analog
+triggers and sticks. See [How to play](#how-to-play) and the
+[controls](#controls). Useful URLs:
 [a race at Monza](https://f1.gokart.games/?track=monza&race),
 [the Spa time trial](https://f1.gokart.games/?track=spa).
 
@@ -34,6 +37,13 @@ in `.assetsignore` (tests, tools, this README) are not uploaded.
 
 ## 3D view and car model
 
+* Every car on the grid is a photo-real 2026 RB22 model (CC BY 4.0, see
+  `models/CREDITS.md`), repainted at load time in each car's colours with
+  this project's sponsor names and a race number (`rb22.mjs`), with a turning
+  steering wheel. In the player's car the mirrors render the scene reflected
+  through each glass (`mirror3d.mjs`). If the model fails to load, the generic
+  2022 model (`carmodel.mjs`, or `?car=generic`) is used; `?car=procedural`
+  picks the built-in car below.
 * `car3d.mjs` builds a procedural 2022-era-layout open-wheel car from the physics
   config, so wheelbase (3.6 m), track and wheel radius always match the simulated
   car: superellipse-lofted monocoque/nose, coke-bottle sidepods with inlets,
@@ -67,36 +77,137 @@ in `.assetsignore` (tests, tools, this README) are not uploaded.
 ground only with tires and plank, places each wheel hub exactly at the physics
 contact position, has outward loft normals, and stays under 200k triangles.
 
+## How to play
+
+* **Pick a circuit** from the menu at the right of the header. The stadium
+  test track opens as a race against four AI cars (10 laps). A real circuit
+  opens as a solo time trial; press **O** (or add `?race`) to race the field
+  there (3 laps by default).
+* **Take the wheel.** Every session starts on autopilot, so the car drives
+  itself until you take over. Press **P**, touch a gamepad, shift gear, or pick
+  a grid slot on the start lights and you are driving. P (or the
+  *Autopilot* button) hands the car back at any time.
+* **The start.** Five red lights come on one per second, then go out after a
+  random 0.2–3 s hold. Stay still until they go out: moving more than 0.5 m
+  early is a jump start (+5 s). While the lights are on, **1–5** (gamepad
+  **LB / RB**) move you into the car on that grid position (1 = pole); that car
+  takes your old slot and you drive on in its colours.
+* **The race.** The timing box shows your position and lap, the side panel
+  the order with intervals, tyres, fuel and penalties, and the minimap at the
+  bottom left every car on the layout. At the chequered flag the panel shows the
+  classification; R starts a new race.
+* **Tyres and pit stops.** You start on mediums (`?tyre=soft|hard` to change).
+  In a race every finisher must run two compounds, so you must stop once or be
+  disqualified. **B** cycles the pit request (Soft → Medium → Hard →
+  cancel). On autopilot the car boxes at the next pit entry. When you drive,
+  take the pit lane (on the inside of the stadium's main straight; on a real
+  circuit beside the start/finish straight, entry about 300 m before the line),
+  keep to the 80 km/h limit (+5 s for speeding) and stop on your box, the first
+  one, painted green. The crew holds you until it is safe to leave.
+* **DRS.** Hold **F** (gamepad right-stick click). In a race it opens from
+  lap 2, in a DRS zone, when you were within 1 s of the car ahead at the
+  detection point; any braking closes it. In a time trial it is free in the
+  zones. The HUD shows when it is available and when it is open.
+* **Fuel and ERS.** Each car carries the fuel for the race distance and gets
+  lighter as it burns off. The hybrid store deploys up to 120 kW whenever you
+  are on the throttle above 100 km/h, within 4 MJ a lap, and recharges under
+  braking.
+* **Gears.** The gearbox is automatic. **X / Z** (gamepad **RB / LB**) shift
+  up / down and switch your car to the manual gearbox (an M shows beside the
+  gear; the gear flashes red when a shift is refused, e.g. a downshift that
+  would over-rev). **G** (gamepad left-stick click) goes back to automatic,
+  as does handing the car to the autopilot.
+* **Reversing.** Stopped and pointing at a wall? Hold the brake: once the car
+  is still it selects reverse (the HUD shows **R**) and the brake pedal backs
+  it up. In reverse the throttle brakes, and holding it at a stop selects
+  forward again. This works the same with keys or gamepad. Q / E still select
+  reverse / forward explicitly (stopped, on the brake, off the throttle).
+  Brake-to-reverse is off on the start lights.
+* **Off track.** Kerbs, run-off and grass have less grip, and a lap with all
+  four wheels past the road edge is deleted. Walls are solid: there is no
+  damage, but you lose time. R resets the car (and restarts the race).
+
 ## Controls
 
-- W / Up: throttle; S / Down: brake.
-- Q: select reverse; E: select forward. Hold the direction key while stopped,
-  braking and off throttle, then release the brake and use W / Up (or gamepad
-  RT) to drive in the selected direction. The HUD shows R for reverse.
-- A / Left and D / Right: steering.
-- Gamepad (browser "standard" layout, e.g. Xbox/PlayStation pads): right
-  trigger throttle, left trigger brake, left stick steering. P toggles
-  autopilot off to drive.
-- Space: pause/resume; R: reset (restarts the race from the grid); V:
-  overview/chase view; C: cockpit/chase camera; M: sound on/off (the audio
-  starts on the first key press or click); O: opponents on/off (restarts).
-- Race start (with opponents): hold still while the five red lights come on;
-  go when they go out. Moving before lights out is a jump start (+5 s).
-  Add `?nostart` to the URL to skip the start sequence.
-- Race distance: 10 laps by default; `?laps=N` sets another. At the chequered
-  flag the side panel shows the classification; R starts a new race.
-- Pit stops: B cycles the pit request (box for Soft → Medium → Hard →
-  cancel). On autopilot the car pits at the next pit entry; when driving, take
-  the pit lane on the inside of the main straight (80 km/h limiter, +5 s for
-  speeding) and stop in your box (the first one, painted green). `?tyre=soft`
-  (or `medium`/`hard`) picks the start compound. With opponents every finisher
-  must use two compounds (one stop) or is disqualified.
-- DRS: hold F (gamepad RB). It opens only where the race allows it (see
-  below); braking closes it. In a time trial it is free to use in the DRS
-  zones. The autopilot opens it wherever it is allowed.
-- Buttons provide the same pause/reset/view actions. Driving keys are ignored
-  while a button has focus; click the circuit to return focus to driving.
-- Losing window focus or hiding the tab pauses and releases held inputs.
+### Keyboard
+
+| Key | Action |
+|---|---|
+| W / ↑ | Throttle |
+| S / ↓ | Brake (held at a standstill: reverse) |
+| A D / ← → | Steer |
+| X / Z | Shift up / down (manual gearbox) |
+| G | Automatic gearbox |
+| F (hold) | DRS |
+| Q / E | Select reverse / forward (stopped, on the brake) |
+| B | Pit request: Soft → Medium → Hard → cancel |
+| 1–5 | On the start lights: drive the car on that grid position |
+| P | Autopilot on / off |
+| Space | Pause / resume |
+| R | Reset (restarts the race from the grid) |
+| C | Cockpit / chase camera |
+| V | Overview / chase camera |
+| H | HUD on / off |
+| M | Sound on / off (audio starts on the first key press or click) |
+| O | Opponents on / off (restarts) |
+
+Keys are on/off, so the pedals and steering ramp (see
+[Driver input](#driver-input-inputmjs-cycle-7)). The header buttons do the
+same as their keys (plus *Units* km/h ↔ mph and *Full screen*). Driving keys are
+ignored while a button has focus; click the 3D view to drive again. Losing
+window focus or hiding the tab pauses and releases every held input.
+
+### Xbox controller (and other standard gamepads)
+
+Any controller the browser reports with the W3C **standard** layout works:
+Xbox Wireless / Series / One pads, and PlayStation or other pads that use the
+same layout (PlayStation names in brackets). The first standard pad found is
+used. Browsers only expose a pad after one of its buttons is pressed; the first
+time a pad appears it takes the car from the autopilot (once per page load;
+P still switches the autopilot afterwards).
+
+| Control | Action |
+|---|---|
+| RT (R2) | Throttle, analog |
+| LT (L2) | Brake, analog (held at a standstill: reverse) |
+| Right stick forward / back | Throttle / brake, analog (alternative to the triggers) |
+| Left stick | Steer, analog |
+| D-pad ↑ / ↓ | Throttle / brake (on/off, with the keyboard ramps) |
+| D-pad ← / → | Steer (on/off, with the keyboard ramps) |
+| RB / LB (R1 / L1) | Shift up / down (manual gearbox); on the start lights: the grid slot behind / ahead |
+| Left-stick click (L3) | Automatic gearbox |
+| Right-stick click (R3, hold) | DRS |
+| A (Cross) | Units: km/h ↔ mph |
+| B (Circle) | Cockpit / chase camera |
+| X (Square) | Pause / resume |
+| Y (Triangle) | Full screen on / off (where the browser supports it) |
+| Menu ≡ (Options) | HUD on / off |
+| View ⧉ (Share / Create) | Reset car (restarts the race) |
+
+* Triggers and sticks have an 8% deadzone with the remaining travel rescaled;
+  the steering stick has a 1.5 power curve for finer control near centre.
+  Steering authority falls with speed, as for the keyboard.
+* Keyboard and gamepad can be used together: the larger pedal value wins, and
+  a held steering key or D-pad direction overrides the stick.
+* Buttons act once per press. Pit request, overview camera, sound,
+  opponents and the autopilot have no gamepad button; use B, V, M, O and P on
+  the keyboard.
+* There is no rumble, button remapping or calibration. Racing wheels and pads
+  that report a non-standard layout are ignored.
+
+### URL options
+
+| Option | Effect |
+|---|---|
+| `?track=<key>` | Real circuit (time trial); keys are listed [below](#real-circuits-time-trial-circuitmjs-circuitsmjs-trialmjs-cycle-15) |
+| `&race` | Race the AI field on a real circuit |
+| `?laps=N` | Race distance (default 10 on the stadium, 3 on a real circuit) |
+| `?tyre=soft\|medium\|hard` | Start compound |
+| `?nostart` | Skip the start lights |
+| `?car=generic` / `?car=procedural` | The generic 2022 model / the built-in procedural car instead of the RB22 |
+
+For example [a race at Monza](https://f1.gokart.games/?track=monza&race) or
+[a 5-lap race at Spa on softs](https://f1.gokart.games/?track=spa&race&laps=5&tyre=soft).
 
 The stadium test circuit is fictional and flat. `track.mjs` defines its surfaces
 and barriers to match `world3d.mjs`: asphalt, 1.2 m kerbs, run-off to 8 m past
@@ -117,8 +228,14 @@ there is room behind; Reset remains available if stranded.
 In manual mode (P turns autopilot off), stop, release the throttle and hold
 brake + Q until the HUD shows **R**. Release the brake and use the normal
 throttle to back up. Stop and hold brake + E to return to first gear. Q/E
-also work alongside gamepad pedals; there is no gamepad-only gear selector.
-Pressing P while reversing makes the player brake and select forward before
+also work alongside gamepad pedals.
+
+Since then the pedals alone also work, with keys or gamepad (`index.html`):
+stopped (below 0.2 m/s) in a forward gear, off the throttle and with the brake
+above 50%, the page requests reverse (not on the start lights). In reverse it
+swaps the pedals, so the brake drives the car backwards and the throttle brakes;
+the throttle held above 50% at a stop requests forward. A held Q or E overrides
+the pedals. Pressing P while reversing makes the player brake and select forward before
 handing control back to the path-following autopilot.
 
 `physics.mjs` represents reverse as `car.gear === -1`. An explicit
@@ -1217,7 +1334,24 @@ steering key overrides the stick. The HUD shows the active source and the
 throttle/brake commands, including the autopilot's. All rates are illustrative
 choices, not measured driver or hardware data. Only the W3C standard mapping
 is read; wheels and pedal sets that report a non-standard layout are ignored,
-and there is no force feedback, calibration screen or key rebinding yet.
+and there is no force feedback, rumble, calibration screen or key rebinding yet.
+
+Extended gamepad support (later cycles; the full map is under
+[Xbox controller](#xbox-controller-and-other-standard-gamepads)):
+
+* `readGamepad` also reads the right stick's vertical axis (`axes[3]`) as an
+  analog pedal: forward is throttle, back is brake, each the larger of stick
+  and trigger.
+* The D-pad (buttons 12–15) is fed into the keyboard path, so it gets the
+  keyboard ramps and, like a steering key, overrides the stick while held.
+* RB / LB (5 / 4) shift up / down and switch the player's car to the manual
+  gearbox; on the start lights they move the player one grid slot behind /
+  ahead instead. L3 (10) restores the automatic gearbox and R3 (11) held is DRS.
+* Face and centre buttons act once per press (edge-detected each frame):
+  A (0) units, B (1) cockpit camera, X (2) pause, Y (3) full screen, View (8)
+  reset, Menu (9) HUD.
+* The first standard pad to appear switches the autopilot off once per page
+  load, on `gamepadconnected` or the first frame that sees it.
 
 ### Lap timing (`laptimer.mjs`)
 
