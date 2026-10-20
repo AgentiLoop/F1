@@ -1,6 +1,8 @@
-# AgentiLoop Racing · F1 Dynamics Lab
+# AgentiLoop Racing • F1 Dynamics Lab • PhotoType III
 
 **Play it in your browser: [f1.gokart.games](https://f1.gokart.games)**
+
+<img width="1945" height="1149" alt="Screenshot 2026-10-19 at 6 55 02 PM" src="https://github.com/user-attachments/assets/3438bf84-d85a-4ff9-beeb-89b3ecfdd493" />
 
 Race an open-wheel car against an AI field in 3D, on a stadium test track or on
 18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts built
