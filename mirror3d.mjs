@@ -6,8 +6,9 @@ import * as THREE from './vendor/three.module.js';
 
 let rendering = false; // a mirror seen in another mirror keeps its last image
 
-// mesh: the (roughly flat) glass, front faces toward the viewer; width: render target pixels.
-export function makeMirror(mesh, { width = 512 } = {}) {
+// mesh: the (roughly flat) glass, front faces toward the viewer; width: render target pixels;
+// hide: objects left out of the mirror's image (e.g. the car's own rear wheels).
+export function makeMirror(mesh, { width = 512, hide = [] } = {}) {
   // The glass's plane in mesh space: area-weighted normal, centroid and a rectangle around it.
   const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry, P = g.attributes.position;
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), centre = new THREE.Vector3();
@@ -64,9 +65,11 @@ export function makeMirror(mesh, { width = 512 } = {}) {
     textureMatrix.copy(bias).multiply(mirrorCamera.projectionMatrix).multiply(mirrorCamera.matrixWorldInverse).multiply(mesh.matrixWorld);
 
     const previous = renderer.getRenderTarget(), shadows = renderer.shadowMap.autoUpdate;
-    rendering = true; mesh.visible = false; renderer.shadowMap.autoUpdate = false;
+    const shown = hide.map(o => o.visible);
+    rendering = true; mesh.visible = false; renderer.shadowMap.autoUpdate = false; hide.forEach(o => { o.visible = false; });
     renderer.setRenderTarget(target); renderer.clear(); renderer.render(scene, mirrorCamera);
     renderer.setRenderTarget(previous);
+    hide.forEach((o, i) => { o.visible = shown[i]; });
     renderer.shadowMap.autoUpdate = shadows; mesh.visible = true; rendering = false;
   };
   return mesh;

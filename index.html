@@ -270,7 +270,9 @@ function wearSkins(list) {
   model?.driver.forEach(m => { m.visible = true; }); // the cockpit view hides your own driver
   skins.splice(0, skins.length, ...list);
   model = cars[skins[0]].model;
-  model.mirrors?.forEach(m => m.userData.mirror ? m.userData.mirror(true) : makeMirror(m));
+  // The mirrors leave out your own rear wheels, so they show the track behind instead.
+  const rearWheels = model.wheels.filter(w => !w.front).map(w => w.pivot);
+  model.mirrors?.forEach(m => m.userData.mirror ? m.userData.mirror(true) : makeMirror(m, { hide: rearWheels }));
 }
 wearSkins(skins);
 const MAX_SPIN_STEP = 0.3; // rad of drawn wheel rotation per frame
