@@ -68,6 +68,16 @@ test('gamepad standard mapping: triggers are analog pedals, left stick steers, o
   assert.equal(readGamepad(digital).throttle, 1);
 });
 
+test('gamepad right stick: forward is throttle, back is brake, merged with the triggers', () => {
+  const fwd = readGamepad(pad(0, 0, 0, { axes: [0, 0, 0, -0.54] }));
+  assert.ok(Math.abs(fwd.throttle - 0.5) < 1e-12); assert.equal(fwd.brake, 0);
+  const back = readGamepad(pad(0, 0, 0, { axes: [0, 0, 0, 1] }));
+  assert.equal(back.brake, 1); assert.equal(back.throttle, 0);
+  assert.equal(readGamepad(pad(0, 0, 0, { axes: [0, 0, 0, 0.05] })).brake, 0); // deadzone
+  const both = readGamepad(pad(0, 0, 1, { axes: [0, 0, 0, -0.54] }));
+  assert.equal(both.throttle, 1); // trigger and stick: the larger wins
+});
+
 test('gamepad is applied directly; keyboard and pad merge, source follows the last active device', () => {
   const input = createDriverInput();
   const out = input.update(1 / 240, none, readGamepad(pad(0, 0, 0.77)));
