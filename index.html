@@ -501,8 +501,8 @@ function frame(now) {
       else if (c.gear < 0) {
         const { throttle, brake } = command;
         command.throttle = brake; command.brake = throttle;
-        command.reverse = stopped && throttle > 0.5 ? false : undefined;
-      } else command.reverse = stopped && !lights && command.brake > 0.5 && !command.throttle ? true : undefined;
+        command.reverse = stopped && throttle > 0.95 ? false : undefined;
+      } else command.reverse = stopped && !lights && command.brake > 0.95 && !command.throttle ? true : undefined;
     }
     // DRS: hold F (or gamepad right stick click); the race opens the flap only where it is allowed.
     if (command) command.drs = has('KeyF') || !!gamepadButton(11);

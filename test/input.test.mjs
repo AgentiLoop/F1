@@ -73,6 +73,8 @@ test('gamepad right stick: forward is throttle, back is brake, merged with the t
   assert.ok(Math.abs(fwd.throttle - 0.5) < 1e-12); assert.equal(fwd.brake, 0);
   const back = readGamepad(pad(0, 0, 0, { axes: [0, 0, 0, 1] }));
   assert.equal(back.brake, 1); assert.equal(back.throttle, 0);
+  const half = readGamepad(pad(0, 0, 0, { axes: [0, 0, 0, 0.54] }));
+  assert.ok(half.brake > 0.1 && half.brake < 0.25); // gradual: half back is a light brake
   assert.equal(readGamepad(pad(0, 0, 0, { axes: [0, 0, 0, 0.05] })).brake, 0); // deadzone
   const both = readGamepad(pad(0, 0, 1, { axes: [0, 0, 0, -0.54] }));
   assert.equal(both.throttle, 1); // trigger and stick: the larger wins

@@ -8,6 +8,7 @@ export const INPUT_DEFAULTS = Object.freeze({
   steerRate: 3, steerReturn: 5,      // keyboard steering: toward lock / back toward centre
   deadzone: 0.08,                    // stick and trigger deadzone (fraction of travel)
   steerExponent: 1.5,                // stick response curve: finer control near centre
+  stickBrakeExponent: 2.5,           // right stick back: gradual brake, full only at full travel
   steerSpeedScale: 22,               // m/s; steer authority 1 / (1 + (u / scale)^2)
 });
 
@@ -28,7 +29,7 @@ export function readGamepad(pad, cfg = INPUT_DEFAULTS) {
   const stickY = shapeAxis(clamp(pad.axes[3] ?? 0, -1, 1), cfg.deadzone);
   return {
     throttle: Math.max(trigger(pad.buttons[7]), -stickY),
-    brake: Math.max(trigger(pad.buttons[6]), stickY),
+    brake: Math.max(trigger(pad.buttons[6]), Math.max(0, stickY) ** cfg.stickBrakeExponent),
     steer: -shapeAxis(clamp(pad.axes[0] ?? 0, -1, 1), cfg.deadzone, cfg.steerExponent), // + is left in physics
   };
 }
