@@ -78,13 +78,15 @@ test('gamepad right stick: forward is throttle, back is brake, merged with the t
   assert.equal(both.throttle, 1); // trigger and stick: the larger wins
 });
 
-test('gamepad is applied directly; keyboard and pad merge, source follows the last active device', () => {
+test('gamepad is applied directly; keyboard and pad are both on, no switching', () => {
   const input = createDriverInput();
+  input.update(1 / 240, none, null);
+  assert.equal(input.source, 'keyboard');
   const out = input.update(1 / 240, none, readGamepad(pad(0, 0, 0.77)));
   assert.ok(Math.abs(out.throttle - 0.75) < 1e-12); // no ramp for analog inputs
-  assert.equal(input.source, 'gamepad');
+  assert.equal(input.source, 'keyboard + gamepad');
   const merged = input.update(1 / 240, { ...none, left: true }, readGamepad(pad(1, 0, 0.77)));
-  assert.equal(input.source, 'keyboard');
+  assert.equal(input.source, 'keyboard + gamepad');
   assert.ok(merged.steer > 0, 'held key overrides stick'); assert.ok(Math.abs(merged.throttle - 0.75) < 1e-12);
   input.reset(); assert.deepEqual(input.keyboard, { throttle: 0, brake: 0, steer: 0 });
   assert.equal(INPUT_DEFAULTS.deadzone, 0.08);

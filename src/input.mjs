@@ -57,9 +57,8 @@ export function createDriverInput(cfg = INPUT_DEFAULTS) {
         key.steer = dt < toCentre ? key.steer - Math.sign(key.steer) * cfg.steerReturn * dt
           : target * Math.min(1, (dt - toCentre) * cfg.steerRate);
       } else key.steer = ramp(key.steer, target, cfg.steerRate, cfg.steerRate, dt);
-      const padActive = pad && (pad.throttle > 0 || pad.brake > 0 || pad.steer !== 0);
-      const keysActive = keys.throttle || keys.brake || keys.left || keys.right;
-      if (keysActive) source = 'keyboard'; else if (padActive) source = 'gamepad';
+      // No switching: keyboard is always on, and a connected pad is on alongside it.
+      source = pad ? 'keyboard + gamepad' : 'keyboard';
       const steer = key.steer !== 0 ? key.steer : pad?.steer ?? 0;
       return {
         throttle: Math.max(key.throttle, pad?.throttle ?? 0),
