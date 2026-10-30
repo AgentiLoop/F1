@@ -8,7 +8,15 @@
 // Kerbs are laid only where the line curves (|curvature| above kerbCurvature
 // within kerbReach); elsewhere the road edge runs straight into runoff.
 // Surface widths, wall placement and grip are illustrative, not survey data.
-import { SURFACE_GRIP } from './track.mjs';
+import { SURFACE_GRIP, SURFACE_ROLLING } from './track.mjs';
+
+// Beyond the kerbs, the surface of the real land cover under a point (cover,
+// e.g. scenery.mjs landcoverField: 1 farmland, 2 grass, 3 scrub/heath, 4 sand,
+// 5 gravel, 6 paved), where one is mapped: sand and gravel are gravel traps,
+// paved ground is asphalt run-off. Elsewhere runoff to 8 m, then grass.
+const COVER_SURFACE = [null, 'grass', 'grass', 'grass', 'gravel', 'gravel', 'runoff'];
+// Loose surfaces as physics.mjs's { grip, rolling }.
+const LOOSE = Object.fromEntries(Object.entries(SURFACE_ROLLING).map(([name, rolling]) => [name, Object.freeze({ grip: SURFACE_GRIP[name], rolling })]));
 
 // Long traced segments are straights: they are kept straight rather than
 // bowed by the spline's end tangents (a 700 m chord would otherwise bulge).
@@ -124,7 +132,7 @@ function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, 
 
 export function createCircuitTrack({ name = 'Circuit', points, length: officialLength, roadWidth = 13, wallOffset = roadWidth / 2 + 12,
   step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, drs = null,
-  heights = null, banks = null, lakeLevel = null }) {
+  heights = null, banks = null, lakeLevel = null, cover = null }) {
   const pairs = points.length && typeof points[0] === 'number' ? Array.from({ length: points.length / 2 }, (_, i) => [points[2 * i], points[2 * i + 1]]) : points;
   let poly = spline(pairs, step);
   const polyLength = () => poly.reduce((L, a, i) => { const b = poly[(i + 1) % poly.length]; return L + Math.hypot(b[0] - a[0], b[1] - a[1]); }, 0);
@@ -259,7 +267,9 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     const q = nearest(x, y), d = q.d;
     // The pit apron, and its entry and exit roads from the road edge.
     if (pit && pit.side * q.offset < -half && pit.side * q.offset > -pit.outer && (s => s > pit.entry && s < pit.exit)(signed(ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f))) return 'pit';
-    return d <= half ? 'asphalt' : d <= half + 1.2 && kerb[q.i] ? 'kerb' : d <= half + 8 ? 'runoff' : 'grass';
+    if (d <= half) return 'asphalt';
+    if (d <= half + 1.2 && kerb[q.i]) return 'kerb';
+    return COVER_SURFACE[cover?.(x, y) ?? 0] ?? (d <= half + 8 ? 'runoff' : 'grass');
   };
   return {
     kind: 'circuit', name, length, roadWidth, wallOffset, step, offset, surface, progress, point, pit,
@@ -273,7 +283,7 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     heading: s => headings[index(s)], curvatureAt: s => curvature[index(s)],
     // Racing-line offset (m, + right) at arc length s, interpolated.
     lineOffset: s => { const i = index(s), f = (wrap(s) - ss[i]) / (ss[i + 1] - ss[i]); return line[i] + (line[(i + 1) % n] - line[i]) * f; },
-    surfaceAt: (x, y) => SURFACE_GRIP[surface(x, y)],
+    surfaceAt: (x, y) => { const name = surface(x, y); return LOOSE[name] ?? SURFACE_GRIP[name]; },
     // Elevation (all zero without heights): elevation(s, off) along the lap,
     // heightAt(x, y) from the nearest part of the circuit; lakeLevel, if any,
     // is the height of the water beside it.

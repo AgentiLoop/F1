@@ -204,3 +204,21 @@ test('every real circuit gets its real land cover (OpenStreetMap) on the ground,
     }
   }
 });
+
+test('with its land cover, a real circuit\'s run-off is its real surface: gravel traps at Catalunya and the Red Bull Ring, paved run-off at Miami', () => {
+  const share = (key, name) => {
+    const t = createCircuitTrack({ ...CIRCUITS[key], cover: landcoverField(SCENERY[key].landcover) }), half = t.roadWidth / 2;
+    let n = 0, hit = 0;
+    for (let s = 0; s < t.length; s += 8) for (const side of [-1, 1]) { const [x, y] = t.point(s, side * (half + 5)); if (t.surface(x, y) === 'pit') continue; n++; if (t.surface(x, y) === name) hit++; }
+    return { t, frac: hit / n };
+  };
+  const cat = share('catalunya', 'gravel');
+  assert.ok(cat.frac > 0.1, `catalunya gravel ${cat.frac}`);
+  assert.ok(share('red-bull-ring', 'gravel').frac > 0.05);
+  assert.ok(share('miami', 'runoff').frac > 0.2);
+  // A gravel point gives the physics a ploughing surface; the road stays asphalt.
+  let g = null;
+  for (let s = 0; s < cat.t.length && !g; s += 4) { const p = cat.t.point(s, cat.t.roadWidth / 2 + 5); if (cat.t.surface(...p) === 'gravel') g = p; }
+  assert.deepEqual(cat.t.surfaceAt(...g), { grip: 0.45, rolling: 0.25 });
+  assert.equal(cat.t.surfaceAt(...cat.t.point(100)), 1);
+});

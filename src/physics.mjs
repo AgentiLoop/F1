@@ -331,7 +331,9 @@ export function resolveBarrier(car, barrierAt) {
   return closing;
 }
 
-// surfaceAt receives each contact's world position and returns a grip multiplier;
+// surfaceAt receives each contact's world position and returns a grip multiplier,
+// or { grip, rolling } on a loose surface whose ploughing drags the contact
+// with rolling × its load against its motion (faded out below 1 m/s);
 // optional barrierAt (see resolveBarrier) stops the car at walls.
 // Optional groundAt(x, y) (circuit.mjs) gives the ground under the car:
 // { gx, gy } its gradient and zss the road profile's second derivative along
@@ -469,7 +471,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     }
     const worldX = car.x + x * cos - y * sin;
     const worldY = car.y + x * sin + y * cos;
-    const grip = clamp(surfaceAt(worldX, worldY), 0, 2);
+    const under = surfaceAt(worldX, worldY), grip = clamp(under.grip ?? under, 0, 2), rolling = under.rolling ?? 0;
     const temp = car.tireTemp[i], tempGrip = tireTempGrip(c, temp), wearGrip = tireWearGrip(c, car.tireWear[i]);
     const compound = TIRE_COMPOUNDS[car.compound ?? c.tireCompound];
     const kinematicSlip = steadySlipAngle(wheelV, wheelU);
@@ -490,12 +492,14 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     const slipPower = Math.abs(tire.fx * (r * car.wheelOmega[i] - wheelU)) + Math.abs(tire.fy * wheelV);
     updateTireTemp(temp, c, slipPower, c.rollingResistance * loads[i] * Math.abs(wheelU), Math.abs(wheelU), dt);
     car.tireWear[i] = updateTireWear(car.tireWear[i], c, slipPower * compound.wear, temp.surface, dt);
-    const bodyFx = tire.fx * ca - tire.fy * sa;
-    const bodyFy = tire.fx * sa + tire.fy * ca;
+    // Ploughing through a loose surface drags the contact against its motion.
+    const contactSpeed = Math.hypot(contactU, contactV), plough = contactSpeed > 0 ? rolling * loads[i] * Math.min(1, contactSpeed) / contactSpeed : 0;
+    const bodyFx = tire.fx * ca - tire.fy * sa - plough * contactU;
+    const bodyFy = tire.fx * sa + tire.fy * ca - plough * contactV;
     fx += bodyFx;
     fy += bodyFy;
     moment += x * bodyFy - y * bodyFx;
-    return { ...tire, load: loads[i], grip, compoundGrip: compound.grip, tempGrip, wearGrip, wear: car.tireWear[i], slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
+    return { ...tire, load: loads[i], grip, rolling, compoundGrip: compound.grip, tempGrip, wearGrip, wear: car.tireWear[i], slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
       x: worldX, y: worldY, steer: angle,
       omega: car.wheelOmega[i], driveTorque: torque,
       resistanceTorque: (freeOmega - car.wheelOmega[i]) * inertia / dt };
