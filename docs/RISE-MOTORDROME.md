@@ -62,7 +62,10 @@ Done:
   forest along the lake shore, open acacia savanna far from the road, papyrus
   on the shore and in the shallows, nothing within 10 m of the barriers or
   beside the start straight's stand and garages. About 4,400 trees; those
-  within 160 m of the road cast shadows. No wind sway yet.
+  within 160 m of the road cast shadows. They sway in the wind as in
+  `trees.js`: a slow lean that grows with the square of height (crowns three
+  times the wood), each tree on its own phase, leaves fluttering on top; done
+  in the vertex shader, so it costs no CPU time. Shadows keep the still shape.
 - **Grandstands and pit building** (`src/stands.mjs`, our own WebGL code after
   that sim's `js/scenery.js`): its four 112 m, 30-row grandstands at -185, -62,
   62 and 186 m from the line, across the straight from the pits, each under a
@@ -76,13 +79,93 @@ Done:
   below a glazed band split by a floor slab, a roof terrace over the pit lane
   and our AgentiLoop Racing sign on its edge (theirs carries their brand).
   Other circuits keep the old stand and garages.
+- **Wildlife** (`src/wildlife.mjs`, our own WebGL code after that sim's
+  `js/animals.js`): its Akagera species, giraffe, elephant, zebra, impala and
+  hippo, built from simple shapes, one instanced mesh per species. Herds sit
+  wholly beyond the barriers, away from the start straight, on gentle ground
+  where the driver sees them ahead over the terrain; hippos lie 7-40 m out on
+  the lake. Their ranges and a view corridor from the track are kept clear of
+  trees. Each animal walks to a new spot in its herd's range, stops and grazes;
+  the legs swing, heads dip, trunks and tails sway, and the coats (giraffe
+  patches, zebra stripes, impala and hippo bellies, wrinkled skin) are drawn in
+  a patched MeshStandardMaterial instead of its node shader. About 85 animals.
+- **Reflective lake** (`src/lake.mjs`, our own WebGL code after that sim's
+  `js/water.js`): a planar mirror of the scene (a mirror camera with its near
+  plane tilted onto the water, rendered at 45% resolution just before the lake
+  is drawn in the main view) broken up by three layers of drifting wind-ripple
+  noise, blended by Fresnel from the dark lake colour to the reflection, with a
+  sun glint; plus its 46 papyrus islands (same seed, sizes and spacing, 30-260
+  m out from the shore). Its TSL nodes are re-done as a GLSL ShaderMaterial
+  with our fog and tone mapping. The rear-view mirror shows the last frame's
+  reflection rather than drawing its own.
+- **Racing-line chevrons** (`src/chevrons.mjs`, after that sim's
+  `js/chevrons.js`; every real circuit, not only this one): an arrow painted
+  every 5 m along the racing line, pointing along it and lying on the road's
+  grade and bank. Near the car (700 m) the colour follows the speed it carries:
+  green, amber in the 60 m before braking must start, red from there to the
+  slowest point of the corner, where the start comes from your speed, the
+  speed plan of the autopilot that drives your car and its braking curve.
+  Further on they show the line's usual braking zones. L (or the Line button)
+  cycles off / whole line / braking zones only; `?line=1` or `?line=2` starts
+  with them on. Off by default. Their TSL material is re-done as a GLSL
+  ShaderMaterial, not tone mapped (its 1.8× colour boost washes out to pastel
+  through our ACES curve).
+- **Footbridges, floodlights, paddock and villages** (`src/structures.mjs`,
+  our own WebGL code after the rest of that sim's `js/scenery.js`): its two
+  footbridges (135 m before the line, linking the pit building and the first
+  grandstand, and on the crest before Turn 8), each a concrete deck 7.5 m over
+  the road's centre with steel rails, piers just outside the barriers and our
+  AgentiLoop Racing banner on both faces (theirs carries their sponsor);
+  159 floodlight masts, 24 m tall, every 34 m on alternating sides 4.5 m
+  behind the barrier, lamp heads facing the road, none along the start
+  straight, the pit lane, under the bridges or in the lake; its paddock
+  behind the pits: the 64 m cone tower with a helical rib (a canvas texture
+  instead of its node shader), 23 white tensile domes and 12 thatched huts
+  (its rules: 52-187 m behind the pits, 9 m apart); and its villages, about
+  390 small houses in clusters 650-1700 m out (its rules, in the same world
+  frame: 220 m or more from the road, 60 m from the lake; the random draws
+  are ordered differently, so the exact spots differ), plastered, brick or blue walls
+  under tin or tile roofs. Trees are kept out of all of them. They glow at
+  night (see times of day), except the village houses.
+- **Braking boards, corner numbers and marshal posts** (`src/structures.mjs`,
+  after that sim's `buildBoards` and `buildMarshalPosts`): 3, 2 and 1 boards
+  (white, 1.1 x 1.45 m on two legs) 370, 270 and 170 m before its seven
+  heavy-braking corners (Turns 1, 3, 4, 8, 12, 14 and 17), on the run-off 3.5 m
+  beyond the road edge on the outside of the approach; a yellow 2.2 m corner
+  number on a post 1.5 m behind the outside barrier 25 m before each of its 17
+  corners; and 17 orange-and-white marshal posts every 330 m, 2.2 m behind the
+  barrier on the outside of the bend (switched across at the pit lane, none on
+  the start straight). All face the approaching cars, at that sim's corner
+  positions (its `track-data.js`, shifted by our 80.1 m start).
+- **Lakeside hospitality pods and jetties** (`src/lakeside.mjs`, after that
+  sim's `buildLakeside`): round pods with plastered walls and thatched cone
+  roofs on wooden decks, each with a 34 m plank jetty out over the water, on
+  its rays from the lakeside lobe's centre (at least 25 m from the road, 26 m
+  apart, its radii from mulberry seed 7). Our banks near the road are steeper
+  than its, so each pod stands on the waterline itself, its deck 1.2 m over
+  the water and its back set into the bank (at most 4 m higher), not 14 m back
+  from the shore; 16 pods, every jetty clear of the lake bed. Trees are kept
+  out of them; their walls glow warm at night.
+- **Times of day** (`TIMES` in `src/sky.mjs`, after that sim's `PRESETS` in
+  `js/sky.js`): Dawn 06:30 (low orange sun in the east), Day 10:30, Sunset
+  17:45 (low sun over the lake in the west) and Night race 21:00 (dark sky with
+  twinkling stars and a faint band of glow, no sun disc, a cool overhead light
+  standing in for the floodlights, whose lamp faces glow). Each sets the sun's
+  direction, colour and strength, the hemisphere light, reflections, fog and
+  exposure and the sky dome's colours and clouds; its light levels are scaled
+  to ours and its exponential fog turned into our linear fog's distance. Day
+  keeps this game's own lighting. T (or the Time button) cycles them on this
+  circuit; `?time=dawn|day|sunset|night` starts there. Switches instantly (it
+  blends over 2.2 s); no floodlight pools on the road and no night sounds.
+  At night the sim's emissive night terms light up the buildings
+  (`nightGlow` / `setNightGlow` in `src/sky.mjs`, at half its strength,
+  as our night light is about half its): the grandstand seats and crowd
+  (0.22) and membrane roofs (0.28), the pit building's garages and windows
+  (0.35 by day, 1 at night), the paddock tower (0.2) and pavilion domes
+  (0.18), the braking boards (0.4) and corner numbers (0.3) and the lakeside
+  pods' walls (0.25), besides the floodlight lamp faces (4). Left out: the
+  tower's glowing helix ribs (it glows evenly) and the sim's dim glow on a
+  few village houses (0.12 on some of them).
 
-Not yet (in order):
-
-1. Grade and bank forces in the physics: the cars are only drawn on the hills.
-   The physics is still 2D, so climbs, descents and banked corners do not yet
-   change speed or grip.
-2. Scenery: paddock pavilions, footbridges, floodlights, villages, wildlife
-   and a reflective lake (the rest of `scenery.js`, `animals.js`, `water.js`).
-   These use TSL node materials and would have to be rewritten for our WebGL
-   renderer.
+Not yet: the rest of `scenery.js` (airport).
+Grade and bank forces in the physics were added in 1fc5c16.

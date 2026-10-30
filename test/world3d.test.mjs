@@ -24,6 +24,51 @@ function scenery(track) {
   }
 }
 
+test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners only', async () => {
+  const dispose = w => w.traverse(m => { m.geometry?.dispose(); m.material?.dispose?.(); });
+  const monza = scenery(createCircuitTrack(CIRCUITS.monza));
+  assert.equal(monza.getObjectByName('tecpro'), undefined);
+  assert.equal(monza.getObjectByName('rise-runoff'), undefined);
+  assert.equal(monza.getObjectByName('rise-sky'), undefined);
+  dispose(monza);
+  const track = createCircuitTrack(CIRCUITS.rwanda), world = scenery(track);
+  try {
+    assert.equal(world.children.filter(m => m.name === 'rise-runoff').length, 2);
+    // RISE day sky: one dome (no old gradient sphere), its sun disc where the scene's light shines from.
+    const sky = world.getObjectByName('rise-sky');
+    assert.ok(sky?.material.isShaderMaterial);
+    assert.equal(world.children.filter(m => m.geometry?.type === 'SphereGeometry').length, 1);
+    const scene = new THREE.Scene(), light = new THREE.DirectionalLight();
+    light.position.set(35, 70, 25); scene.add(light, world);
+    sky.onBeforeRender(null, scene);
+    assert.ok(sky.material.uniforms.uSunDir.value.distanceTo(new THREE.Vector3(35, 70, 25).normalize()) < 1e-6);
+    // Trees sway in the wind (RISE trees.js): crowns more than wood, a trunk's foot not at all.
+    const acacia = world.getObjectByName('savanna-acacia-near'), sway = acacia.geometry.attributes.aSway, pos = acacia.geometry.attributes.position, uv = acacia.geometry.attributes.uv;
+    let footMax = 0, leafMin = Infinity;
+    for (let i = 0; i < sway.count; i++) { if (uv.getX(i) >= 0.7 && pos.getY(i) < 0.5) footMax = Math.max(footMax, sway.getX(i)); if (uv.getX(i) < 0.7) leafMin = Math.min(leafMin, sway.getX(i)); }
+    assert.ok(footMax < 0.01 && leafMin >= 0.3, `foot ${footMax}, leaves ${leafMin}`);
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>' };
+    acacia.material.onBeforeCompile(shader);
+    assert.match(shader.vertexShader, /transformed \+= .* aSway \* uWind/);
+    const t0 = shader.uniforms.uTime.value; await new Promise(r => setTimeout(r, 20)); acacia.onBeforeRender();
+    assert.ok(shader.uniforms.uTime.value > t0, 'the wind clock runs');
+    const tecpro = world.children.filter(m => m.name === 'tecpro');
+    assert.ok(tecpro.length >= 3, `${tecpro.length} TecPro runs`);
+    // Every TecPro vertex is at the wall on the outside of a bend: its offset
+    // (+ right) has the curvature's sign (+ left turn, outside on the right).
+    let checked = 0;
+    for (const m of tecpro) {
+      const p = m.geometry.attributes.position;
+      for (let i = 0; i < p.count; i += 7) {
+        const x = p.getX(i), y = -p.getZ(i), off = track.offset(x, y), k = track.curvatureAt(track.progress(x, y));
+        assert.ok(Math.abs(off) > track.wallOffset - 1.5, 'stands at the wall');
+        if (Math.abs(k) > 1 / 50) { assert.equal(Math.sign(off), Math.sign(k), 'outside of the bend'); checked++; }
+      }
+    }
+    assert.ok(checked > 0);
+  } finally { dispose(world); }
+});
+
 for (const sloped of [false, true]) test(`roadside signs follow ${sloped ? 'uphill and downhill grades' : 'flat ground'}`, () => {
   const track = createCircuitTrack(CIRCUITS.monza);
   // An analytic ground plane exercises both sign faces without generating terrain.

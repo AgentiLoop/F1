@@ -5,6 +5,11 @@ import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
 import { buildRiseStands } from './stands.mjs';
 import { DEFAULT_SCENERY, waterField } from './scenery.mjs';
+import { buildWildlife, wildlifePlan } from './wildlife.mjs';
+import { buildLake } from './lake.mjs';
+import { buildSky } from './sky.mjs';
+import { structuresPlan, buildStructures } from './structures.mjs';
+import { lakesidePlan, buildLakeside } from './lakeside.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -293,7 +298,9 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   }
   sky.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   const skyMesh = new THREE.Mesh(sky, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
-  skyMesh.position.set(cx, 0, -cy); world.add(skyMesh);
+  skyMesh.position.set(cx, 0, -cy);
+  // With the lake: the RISE sim's day sky, sun disc and clouds (sky.mjs).
+  if (track.lakeLevel !== null) { sky.dispose(); skyMesh.material.dispose(); world.add(buildSky(skyR, cx, -cy)); } else world.add(skyMesh);
   const size = 2 * extent + 1200;
   const grass = texture(256, (g, s) => {
     noise(g, s, '#3f6b2e', 0.25, 9000);
@@ -327,6 +334,17 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     g.fillStyle = '#6fffc3'; g.fillRect(0, s * 0.55, s, s * 0.05);
   });
   const runoffTex = texture(256, (g, s) => noise(g, s, '#8b8170', 0.3, 20000), 4, 1);
+  // RISE Motordrome (RISE js/trackmesh.js): run-off painted in 1.3 m bands
+  // from the kerb out (olive, yellow, terracotta, green, blue) then sand, and
+  // TecPro red/white blocks (1.5 m) on the outside walls of tight corners.
+  const rise = track.lakeLevel !== null;
+  const riseRunoffTex = rise && texture(256, (g, s) => {
+    noise(g, s, '#9a8d75', 0.3, 20000);
+    ['#4d4a24', '#c79a10', '#801c14', '#0a5445', '#00529a'].forEach((c, k) => { g.fillStyle = c; g.fillRect(s * k * 1.3 / 6.8, 0, s * 1.3 / 6.8 + 1, s); });
+  }, 1, 4);
+  const tecproTex = rise && texture(64, (g, s) => { g.fillStyle = '#d9d9d9'; g.fillRect(0, 0, s, s); g.fillStyle = '#8c0a0a'; g.fillRect(0, 0, s, s / 2); });
+  // Curvature over ±8 m (+ left), so a corner's outside is the side where side × k < 0.
+  const bend = i => { let k = 0; for (let d = -4; d <= 4; d++) k += track.samples.curvature[(i + d + n) % n]; return k / 9; };
   const meshTex = texture(64, (g, s) => {
     g.clearRect(0, 0, s, s); g.strokeStyle = '#b9c0c4'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(0, 0); g.lineTo(s, s); g.moveTo(s, 0); g.lineTo(0, s); g.stroke();
@@ -338,13 +356,20 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   for (const side of [-1, 1]) {
     world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
     for (const r of runs(p => kerb[p.i])) world.add(ribbon(r, side * half, side * (half + 1.2), 0.012, std({ map: kerbTex, roughness: 0.7 }), 4));
-    world.add(ribbon(pts, side * (half + 1.2), side * (half + 8), 0.004, std({ map: runoffTex, roughness: 1 }), 20));
+    const runoff = ribbon(pts, side * (half + 1.2), side * (half + 8), 0.004, std({ map: rise ? riseRunoffTex : runoffTex, roughness: rise ? 0.8 : 1 }), 20);
+    if (rise) runoff.name = 'rise-runoff';
+    world.add(runoff);
     // Barrier where its line is still nearest this part of the circuit.
     const clear = p => Math.abs(track.offset(p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt)) > wallAt - 1;
     for (const r of runs(clear)) {
       const w = ribbon(r, side * wallAt, 0, footing, std({ map: wallTex, roughness: 0.8 }), 6, 1.1); w.castShadow = true; world.add(w);
       world.add(ribbon(r, side * wallAt, 0, 1.1, fenceMat, 0.16, 4.2));
       r.forEach((p, k) => { if (k % 4 === 0) postSpots.push([p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt, p.h(side * wallAt)]); });
+    }
+    // TecPro facing just in front of the wall (no gaps where it starts and stops).
+    if (rise) for (const r of runs(p => clear(p) && side * bend(p.i) < -1 / 70)) {
+      const t = ribbon(r, side * (wallAt - 0.06), 0, footing, std({ map: tecproTex, roughness: 0.85 }), 3, 1.05);
+      t.name = 'tecpro'; t.castShadow = true; world.add(t);
     }
   }
   const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.06, 4.2, 6), steel, postSpots.length);
@@ -482,7 +507,18 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // terrain when there is one.
   if (track.lakeLevel !== null) {
     const terrain = { height: terrainHeight, dist: terrainHeight.dist, lake: terrainHeight.lake, lakeLevel: track.lakeLevel };
-    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, savannaPlan(track, terrain, { minX, maxX, minY, maxY }), terrain) };
+    const box = { minX, maxX, minY, maxY }, plan = savannaPlan(track, terrain, box);
+    // With the lake: the RISE sim's wildlife in glades kept clear of trees.
+    const herds = track.lakeLevel !== null ? wildlifePlan(track, terrain, box) : null;
+    if (herds) for (const k in plan) plan[k] = plan[k].filter(([x, y]) => !herds.glade(x, y));
+    // With the lake: the RISE sim's footbridges, floodlights, paddock and villages, trees kept out of them.
+    const builds = track.lakeLevel !== null ? structuresPlan(track, terrain) : null;
+    if (builds) { for (const k in plan) plan[k] = plan[k].filter(([x, y]) => builds.clear(x, y)); buildStructures(world, track, builds, { ground: terrainHeight, bannerMat: logoMat }); }
+    // With the lake: the RISE sim's hospitality pods and jetties on the shore (lakeside.mjs).
+    const shore = track.lakeLevel !== null ? lakesidePlan(terrain) : null;
+    if (shore) { for (const k in plan) plan[k] = plan[k].filter(([x, y]) => shore.clear(x, y)); buildLakeside(world, shore, terrain); }
+    const wildlife = herds ? buildWildlife(world, herds, terrain) : null;
+    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, plan, terrain), wildlife: wildlife?.counts, update: wildlife?.update };
     return world;
   }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
@@ -708,14 +744,9 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
     const pond = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2), pondMat);
     pond.position.y = levels[k]; pond.receiveShadow = true; pond.userData.kind = 'water'; world.add(pond);
   });
-  if (lake !== null) {
-    // Water over the lake's extent (the ground rises above it everywhere else).
-    let lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
-    for (const [bx, bz, r] of LAKE_BLOBS) { lx0 = Math.min(lx0, bx - r - 100); lx1 = Math.max(lx1, bx + r + 100); lz0 = Math.min(lz0, bz - r - 100); lz1 = Math.max(lz1, bz + r + 100); }
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(lx1 - lx0, lz1 - lz0),
-      new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 }));
-    water.rotation.x = -Math.PI / 2; water.position.set((lx0 + lx1) / 2, lake, (lz0 + lz1) / 2); world.add(water);
-  }
+  // Water over the lake's extent (the ground rises above it everywhere else):
+  // the RISE sim's reflective lake and papyrus islands (lake.mjs).
+  if (lake !== null) world.add(buildLake(LAKE_BLOBS, lake, lakeSdf));
   if (sea) {
     // The sea over its polygons (islands cut out); inland the ground stays
     // above it, and by the road the quays hide its edge.

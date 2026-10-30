@@ -331,8 +331,11 @@ export function resolveBarrier(car, barrierAt) {
 }
 
 // surfaceAt receives each contact's world position and returns a grip multiplier;
-// optional barrierAt (see resolveBarrier) stops the car at walls.
-export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrierAt = null) {
+// optional barrierAt (see resolveBarrier) stops the car at walls; optional
+// slopeAt(x, y) gives the ground's gradient [dz/dx, dz/dy], whose gravity
+// component slows the car uphill and pulls it down banking (as RISE's
+// vehicle.js grade and bankHelp terms do; loads still assume level ground).
+export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrierAt = null, slopeAt = null) {
   if (!(Number.isFinite(dt) && dt > 0 && dt <= 1 / 60)) throw new RangeError('Use a positive timestep <= 1/60 s');
   const c = car.config, m = carMass(car);
   // An empty tank starves the engine: no drive, whatever the pedal.
@@ -484,6 +487,12 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
       omega: car.wheelOmega[i], driveTorque: torque,
       resistanceTorque: (freeOmega - car.wheelOmega[i]) * inertia / dt };
   });
+  const slope = slopeAt?.(car.x, car.y);
+  if (slope) {
+    const [gx, gy] = slope, a = -9.81 / Math.sqrt(1 + gx * gx + gy * gy);
+    fx += m * a * (gx * cos + gy * sin);
+    fy += m * a * (-gx * sin + gy * cos);
+  }
   // Apply drag to the post-contact velocity so braking plus drag cannot reverse it.
   const nextU = u + fx / m * dt;
   const nextV = v + fy / m * dt;
@@ -527,14 +536,14 @@ export class Simulation {
     this.accumulator = 0;
     this.droppedTime = 0;
   }
-  advance(elapsed, input, surfaceAt, barrierAt) {
+  advance(elapsed, input, surfaceAt, barrierAt, slopeAt) {
     if (!Number.isFinite(elapsed) || elapsed < 0) throw new RangeError('Elapsed time must be finite and nonnegative');
     const accepted = Math.min(elapsed, 0.25);
     this.droppedTime += elapsed - accepted;
     this.accumulator += accepted;
     let steps = 0;
     while (this.accumulator + 1e-12 >= FIXED_DT) {
-      step(this.car, input, FIXED_DT, surfaceAt, barrierAt);
+      step(this.car, input, FIXED_DT, surfaceAt, barrierAt, slopeAt);
       this.accumulator = Math.max(0, this.accumulator - FIXED_DT);
       steps++;
     }
