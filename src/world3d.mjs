@@ -7,6 +7,7 @@ import { buildRiseStands } from './stands.mjs';
 import { buildWildlife, wildlifePlan } from './wildlife.mjs';
 import { buildLake } from './water.mjs';
 import { buildSky } from './sky.mjs';
+import { structuresPlan, buildStructures } from './structures.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -505,6 +506,9 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     // With the lake: the RISE sim's wildlife in glades kept clear of trees.
     const herds = track.lakeLevel !== null ? wildlifePlan(track, terrain, box) : null;
     if (herds) for (const k in plan) plan[k] = plan[k].filter(([x, y]) => !herds.glade(x, y));
+    // With the lake: the RISE sim's footbridges, floodlights, paddock and villages, trees kept out of them.
+    const builds = track.lakeLevel !== null ? structuresPlan(track, terrain) : null;
+    if (builds) { for (const k in plan) plan[k] = plan[k].filter(([x, y]) => builds.clear(x, y)); buildStructures(world, track, builds, { ground: terrainHeight, bannerMat: logoMat }); }
     const wildlife = herds ? buildWildlife(world, herds, terrain) : null;
     world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, plan, terrain), wildlife: wildlife?.counts, update: wildlife?.update };
     return world;

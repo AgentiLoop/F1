@@ -107,12 +107,28 @@ Done:
   with them on. Off by default. Their TSL material is re-done as a GLSL
   ShaderMaterial, not tone mapped (its 1.8× colour boost washes out to pastel
   through our ACES curve).
+- **Footbridges, floodlights, paddock and villages** (`src/structures.mjs`,
+  our own WebGL code after the rest of that sim's `js/scenery.js`): its two
+  footbridges (135 m before the line, linking the pit building and the first
+  grandstand, and on the crest before Turn 8), each a concrete deck 7.5 m over
+  the road's centre with steel rails, piers just outside the barriers and our
+  AgentiLoop Racing banner on both faces (theirs carries their sponsor);
+  159 floodlight masts, 24 m tall, every 34 m on alternating sides 4.5 m
+  behind the barrier, lamp heads facing the road, none along the start
+  straight, the pit lane, under the bridges or in the lake; its paddock
+  behind the pits: the 64 m cone tower with a helical rib (a canvas texture
+  instead of its node shader), 23 white tensile domes and 12 thatched huts
+  (its rules: 52-187 m behind the pits, 9 m apart); and its villages, about
+  390 small houses in clusters 650-1700 m out (its rules, in the same world
+  frame: 220 m or more from the road, 60 m from the lake; the random draws
+  are ordered differently, so the exact spots differ), plastered, brick or blue walls
+  under tin or tile roofs. Trees are kept out of all of them. Their night
+  lighting is left out (we have no night).
 
 Not yet (in order):
 
 1. Grade and bank forces in the physics: the cars are only drawn on the hills.
    The physics is still 2D, so climbs, descents and banked corners do not yet
    change speed or grip.
-2. Scenery: paddock pavilions, footbridges, floodlights, villages and wind sway
-   in the trees (the rest of `scenery.js` and `trees.js`). These use TSL node
-   materials and would have to be rewritten for our WebGL renderer.
+2. Wind sway in the trees (`trees.js`). The rest of `scenery.js` (airport,
+   lakeside, marshal posts, braking boards) is not borrowed.
