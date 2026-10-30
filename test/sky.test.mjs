@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../vendor/three.module.js';
-import { buildSky, setSkyTime, TIMES, TIME_ORDER } from '../src/sky.mjs';
+import { buildSky, setSkyTime, TIMES, TIME_ORDER, nightGlow, setNightGlow } from '../src/sky.mjs';
 
 test('RISE times of day: dawn in the east, sunset in the west, day keeps our lighting', () => {
   assert.deepEqual(TIME_ORDER, ['dawn', 'day', 'sunset', 'night']);
@@ -33,4 +33,17 @@ test('setSkyTime puts a time of day on the sky dome', () => {
   assert.equal(u.uNight.value, 0);
   assert.equal(u.uHorizon.value.getHex(), new THREE.Color(0xe8946a).getHex());
   assert.equal(u.uSunColor.value.getHex(), new THREE.Color(0xff9a58).getHex());
+});
+
+test('nightGlow / setNightGlow switch the RISE night glow on every tagged material once', () => {
+  const lamp = nightGlow(new THREE.MeshStandardMaterial(), 0xfff6e0, 4, { day: 0.15 });
+  const map = new THREE.Texture(), board = nightGlow(new THREE.MeshStandardMaterial({ map }), 0xffffff, 0.4, { useMap: true });
+  const plain = new THREE.MeshStandardMaterial();
+  assert.equal(lamp.emissiveIntensity, 0.15); assert.equal(board.emissiveIntensity, 0); assert.equal(board.emissiveMap, map);
+  const root = new THREE.Group(), geo = new THREE.BoxGeometry();
+  root.add(new THREE.Mesh(geo, [lamp, plain, lamp]), new THREE.Mesh(geo, board), new THREE.Mesh(geo, plain));
+  assert.equal(setNightGlow(root, 1), 2);
+  assert.equal(lamp.emissiveIntensity, 4); assert.equal(board.emissiveIntensity, 0.4); assert.equal(plain.emissiveIntensity, 1);
+  setNightGlow(root, 0);
+  assert.equal(lamp.emissiveIntensity, 0.15); assert.equal(board.emissiveIntensity, 0);
 });

@@ -7,6 +7,7 @@
 // shaders). Physics (x, y) maps to world (x, h, -y); centreline offsets are
 // + to the right of the race direction.
 import * as THREE from '../vendor/three.module.js';
+import { nightGlow } from './sky.mjs';
 
 const ROWS = 30, TREAD = 0.82, RISE = 0.52, BASE = 2.4, STAND_LEN = 112, DEPTH = ROWS * TREAD, FOOT = 6;
 const STAND_CENTRES = [-185, -62, 62, 186];
@@ -116,8 +117,8 @@ export function buildRiseStands(world, track, { ground, standSide, pitBoxes = 0,
   if (standSide) {
     const { body, crowd } = standGeometries();
     const concrete = new THREE.MeshStandardMaterial({ color: 0xa39e94, roughness: 0.9 });
-    const crowdMat = new THREE.MeshStandardMaterial({ map: crowdTexture(), roughness: 0.9 });
-    const roofMat = new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.65, side: THREE.DoubleSide });
+    const crowdMat = nightGlow(new THREE.MeshStandardMaterial({ map: crowdTexture(), roughness: 0.9 }), 0xffffff, 0.22, { useMap: true });
+    const roofMat = nightGlow(new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.65, side: THREE.DoubleSide }), 0xf2edd9, 0.28);
     const colMat = new THREE.MeshStandardMaterial({ color: 0xd8d8d4, roughness: 0.6, metalness: 0.3 });
     const roof = puffyRoof(STAND_LEN + 6, DEPTH + 9, 6), top = BASE + ROWS * RISE;
     roof.translate(DEPTH / 2 - 1, top + 6.5, 0);
@@ -161,7 +162,7 @@ export function buildRiseStands(world, track, { ground, standSide, pitBoxes = 0,
     const [facade, glow] = facadeTextures(height, foot);
     facade.repeat.set(len / 14, 1); glow.repeat.set(len / 14, 1);
     const white = new THREE.MeshStandardMaterial({ color: 0xd6d6d2, roughness: 0.5 });
-    const frontMat = new THREE.MeshStandardMaterial({ map: facade, emissiveMap: glow, emissive: 0xfff4e0, emissiveIntensity: 0.35, roughness: 0.4, metalness: 0.15 });
+    const frontMat = nightGlow(new THREE.MeshStandardMaterial({ map: facade, emissiveMap: glow, roughness: 0.4, metalness: 0.15 }), 0xfff4e0, 1, { day: 0.35 });
     // BoxGeometry faces: +x, -x (the front, towards the track), +y, -y, +z, -z
     const building = new THREE.Mesh(alongPits(geo), [white, frontMat, white, white, white, white]);
     building.name = 'pit-building';

@@ -50,7 +50,7 @@ import { loadRB22Template, buildRB22Car, STEERING_RATIO } from './src/rb22.mjs';
 import { buildWorld, buildCircuitWorld } from './src/world3d.mjs';
 import { makeMirror } from './src/mirror3d.mjs';
 import { buildChevrons } from './src/chevrons.mjs';
-import { TIMES, TIME_ORDER, setSkyTime } from './src/sky.mjs';
+import { TIMES, TIME_ORDER, setSkyTime, setNightGlow } from './src/sky.mjs';
 import { createStadiumTrack } from './src/track.mjs';
 import { createCircuitTrack } from './src/circuit.mjs';
 import { CIRCUITS } from './src/circuits.mjs';
@@ -263,9 +263,8 @@ $('line').onclick = cycleLine;
 // that sim's sky (the RISE Motordrome): T or the button cycles dawn → day →
 // sunset → night race, ?time=dawn|day|sunset|night starts there. It sets the sun,
 // the hemisphere light, reflections, fog, exposure and the sky dome; at night the
-// floodlights glow.
-const skyDome = world.getObjectByName('rise-sky'), lamps = new Set();
-world.traverse(o => [o.material].flat().forEach(m => { if (m?.name === 'floodlight-lamp') lamps.add(m); }));
+// floodlights, stands, pit building, paddock, boards and pods glow.
+const skyDome = world.getObjectByName('rise-sky');
 const timeParam = new URLSearchParams(location.search).get('time');
 let timeOfDay = skyDome && Object.hasOwn(TIMES, timeParam) ? timeParam : 'day';
 const sunDir = TIMES.day.sun.clone(), SUN_DISTANCE = Math.hypot(35, 70, 25);
@@ -275,7 +274,7 @@ function applyTime() {
   hemi.color.set(t.hemiSky); hemi.groundColor.set(t.hemiGround); hemi.intensity = t.hemi;
   scene.environmentIntensity = t.env; renderer.toneMappingExposure = t.exposure;
   scene.fog.color.set(t.fogColor); scene.fog.far = t.fogFar; scene.fog.near = 220 * t.fogFar / 1700;
-  setSkyTime(skyDome, t); lamps.forEach(m => { m.emissiveIntensity = t.night ? 4 : 0.15; });
+  setSkyTime(skyDome, t); setNightGlow(world, t.night);
   $('daytime').textContent = `Time: ${t.label}`;
 }
 function cycleTime() {

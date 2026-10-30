@@ -125,9 +125,8 @@ Done:
   390 small houses in clusters 650-1700 m out (its rules, in the same world
   frame: 220 m or more from the road, 60 m from the lake; the random draws
   are ordered differently, so the exact spots differ), plastered, brick or blue walls
-  under tin or tile roofs. Trees are kept out of all of them. At night only
-  the floodlights' lamp faces glow (see times of day); the rest of its night
-  lighting is left out.
+  under tin or tile roofs. Trees are kept out of all of them. They glow at
+  night (see times of day), except the village houses.
 - **Braking boards, corner numbers and marshal posts** (`src/structures.mjs`,
   after that sim's `buildBoards` and `buildMarshalPosts`): 3, 2 and 1 boards
   (white, 1.1 x 1.45 m on two legs) 370, 270 and 170 m before its seven
@@ -146,7 +145,7 @@ Done:
   than its, so each pod stands on the waterline itself, its deck 1.2 m over
   the water and its back set into the bank (at most 4 m higher), not 14 m back
   from the shore; 16 pods, every jetty clear of the lake bed. Trees are kept
-  out of them; no night glow.
+  out of them; their walls glow warm at night.
 - **Times of day** (`TIMES` in `src/sky.mjs`, after that sim's `PRESETS` in
   `js/sky.js`): Dawn 06:30 (low orange sun in the east), Day 10:30, Sunset
   17:45 (low sun over the lake in the west) and Night race 21:00 (dark sky with
@@ -158,6 +157,15 @@ Done:
   keeps this game's own lighting. T (or the Time button) cycles them on this
   circuit; `?time=dawn|day|sunset|night` starts there. Switches instantly (it
   blends over 2.2 s); no floodlight pools on the road and no night sounds.
+  At night the sim's emissive night terms light up the buildings
+  (`nightGlow` / `setNightGlow` in `src/sky.mjs`, at half its strength,
+  as our night light is about half its): the grandstand seats and crowd
+  (0.22) and membrane roofs (0.28), the pit building's garages and windows
+  (0.35 by day, 1 at night), the paddock tower (0.2) and pavilion domes
+  (0.18), the braking boards (0.4) and corner numbers (0.3) and the lakeside
+  pods' walls (0.25), besides the floodlight lamp faces (4). Left out: the
+  tower's glowing helix ribs (it glows evenly) and the sim's dim glow on a
+  few village houses (0.12 on some of them).
 
 Not yet: the rest of `scenery.js` (airport).
 Grade and bank forces in the physics were added in 1fc5c16.

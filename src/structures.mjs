@@ -10,6 +10,7 @@
 // its lap) and shares its world x / z, so its places carry over directly.
 // Physics (x, y) maps to world (x, h, -y); offsets are + to the right.
 import * as THREE from '../vendor/three.module.js';
+import { nightGlow } from './sky.mjs';
 
 const mulberry = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 const RISE_START = 80.1, DECK = 7.5, MAST = 24;
@@ -170,7 +171,7 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null }
   // Floodlight masts, the lamp head facing the road.
   const mastGeo = new THREE.CylinderGeometry(0.16, 0.32, MAST + 1, 6); mastGeo.translate(0, (MAST + 1) / 2 - 1, 0);
   const headGeo = new THREE.BoxGeometry(3.2, 1.2, 0.5); headGeo.translate(0, MAST + 0.4, 0.4);
-  const lampFace = std({ color: 0xe8ecef, roughness: 0.3, emissive: 0xfff6e0, emissiveIntensity: 0.15, name: 'floodlight-lamp' }), headMat = std({ color: 0x30343a, roughness: 0.4, metalness: 0.5 });
+  const lampFace = nightGlow(std({ color: 0xe8ecef, roughness: 0.3, name: 'floodlight-lamp' }), 0xfff6e0, 4, { day: 0.15 }), headMat = std({ color: 0x30343a, roughness: 0.4, metalness: 0.5 });
   const atMast = o => { v.set(o.x, ground(o.x, o.y) - 0.3, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(1, 1, 1); };
   const masts = instanced(mastGeo, std({ color: 0x8a9096, roughness: 0.5, metalness: 0.7 }), plan.masts, atMast);
   instanced(headGeo, [headMat, headMat, headMat, headMat, lampFace, headMat], plan.masts, atMast);
@@ -180,10 +181,10 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null }
   const pts = [];
   for (let i = 0; i <= 40; i++) { const t = i / 40; pts.push(new THREE.Vector2(11 * Math.pow(1 - t, 1.35) + 1.3, t * 64)); }
   pts.push(new THREE.Vector2(0.01, 64.6));
-  const tower = shade(new THREE.Mesh(new THREE.LatheGeometry(pts, 64), std({ map: towerTexture(), roughness: 0.35, metalness: 0.1 })));
+  const tower = shade(new THREE.Mesh(new THREE.LatheGeometry(pts, 64), nightGlow(std({ map: towerTexture(), roughness: 0.35, metalness: 0.1 }), 0xffd980, 0.2)));
   tower.name = 'paddock-tower'; tower.position.set(plan.tower.x, ground(plan.tower.x, plan.tower.y) - 0.5, -plan.tower.y); group.add(tower);
   q.identity();
-  const dome = std({ color: 0xf4f2ec, roughness: 0.7, side: THREE.DoubleSide });
+  const dome = nightGlow(std({ color: 0xf4f2ec, roughness: 0.7, side: THREE.DoubleSide }), 0xffebbf, 0.18);
   instanced(new THREE.SphereGeometry(1, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2), dome, plan.domes,
     o => { v.set(o.x, ground(o.x, o.y) - 0.3, -o.y); sc.set(o.r, o.r * 0.55, o.r); });
   instanced(new THREE.CylinderGeometry(1, 1, 1, 24, 1, true), std({ color: 0xc9b38f, roughness: 0.9, side: THREE.DoubleSide }), plan.huts,
@@ -207,10 +208,10 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null }
   // Trackside furniture. Boards stand on the run-off (the road's own surface,
   // track.heightAt); the rest stand behind the barrier on whichever is higher.
   const onGround = (x, y) => Math.max(track.heightAt(x, y), ground(x, y));
-  const numberMat = (text, bg) => std({ roughness: 0.6, map: canvasTexture(128, 128, (g, w, h) => {
+  const numberMat = (text, bg, glow) => nightGlow(std({ roughness: 0.6, map: canvasTexture(128, 128, (g, w, h) => {
     g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = '#111';
     g.font = '700 92px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, 70);
-  }) });
+  }) }), 0xffffff, glow, { useMap: true });
   const back = std({ color: 0xd8d8d4, roughness: 0.7 }), legSteel = std({ color: 0x9aa0a6, roughness: 0.45, metalness: 0.7 });
   const faced = face => [back, back, back, back, face, back];
   const at = (o, y) => { v.set(o.x, y, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(1, 1, 1); };
@@ -218,11 +219,11 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null }
   const boardGeo = new THREE.BoxGeometry(1.1, 1.45, 0.08); boardGeo.translate(0, 0.35 + 0.725, 0);
   const legGeo = new THREE.BoxGeometry(0.07, 2.2, 0.07); legGeo.translate(0, 0.7, -0.075);
   const onRoad = o => at(o, track.heightAt(o.x, o.y));
-  for (const n of [3, 2, 1]) { const im = instanced(boardGeo, faced(numberMat(String(n), '#f4f4f0')), plan.boards.filter(o => o.n === n), onRoad); if (im) im.name = 'braking-board-' + n; }
+  for (const n of [3, 2, 1]) { const im = instanced(boardGeo, faced(numberMat(String(n), '#f4f4f0', 0.4)), plan.boards.filter(o => o.n === n), onRoad); if (im) im.name = 'braking-board-' + n; }
   for (const dx of [-0.38, 0.38]) instanced(legGeo.clone().translate(dx, 0, 0), legSteel, plan.boards, onRoad);
   // Corner numbers: 2.2 m yellow squares on a post, clear of the wall boards.
   const signGeo = new THREE.BoxGeometry(2.2, 2.2, 0.12); signGeo.translate(0, 2.9 + 1.1, 0);
-  for (const o of plan.cornerSigns) { at(o, onGround(o.x, o.y)); const sign = shade(new THREE.Mesh(signGeo, faced(numberMat(String(o.n), '#fad201')))); sign.name = 'corner-' + o.n; sign.position.copy(v); sign.quaternion.copy(q); group.add(sign); }
+  for (const o of plan.cornerSigns) { at(o, onGround(o.x, o.y)); const sign = shade(new THREE.Mesh(signGeo, faced(numberMat(String(o.n), '#fad201', 0.3)))); sign.name = 'corner-' + o.n; sign.position.copy(v); sign.quaternion.copy(q); group.add(sign); }
   const postGeo = new THREE.BoxGeometry(0.14, 5.16, 0.14); postGeo.translate(0, 2.08, -0.13);
   instanced(postGeo, legSteel, plan.cornerSigns, o => at(o, onGround(o.x, o.y)));
   // Marshal posts: 2.2 m huts, orange below and white above 1.6 m.

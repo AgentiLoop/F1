@@ -11,6 +11,7 @@
 // sim's node shaders); no night glow, as our game has no night.
 // Physics (x, y) maps to world (x, h, -y); the sim's world (x, z) is ours.
 import * as THREE from '../vendor/three.module.js';
+import { nightGlow } from './sky.mjs';
 
 const mulberry = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 export const JETTY = 34;
@@ -52,7 +53,7 @@ export function buildLakeside(world, plan, terrain) {
   const map = new THREE.CanvasTexture(thatch); map.colorSpace = THREE.SRGBColorSpace; map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.set(6, 1);
   const parts = [
     [new THREE.CylinderGeometry(1, 1, 1, 28), new THREE.MeshStandardMaterial({ color: 0xb89a74, roughness: 0.8 })],
-    [new THREE.CylinderGeometry(1, 1.05, 1, 28), new THREE.MeshStandardMaterial({ color: 0xe8dcc4, roughness: 0.85 })],
+    [new THREE.CylinderGeometry(1, 1.05, 1, 28), nightGlow(new THREE.MeshStandardMaterial({ color: 0xe8dcc4, roughness: 0.85 }), 0xffcc80, 0.25)],
     [new THREE.ConeGeometry(1, 1, 28, 1), new THREE.MeshStandardMaterial({ map, roughness: 1 })],
     [new THREE.BoxGeometry(2.2, 0.3, 1), new THREE.MeshStandardMaterial({ color: 0x8a6a48, roughness: 0.85 })],
   ];
