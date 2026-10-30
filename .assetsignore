@@ -12,3 +12,4 @@ models/paint_test.png
 node_modules
 .wrangler
 docs
+.gitattributes

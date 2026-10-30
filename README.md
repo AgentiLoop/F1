@@ -40,8 +40,10 @@ Run validation with `node --test` (runs every `test/*.test.mjs` file).
 Node's built-in test runner is the only test dependency.
 
 The site is a Cloudflare Worker that serves only static assets (`wrangler.toml`).
-`npx wrangler deploy` publishes the repository to f1.gokart.games. Files listed
-in `.assetsignore` (tests, tools, this README) are not uploaded.
+`zsh tools/publish.sh` publishes the committed `main` branch to f1.gokart.games
+(via `git archive`, which stamps the version shown in the header subtitle from
+`git describe --tags`). Files listed in `.assetsignore` (tests, tools, this
+README) are not uploaded.
 
 
 ## How to play
@@ -113,11 +115,13 @@ in `.assetsignore` (tests, tools, this README) are not uploaded.
 | P | Autopilot on / off |
 | Space | Pause / resume |
 | R | Reset (restarts the race from the grid) |
-| C | Cockpit / chase camera |
+| C | Camera: chase → close chase → cockpit → driver → halo → T-cam |
 | V | Overview / chase camera |
 | H | HUD on / off |
 | M | Sound on / off (audio starts on the first key press or click) |
 | O | Opponents on / off (restarts) |
+| L | Racing-line chevrons (real circuits): off → whole line → braking zones only. Green: keep going; amber: braking soon; red: brake now for the corner ahead at your speed (`?line=1` or `?line=2` starts with them on) |
+| T | Time of day on the RISE Motordrome: dawn → day → sunset → night race (`?time=night` etc. starts there) |
 
 Keys are on/off, so the pedals and steering ramp (see
 [Driver input](docs/DEVLOG.md#driver-input-inputmjs-cycle-7)). The header buttons do the
@@ -147,8 +151,8 @@ P still switches the autopilot afterwards).
 | Right-stick click (R3) | On autopilot: autopilot off (take the wheel); driving, hold: DRS |
 | A (Cross) | Units: km/h ↔ mph |
 | B (Circle) | Cockpit / chase camera |
-| X (Square) | Pause / resume |
-| Y (Triangle) | Full screen on / off (where the browser supports it) |
+| X (Square) | Full screen on / off (where the browser supports it) |
+| Y (Triangle) | Pause / resume |
 | Menu ≡ (Options) | HUD on / off |
 | View ⧉ (Share / Create) | Reset car (restarts the race) |
 
@@ -160,7 +164,14 @@ P still switches the autopilot afterwards).
 * Buttons act once per press. R3 only turns the autopilot off; to hand the
   car back to it use P. Pit request, overview camera, sound and opponents have
   no gamepad button; use B, V, M and O on the keyboard.
-* There is no rumble, button remapping or calibration. Racing wheels and pads
+* Rumble mixes separate effects, each with its own motor and rhythm: engine
+  throb, limiter chop, gear-shift thumps, tyre scrub, wheelspin, lockup
+  judder, dirty-air buffet, kerbs (alternating motors per stripe), grass,
+  gravel, wall crashes (a slam, then shaking) and car contact. Any event ducks
+  the engine bed so it stands out. Impulse triggers are used where the browser
+  supports them, otherwise trigger effects go to the motors; single-motor
+  Atari joysticks get everything on their one motor.
+* There is no button remapping or calibration. Racing wheels and pads
   that report a non-standard layout are ignored.
 
 ### URL options
@@ -176,6 +187,65 @@ P still switches the autopilot afterwards).
 
 For example [a race at Monza](https://f1.gokart.games/?track=monza&race) or
 [a 5-lap race at Spa on softs](https://f1.gokart.games/?track=spa&race&laps=5&tyre=soft).
+
+## The side panel
+
+The panel on the right shows only what you need while driving; **H** (or the
+*HUD* button) hides it. Top to bottom:
+
+* **Speed and gear.** An **M** beside the gear means the manual gearbox; the
+  gear flashes red when a shift is refused. The two bars under the speed are
+  the throttle and brake commands, labelled with their source (keyboard,
+  gamepad or autopilot).
+* **Last / best lap and sectors.** Sector bars: purple = session best, yellow =
+  slower. A lap is deleted (shown in red) when all four tires are beyond the
+  road edge.
+* **Race order.** Interval to the leader, the current tyre compound, and
+  flags for pit stops (PIT), penalties, retirements (OUT) and an open DRS.
+  At the flag it becomes the classification. Hidden when opponents are off.
+* **Car.** Longitudinal / lateral g, downforce, the ERS store (with the
+  current deploy (+) or harvest (−) power) and the energy deployed this lap
+  against the 4 MJ limit.
+* **Tyres** (FL / FR / RL / RR; hidden on short or narrow screens). Tread
+  temperature and its thermal grip factor (blue cold, green near the 100 °C
+  optimum, red hot); a bar of force / peak capacity (not remaining grip); and
+  tread wear with its wear grip factor (amber above 37.5%, red above 75%).
+
+### Physics notes (illustrative values)
+
+* **Opponents.** Four AI cars run the same physics. Following within ~30 m
+  gives a tow (up to 35% less drag) but dirty air (up to 25% less downforce);
+  cars collide as rigid footprints.
+* **ERS.** The MGU-K adds up to 120 kW on the throttle above 100 km/h, at most
+  4 MJ a lap from a 4 MJ store; braking harvests up to 120 kW (2 MJ a lap) and
+  the MGU-H recharges the store from the exhaust.
+* **DRS.** Open, it cuts drag 12% and downforce 10% (rear only).
+* **Driver input.** Keyboard pedals ramp in ~0.17 s and release in 0.1 s;
+  keyboard steering moves toward lock at 3/s and returns at 5/s. Gamepad
+  triggers are analog pedals; the left stick steers with a deadzone and a
+  progressive curve. Steering authority falls with speed for both.
+* **Tyres.** Beyond the force peak (SLIDE) the force falls toward 75% of peak.
+  The relaxed slip angle catches up with the kinematic one over 0.45 m of
+  travel. Two-node thermal model (tread / carcass): sliding heats the tread,
+  airflow cools it; tires start at 70 °C (blanket temperature). Sliding energy
+  wears the tread (faster above the optimum); grip fades, then falls off a cliff
+  past 75% wear. No pressure or camber model, no ABS or traction control.
+  Compounds (assumed): soft +1.5% grip and 2× wear, hard −1.5% grip and 0.55×
+  wear relative to the medium; a pit stop fits a new set at blanket temperature
+  after a 2.1–3.2 s service. R fits new tires.
+* **Body.** Roll, pitch and aero squat are damped spring modes for display;
+  wheel loads are still quasi-static.
+* **Surfaces** (assumed grip): kerb 90%, run-off 70%, grass 35%, gravel 45%
+  plus a ploughing drag of 25% of each wheel's load. On the real circuits the
+  ground beside the road follows its OpenStreetMap land cover (sand and gravel
+  traps, grass and fields, paved run-off).
+* **Walls** are rigid: the body footprint rebounds with 25% restitution and
+  scrubs with friction 0.5; no damage model.
+* **Sound** is synthesized from engine rpm, throttle, turbo spool, tire
+  sliding power and speed (V6 firing frequency; no recorded samples).
+
+Illustrative, uncalibrated dynamics: a handling testbed, not a validated F1
+simulator.
 
 ## More documentation
 
