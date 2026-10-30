@@ -76,13 +76,23 @@ Done:
   below a glazed band split by a floor slab, a roof terrace over the pit lane
   and our AgentiLoop Racing sign on its edge (theirs carries their brand).
   Other circuits keep the old stand and garages.
+- **Wildlife** (`src/wildlife.mjs`, our own WebGL code after that sim's
+  `js/animals.js`): its Akagera species, giraffe, elephant, zebra, impala and
+  hippo, built from simple shapes, one instanced mesh per species. Herds sit
+  wholly beyond the barriers, away from the start straight, on gentle ground
+  where the driver sees them ahead over the terrain; hippos lie 7-40 m out on
+  the lake. Their ranges and a view corridor from the track are kept clear of
+  trees. Each animal walks to a new spot in its herd's range, stops and grazes;
+  the legs swing, heads dip, trunks and tails sway, and the coats (giraffe
+  patches, zebra stripes, impala and hippo bellies, wrinkled skin) are drawn in
+  a patched MeshStandardMaterial instead of its node shader. About 85 animals.
 
 Not yet (in order):
 
 1. Grade and bank forces in the physics: the cars are only drawn on the hills.
    The physics is still 2D, so climbs, descents and banked corners do not yet
    change speed or grip.
-2. Scenery: paddock pavilions, footbridges, floodlights, villages, wildlife
-   and a reflective lake (the rest of `scenery.js`, `animals.js`, `water.js`).
-   These use TSL node materials and would have to be rewritten for our WebGL
-   renderer.
+2. Scenery: paddock pavilions, footbridges, floodlights, villages, wind sway in
+   the trees and a reflective lake (the rest of `scenery.js`, `trees.js`,
+   `water.js`). These use TSL node materials and would have to be rewritten for
+   our WebGL renderer.

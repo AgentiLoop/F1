@@ -29,7 +29,7 @@ const inWater = (terrain, x, y) => { const l = terrain.lake ? terrain.lake(x, y)
 // dist(x, y) coarse distance to the centreline, lake(x, y) signed distance
 // from the shore or null }. Each herd lies wholly beyond the barriers, away
 // from the start straight, on gentle ground, where it is seen ahead of the car.
-export function wildlifePlan(track, terrain, { minX, maxX, minY, maxY }, { tries = 1500 } = {}) {
+export function wildlifePlan(track, terrain, { minX, maxX, minY, maxY }, { tries = 800 } = {}) {
   const rnd = mulberry(1994), wallAt = track.wallOffset, pts = [];
   for (let s = 0; s < track.length; s += 15) {
     const [x, y] = track.point(s), [x2, y2] = track.point(s + 1), l = Math.hypot(x2 - x, y2 - y) || 1;
