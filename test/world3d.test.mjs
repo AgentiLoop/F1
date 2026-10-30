@@ -66,6 +66,17 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
       }
     }
     assert.ok(checked > 0);
+    // Floodlit at night (RISE trackmesh.js / terrain.js emissives): run-off,
+    // TecPro and the ground glow only at night; the ground's spill fades out.
+    for (const m of [world.getObjectByName('rise-runoff'), tecpro[0]]) assert.ok(m.material.userData.nightGlow?.[1] > 0 && m.material.userData.nightGlow[0] === 0);
+    const ground = world.children.find(m => m.geometry?.attributes.flood);
+    assert.ok(ground?.material.userData.nightGlow);
+    const spill = ground.geometry.attributes.flood.array;
+    assert.ok(spill.reduce((a, b) => Math.max(a, b)) === 1 && spill.reduce((a, b) => Math.min(a, b)) === 0);
+    const sh = { vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <emissivemap_fragment>' };
+    ground.material.onBeforeCompile(sh);
+    assert.match(sh.fragmentShader, /totalEmissiveRadiance \*= vColor\.rgb \* vFlood/);
+    assert.match(sh.vertexShader, /vFlood = flood/);
   } finally { dispose(world); }
 });
 

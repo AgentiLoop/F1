@@ -156,7 +156,7 @@ Done:
   to ours and its exponential fog turned into our linear fog's distance. Day
   keeps this game's own lighting. T (or the Time button) cycles them on this
   circuit; `?time=dawn|day|sunset|night` starts there. Switches instantly (it
-  blends over 2.2 s); no floodlight pools on the road and no night sounds.
+  blends over 2.2 s); no night sounds.
   At night the sim's emissive night terms light up the buildings
   (`nightGlow` / `setNightGlow` in `src/sky.mjs`, at half its strength,
   as our night light is about half its): the grandstand seats and crowd
@@ -166,6 +166,14 @@ Done:
   pods' walls (0.25), besides the floodlight lamp faces (4). Left out: the
   tower's glowing helix ribs (it glows evenly) and the sim's dim glow on a
   few village houses (0.12 on some of them).
+  The floodlit circuit (its `js/trackmesh.js` and `js/terrain.js` flood
+  terms, flood 0.34 halved to 0.17 x their factor, in `buildCircuitWorld` /
+  `buildTerrain` in `src/world3d.mjs`): at night the road, white edge lines
+  and pit lane (x1.1), kerbs and painted run-off (x1) and walls and TecPro
+  (x0.8) give off their own colour, and the ground gets a spill fading from
+  5 m to 160 m off the centreline (a per-vertex `flood` attribute). Left out:
+  its per-tree floodlight term and its darkening of the ground far from the
+  circuit.
 
 Not yet: the rest of `scenery.js` (airport).
 Grade and bank forces in the physics were added in 1fc5c16.
