@@ -5,6 +5,7 @@
 // from the road). Our own WebGL code: leaf cards cut out of one canvas atlas,
 // one instanced mesh per species. Physics (x, y) maps to world (x, h, -y).
 import * as THREE from '../vendor/three.module.js';
+import { nightGlow } from './sky.mjs';
 
 const hash2 = (x, y, seed) => { const v = Math.sin(x * 127.1 + y * 311.7 + seed * 74.7) * 43758.5453; return v - Math.floor(v); };
 // Smooth value noise in -1..1, summed over octaves.
@@ -147,12 +148,16 @@ function merge(parts) {
 // a slow lean of up to 0.2 m by 0.14 m at the top, phase from the tree's
 // position, and leaves flutter on top. Shadows keep the still shape.
 const swayUniforms = { uTime: { value: 0 }, uWind: { value: 1 } };
-function addSway(mat) {
+// flood: the RISE sim's night floodlight on the trees (trees.js aVar.z), a
+// per-tree aFlood weight times the emissive and the tree's own colour.
+function addSway(mat, flood = false) {
   mat.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, swayUniforms);
+    if (flood) shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFlood;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= vColor.rgb * vFlood;');
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aSway; uniform float uTime, uWind;')
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
+      .replace('#include <common>', `#include <common>\nattribute float aSway; uniform float uTime, uWind;${flood ? '\nattribute float aFlood; varying float vFlood;' : ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>${flood ? '\n        vFlood = aFlood;' : ''}
         float phase = 0.0;
         #ifdef USE_INSTANCING
           phase = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.283;
@@ -161,7 +166,7 @@ function addSway(mat) {
         float flutter = sin(uTime * 7.0 + position.x * 3.0 + phase) * 0.03 * leaf;
         transformed += vec3(sin(w) * 0.2 + flutter, 0.0, cos(w * 0.8) * 0.14) * aSway * uWind;`);
   };
-  mat.customProgramCacheKey = () => 'savanna-sway';
+  mat.customProgramCacheKey = () => flood ? 'savanna-sway-flood' : 'savanna-sway';
   return mat;
 }
 
@@ -202,9 +207,12 @@ function speciesGeometry(kind) {
 
 // Adds the plan's trees to world (instanced, one mesh per species) and
 // returns how many were placed. Trees within shadowRange m of the road cast
-// shadows; only that band is drawn into the shadow map.
-export function buildSavanna(world, plan, terrain, { shadowRange = 160 } = {}) {
-  const map = atlas(), mat = addSway(new THREE.MeshStandardMaterial({ map, vertexColors: true, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }));
+// shadows; only that band is drawn into the shadow map. flood: lit by the
+// RISE sim's floodlights at night (albedo x 0.34 flood, halved like our other
+// glows), each tree weighted by smoothstep(160, 10, its distance to the road).
+export function buildSavanna(world, plan, terrain, { shadowRange = 160, flood = false } = {}) {
+  const map = atlas(), mat = addSway(new THREE.MeshStandardMaterial({ map, vertexColors: true, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }), flood);
+  if (flood) nightGlow(mat, 0xffffff, 0.17, { useMap: true });
   const start = performance.now(), tick = () => { swayUniforms.uTime.value = (performance.now() - start) / 1000; };
   const rnd = mulberry(7), m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
   let total = 0;
@@ -213,7 +221,8 @@ export function buildSavanna(world, plan, terrain, { shadowRange = 160 } = {}) {
     for (const near of [true, false]) {
       const list = all.filter(([x, y]) => (terrain.dist(x, y) < shadowRange) === near);
       if (!list.length) continue;
-      const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+      const mesh = new THREE.InstancedMesh(flood ? geo.clone() : geo, mat, list.length);
+      if (flood) mesh.geometry.setAttribute('aFlood', new THREE.InstancedBufferAttribute(new Float32Array(list.map(([x, y]) => smooth(160, 10, terrain.dist(x, y)))), 1));
       list.forEach(([x, y, s, rot], i) => {
         const h = kind === 'papyrus' && terrain.lakeLevel !== null ? Math.max(terrain.height(x, y), terrain.lakeLevel) : terrain.height(x, y);
         m.compose(p.set(x, h - 0.2, -y), q.setFromAxisAngle(up, rot), sc.set(s, s * (0.85 + rnd() * 0.3), s));

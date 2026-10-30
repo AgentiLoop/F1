@@ -528,7 +528,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     const shore = track.lakeLevel !== null ? lakesidePlan(terrain) : null;
     if (shore) { for (const k in plan) plan[k] = plan[k].filter(([x, y]) => shore.clear(x, y)); buildLakeside(world, shore, terrain); }
     const wildlife = herds ? buildWildlife(world, herds, terrain) : null;
-    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, plan, terrain), wildlife: wildlife?.counts, update: wildlife?.update };
+    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, plan, terrain, { flood: track.lakeLevel !== null }), wildlife: wildlife?.counts, update: wildlife?.update };
     return world;
   }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();

@@ -181,9 +181,12 @@ Done:
   `buildTerrain` in `src/world3d.mjs`): at night the road, white edge lines
   and pit lane (x1.1), kerbs and painted run-off (x1) and walls and TecPro
   (x0.8) give off their own colour, and the ground gets a spill fading from
-  5 m to 160 m off the centreline (a per-vertex `flood` attribute). Left out:
-  its per-tree floodlight term and its darkening of the ground far from the
-  circuit.
+  5 m to 160 m off the centreline (a per-vertex `flood` attribute). The trees
+  near the road are floodlit too (its `js/trees.js` per-tree term, in
+  `buildSavanna` in `src/savanna.mjs`): leaf and bark colour x 0.17, each tree
+  weighted by its distance to the road (smoothstep 160 m to 10 m, a per-tree
+  `aFlood` attribute). Left out: its darkening of the ground and the trees far
+  from the circuit.
 
 - **Rubbered racing line and grid slots** (`src/trackpaint.mjs`, after that
   sim's road material in `js/trackmesh.js`; every real circuit): the asphalt

@@ -47,9 +47,16 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
     let footMax = 0, leafMin = Infinity;
     for (let i = 0; i < sway.count; i++) { if (uv.getX(i) >= 0.7 && pos.getY(i) < 0.5) footMax = Math.max(footMax, sway.getX(i)); if (uv.getX(i) < 0.7) leafMin = Math.min(leafMin, sway.getX(i)); }
     assert.ok(footMax < 0.01 && leafMin >= 0.3, `foot ${footMax}, leaves ${leafMin}`);
-    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>' };
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <emissivemap_fragment>' };
     acacia.material.onBeforeCompile(shader);
     assert.match(shader.vertexShader, /transformed \+= .* aSway \* uWind/);
+    // Trees floodlit at night (RISE trees.js aVar.z): near the road only, fading out by 160 m.
+    assert.ok(acacia.material.userData.nightGlow?.[1] > 0 && acacia.material.userData.nightGlow[0] === 0);
+    assert.match(shader.vertexShader, /vFlood = aFlood/);
+    assert.match(shader.fragmentShader, /totalEmissiveRadiance \*= vColor\.rgb \* vFlood/);
+    const lit = acacia.geometry.attributes.aFlood.array, far = world.getObjectByName('savanna-acacia-far').geometry.attributes.aFlood.array;
+    assert.equal(lit.length, acacia.count);
+    assert.ok(Math.max(...lit) > 0.9 && Math.max(...far) === 0, `near ${Math.max(...lit)}, far ${Math.max(...far)}`);
     const t0 = shader.uniforms.uTime.value; await new Promise(r => setTimeout(r, 20)); acacia.onBeforeRender();
     assert.ok(shader.uniforms.uTime.value > t0, 'the wind clock runs');
     const tecpro = world.children.filter(m => m.name === 'tecpro');
