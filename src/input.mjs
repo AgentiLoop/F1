@@ -23,13 +23,15 @@ export function shapeAxis(value, deadzone, exponent = 1) {
 
 // Standard mapping: left stick x = axes[0] (+ is right), RT = buttons[7], LT = buttons[6].
 // Right stick y = axes[3] (- is forward) is an alternative pedal: forward throttle, back brake.
+// triggerBrake (LT) and stickBrake are also reported apart: only the stick may select reverse.
 export function readGamepad(pad, cfg = INPUT_DEFAULTS) {
   if (!pad || !pad.connected || pad.mapping !== 'standard') return null;
   const trigger = b => shapeAxis(clamp(b?.value ?? (b?.pressed ? 1 : 0), 0, 1), cfg.deadzone);
   const stickY = shapeAxis(clamp(pad.axes[3] ?? 0, -1, 1), cfg.deadzone);
+  const triggerBrake = trigger(pad.buttons[6]), stickBrake = Math.max(0, stickY) ** cfg.stickBrakeExponent;
   return {
     throttle: Math.max(trigger(pad.buttons[7]), -stickY),
-    brake: Math.max(trigger(pad.buttons[6]), Math.max(0, stickY) ** cfg.stickBrakeExponent),
+    brake: Math.max(triggerBrake, stickBrake), triggerBrake, stickBrake,
     steer: -shapeAxis(clamp(pad.axes[0] ?? 0, -1, 1), cfg.deadzone, cfg.steerExponent), // + is left in physics
   };
 }
