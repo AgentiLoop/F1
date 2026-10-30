@@ -50,7 +50,7 @@ import { loadRB22Template, buildRB22Car, STEERING_RATIO } from './src/rb22.mjs';
 import { buildWorld, buildCircuitWorld } from './src/world3d.mjs';
 import { makeMirror } from './src/mirror3d.mjs';
 import { buildChevrons } from './src/chevrons.mjs';
-import { TIMES, TIME_ORDER, setSkyTime, setNightGlow } from './src/sky.mjs';
+import { TIMES, TIME_ORDER, TIME_BLEND, lerpTime, setSkyTime, setNightGlow } from './src/sky.mjs';
 import { createStadiumTrack } from './src/track.mjs';
 import { createCircuitTrack } from './src/circuit.mjs';
 import { CIRCUITS } from './src/circuits.mjs';
@@ -263,26 +263,36 @@ $('line').onclick = cycleLine;
 // that sim's sky (the RISE Motordrome): T or the button cycles dawn → day →
 // sunset → night race, ?time=dawn|day|sunset|night starts there. It sets the sun,
 // the hemisphere light, reflections, fog, exposure and the sky dome; at night the
-// floodlights, stands, pit building, paddock, boards and pods glow.
+// floodlights, stands, pit building, paddock, boards and pods glow. A change
+// fades over TIME_BLEND (2.2 s, wall-clock so it also runs while paused) with a
+// smoothstep, as in that sim; pressing again mid-fade starts from what's shown.
 const skyDome = world.getObjectByName('rise-sky');
 const timeParam = new URLSearchParams(location.search).get('time');
 let timeOfDay = skyDome && Object.hasOwn(TIMES, timeParam) ? timeParam : 'day';
 const sunDir = TIMES.day.sun.clone(), SUN_DISTANCE = Math.hypot(35, 70, 25);
-function applyTime() {
-  const t = TIMES[timeOfDay];
+let shownTime = TIMES[timeOfDay], fadeFrom = null, fadeStart = 0;
+function applyTime(t) {
+  shownTime = t;
   sunDir.copy(t.sun); sun.color.set(t.sunColor); sun.intensity = t.sunIntensity;
   hemi.color.set(t.hemiSky); hemi.groundColor.set(t.hemiGround); hemi.intensity = t.hemi;
   scene.environmentIntensity = t.env; renderer.toneMappingExposure = t.exposure;
   scene.fog.color.set(t.fogColor); scene.fog.far = t.fogFar; scene.fog.near = 220 * t.fogFar / 1700;
   setSkyTime(skyDome, t); setNightGlow(world, t.night);
-  $('daytime').textContent = `Time: ${t.label}`;
+}
+function fadeTime() {
+  if (!fadeFrom) return;
+  const b = Math.min(1, (performance.now() - fadeStart) / 1000 / TIME_BLEND), to = TIMES[timeOfDay];
+  applyTime(b < 1 ? lerpTime(fadeFrom, to, b * b * (3 - 2 * b)) : to);
+  if (b >= 1) fadeFrom = null;
 }
 function cycleTime() {
   if (!skyDome) return;
-  timeOfDay = TIME_ORDER[(TIME_ORDER.indexOf(timeOfDay) + 1) % TIME_ORDER.length]; applyTime();
+  timeOfDay = TIME_ORDER[(TIME_ORDER.indexOf(timeOfDay) + 1) % TIME_ORDER.length];
+  fadeFrom = shownTime; fadeStart = performance.now();
+  $('daytime').textContent = `Time: ${TIMES[timeOfDay].label}`;
 }
 $('daytime').hidden = !skyDome; $('daytime').onclick = cycleTime;
-if (skyDome) applyTime();
+if (skyDome) { applyTime(shownTime); $('daytime').textContent = `Time: ${shownTime.label}`; }
 function updateChevrons() {
   if (chev) chev.mode(lineMode);
   if (!lineMode) return;
@@ -438,7 +448,7 @@ function drawMinimap() {
 }
 function render(dt = 0) {
   const c = sim.car;
-  updateChevrons(); placeScene(dt); drawMinimap(); world.userData.update?.(dt);
+  fadeTime(); updateChevrons(); placeScene(dt); drawMinimap(); world.userData.update?.(dt);
   $('speed').textContent = $('speed-hud').textContent = Math.round(c.telemetry.speed * (mph ? 2.23694 : 3.6));
   $('gear').textContent = (c.gear < 0 ? 'R' : String(c.gear)) + (c.config.autoShift ? '' : ' M');
   $('long').textContent = `${(c.ax / 9.81).toFixed(2)} g`;

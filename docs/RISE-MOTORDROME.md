@@ -155,8 +155,11 @@ Done:
   exposure and the sky dome's colours and clouds; its light levels are scaled
   to ours and its exponential fog turned into our linear fog's distance. Day
   keeps this game's own lighting. T (or the Time button) cycles them on this
-  circuit; `?time=dawn|day|sunset|night` starts there. Switches instantly (it
-  blends over 2.2 s); no night sounds.
+  circuit; `?time=dawn|day|sunset|night` starts there. A switch fades over
+  2.2 s with a smoothstep like the sim's (`lerpTime` / `TIME_BLEND`): colours,
+  light levels, fog, clouds, stars and night glow blend, the sun swinging over
+  the top rather than through the ground; the button shows the new time at
+  once. No night sounds.
   At night the sim's emissive night terms light up the buildings
   (`nightGlow` / `setNightGlow` in `src/sky.mjs`, at half its strength,
   as our night light is about half its): the grandstand seats and crowd
