@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
-import { SCENERY, waterField } from '../src/scenery.mjs';
+import { SCENERY, waterField, terrainField } from '../src/scenery.mjs';
 
 // A do-nothing 2D canvas so buildCircuitWorld's textures can be drawn in Node.
 const ctx = new Proxy({}, { get: (_, k) => k === 'measureText' ? () => ({ width: 10 }) : k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
@@ -123,5 +123,33 @@ test('the water is drawn over ground that dips below it, with no tree in it', ()
     for (const t of meshes(world).filter(o => o.isInstancedMesh && o.count > 0 && !o.geometry.parameters && o.userData.kind !== 'buildings')) {
       for (let i = 0; i < t.count; i++) { t.getMatrixAt(i, m); assert.ok(wf.sd(m.elements[12], -m.elements[14]) > 0, `${key}: tree in the water`); }
     }
+  }
+});
+
+test('every real circuit stands on the real ground (terrain tiles), which meets the road heights; Spa and the Red Bull Ring in their hills', () => {
+  for (const key of Object.keys(CIRCUITS).filter(k => k !== 'rwanda')) {
+    const t = SCENERY[key].terrain, track = createCircuitTrack(CIRCUITS[key]), { x: X, y: Y, s: S } = track.samples, ground = terrainField(t);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (let i = 0; i < X.length; i++) { x0 = Math.min(x0, X[i]); x1 = Math.max(x1, X[i]); y0 = Math.min(y0, Y[i]); y1 = Math.max(y1, Y[i]); }
+    const R = Math.hypot(x1 - x0, y1 - y0) / 2 + 1400;
+    // Covers the whole 3D terrain square.
+    assert.ok(t.x0 <= (x0 + x1) / 2 - R && t.y0 <= (y0 + y1) / 2 - R && t.x0 + (t.nx - 1) * t.step >= (x0 + x1) / 2 + R && t.y0 + (t.ny - 1) * t.step >= (y0 + y1) / 2 + R, key);
+    const gaps = [];
+    for (let i = 0; i < X.length; i += 5) gaps.push(Math.abs(track.elevation(S[i]) - ground(X[i], Y[i])));
+    gaps.sort((a, b) => a - b);
+    assert.ok(gaps[gaps.length >> 1] < 5, `${key}: road vs ground median ${gaps[gaps.length >> 1]} m`);
+  }
+  for (const [key, relief] of [['spa', 150], ['red-bull-ring', 300]]) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), ground = terrainField(SCENERY[key].terrain);
+    const P = meshes(world).filter(o => o.material.vertexColors && o.geometry.index).sort((a, b) => b.geometry.attributes.position.count - a.geometry.attributes.position.count)[0].geometry.attributes.position;
+    const wet = waterField(SCENERY[key].water);
+    let lo = Infinity, hi = -Infinity, far = 0;
+    for (let i = 0; i < P.count; i++) {
+      const x = P.getX(i), y = -P.getZ(i), h = P.getY(i);
+      lo = Math.min(lo, h); hi = Math.max(hi, h);
+      // Well away from the road and the water the mesh is the real ground.
+      if (Math.abs(track.offset(x, y)) > track.wallOffset + 200 && wet.sd(x, y, 50) > 50 && i % 13 === 0) { assert.ok(Math.abs(h - ground(x, y)) < 0.01, `${key}: ${h} vs ${ground(x, y)}`); far++; }
+    }
+    assert.ok(far > 200 && hi - lo > relief, `${key}: ${far} points, relief ${hi - lo} m`);
   }
 });

@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
-import { DEFAULT_SCENERY, waterField } from './scenery.mjs';
+import { DEFAULT_SCENERY, waterField, terrainField } from './scenery.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -640,11 +640,13 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
     const [u, v] = cellUV(x, y), i = Math.floor(u), j = Math.floor(v), a = u - i, b = v - j, k = j * NX + i;
     return (f[k] * (1 - a) + f[k + 1] * a) * (1 - b) + (f[k + NX] * (1 - a) + f[k + NX + 1] * a) * b;
   };
-  // Away from the road: the road's height fading out over 150-700 m, rolling
-  // ground, hills rising towards the horizon, and the lake.
+  // Away from the road: the real ground (scenery.terrain, terrain.mjs) where
+  // it is known; otherwise the road's height fading out over 150-700 m,
+  // rolling ground and hills rising towards the horizon. Then the lake.
+  const real = scenery.terrain ? terrainField(scenery.terrain) : null;
   const far = (x, y) => {
     const d = bilinear(dist, x, y), r = Math.hypot(x - cx, y - cy), th = Math.atan2(y - cy, x - cx);
-    let h = bilinear(base, x, y) * (1 - smooth(150, 700, d))
+    let h = real ? real(x, y) : bilinear(base, x, y) * (1 - smooth(150, 700, d))
       + (3 * Math.sin(x * 0.011 + 0.7) * Math.cos(y * 0.013) + 1.5 * Math.sin(x * 0.029 + y * 0.021)) * smooth(40, 200, d)
       + Math.max(0, 45 + 30 * Math.sin(th * 3 + 1) + 20 * Math.sin(th * 7 + 2) + 10 * Math.sin(th * 17)) * smooth(extent * 0.9, extent + 1100, r);
     if (lake !== null) {
@@ -656,6 +658,9 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
       const o = seaSide(x, y);
       h += (seaLevel + 1.2 + Math.max(0, -o) * 0.02 - h) * smooth(-160, 0, o);
       if (o > 0) h = Math.min(h, seaLevel - 0.6 - Math.min(o * 0.05, 10));
+      // (Our sea level is the lowest road − 3 m, not the real one: real
+      // low-lying land stays above it.)
+      else if (real) h = Math.max(h, seaLevel + 0.6);
     }
     return h;
   };

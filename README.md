@@ -11,7 +11,7 @@ Monza's park, palms and sand at Bahrain, Jeddah and Yas Marina, the dunes at
 Zandvoort, the real buildings from OpenStreetMap (Monte Carlo's apartment blocks,
 the grandstands and pit buildings, the towns around Interlagos and Mexico City), and the real lakes, ponds,
 rivers and basins from OpenStreetMap: Montreal's Olympic Basin and St. Lawrence, Interlagos's lakes,
-Imola's Santerno, Miami's canals; and the real coastline: the North Sea at Zandvoort, the Red Sea along Jeddah's Corniche, Port Hercule inside Monaco's lap, the marina at Yas Marina), plus the planned RISE Motordrome in Rwanda
+Imola's Santerno, Miami's canals; the real ground around each circuit from open elevation data: the Ardennes valleys round Spa, the Styrian hills above the Red Bull Ring, the mountainside behind Monaco; and the real coastline: the North Sea at Zandvoort, the Red Sea along Jeddah's Corniche, Port Hercule inside Monaco's lap, the marina at Yas Marina), plus the planned RISE Motordrome in Rwanda
 ([?track=rwanda](https://f1.gokart.games/?track=rwanda), layout, hills, banking
 and lake from the RISE Motordrome sim, with its East African trees; see [docs/RISE-MOTORDROME.md](docs/RISE-MOTORDROME.md)). It has a standing start, pit stops and tyre
 compounds, fuel, ERS and DRS, an automatic or paddle-shift gearbox, plus engine
@@ -185,3 +185,4 @@ For example [a race at Monza](https://f1.gokart.games/?track=monza&race) or
 
 Three.js is MIT licensed (`vendor/LICENSE-three`). 3D models and textures keep their own licences; see `models/CREDITS.md`.
 The water, sea and buildings around the real circuits (`src/water.mjs`, `src/coast.mjs`, `src/buildings.mjs`) are from OpenStreetMap, © OpenStreetMap contributors, under the ODbL (openstreetmap.org/copyright).
+The ground around them (`src/terrain.mjs`) is from the Mapzen/AWS Terrain Tiles (open data from SRTM, NED, EU-DEM, ETOPO1 and others; see github.com/tilezen/joerd/blob/master/docs/attribution.md).

@@ -16,13 +16,16 @@ const DUNES = { grass: 0x8f9a5a, dry: 0xd2c08e, soil: 0xc8b07c };
 // Hercule at Monaco, the Gulf round Yas Island, the Gulf of Bahrain), both
 // from OpenStreetMap and in the same polygon form, and buildings: the real
 // buildings within 500 m of the road (buildings.mjs, also OpenStreetMap:
-// grandstands, pit buildings, Monte Carlo's apartment blocks), added to
-// every entry below.
+// grandstands, pit buildings, Monte Carlo's apartment blocks), and terrain:
+// the real ground around it (terrain.mjs, the Mapzen/AWS Terrain Tiles:
+// Spa's Ardennes valleys, the Styrian hills round the Red Bull Ring, the
+// Maritime Alps above Monaco), added to every entry below.
 import { WATER } from './water.mjs';
 import { COAST } from './coast.mjs';
 import { BUILDINGS } from './buildings.mjs';
+import { TERRAIN } from './terrain.mjs';
 
-export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, water: null });
+export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, water: null, terrain: null });
 
 export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'bahrain': { ground: DESERT, clusters: 60, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
@@ -43,7 +46,7 @@ export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'zandvoort': { ground: DUNES, clusters: 120, trees: { conifer: 0.85, broadleaf: 0.15, palm: 0 } },
   'jeddah': { ground: DESERT, clusters: 80, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
   'miami': { ground: GREEN, clusters: 160, trees: { conifer: 0, broadleaf: 0.3, palm: 0.7 } },
-}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null })])));
+}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null, terrain: TERRAIN[key] ?? null })])));
 
 
 // Water polygons (water.mjs form) prepared for the terrain: each as rings
@@ -77,4 +80,15 @@ export function waterField(polys) {
     return best;
   };
   return { list, sd, sdOf };
+}
+
+// A terrain.mjs grid as the ground height (m) at (x, y), bilinear between
+// its points and held at its edge beyond them.
+export function terrainField({ x0, y0, step, nx, ny, h }) {
+  const bin = atob(h), v = new Float32Array(nx * ny);
+  for (let k = 0; k < v.length; k++) { const u = bin.charCodeAt(2 * k) | bin.charCodeAt(2 * k + 1) << 8; v[k] = (u << 16 >> 16) / 10; }
+  return (x, y) => {
+    const u = Math.min(nx - 1.001, Math.max(0, (x - x0) / step)), w = Math.min(ny - 1.001, Math.max(0, (y - y0) / step)), i = Math.floor(u), j = Math.floor(w), a = u - i, b = w - j, k = j * nx + i;
+    return (v[k] * (1 - a) + v[k + 1] * a) * (1 - b) + (v[k + nx] * (1 - a) + v[k + nx + 1] * a) * b;
+  };
 }
