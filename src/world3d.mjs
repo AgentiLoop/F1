@@ -464,9 +464,10 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   hillGeo.setIndex(hi); hillGeo.computeVertexNormals();
   if (!track.hasElevation) world.add(new THREE.Mesh(hillGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
 
-  // With terrain: East African vegetation (savanna.mjs); otherwise tree
-  // clusters anywhere at least 20 m clear of the road.
-  if (track.hasElevation) {
+  // Beside the lake (the RISE Motordrome): East African vegetation
+  // (savanna.mjs); otherwise tree clusters anywhere at least 20 m clear of
+  // the road, on the terrain when there is one.
+  if (track.lakeLevel !== null) {
     const terrain = { height: terrainHeight, dist: terrainHeight.dist, lake: terrainHeight.lake, lakeLevel: track.lakeLevel };
     world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, savannaPlan(track, terrain, { minX, maxX, minY, maxY }), terrain) };
     return world;
@@ -587,9 +588,10 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx); geo.computeVertexNormals();
-  // Colours: green grass patched with dry grass, red laterite soil where the
-  // ground is steep, sand along the shore and mud under the water.
-  const grass = new THREE.Color(0x4f7d33), dry = new THREE.Color(0x8c8a4a), laterite = new THREE.Color(0xa4532e), sand = new THREE.Color(0xb9a57a), mud = new THREE.Color(0x5b5040);
+  // Colours: green grass patched with dry grass, bare soil where the ground
+  // is steep (red laterite by the lake, brown earth elsewhere), sand along the
+  // shore and mud under the water.
+  const grass = new THREE.Color(0x4f7d33), dry = new THREE.Color(0x8c8a4a), laterite = new THREE.Color(lake !== null ? 0xa4532e : 0x6e5a3f), sand = new THREE.Color(0xb9a57a), mud = new THREE.Color(0x5b5040);
   const col = new Float32Array(N * 3), c = new THREE.Color(), nrm = geo.attributes.normal;
   for (let k = 0; k < N; k++) {
     const x = pos[3 * k], h = pos[3 * k + 1], z = pos[3 * k + 2];

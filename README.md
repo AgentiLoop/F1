@@ -5,8 +5,8 @@
 <img width="1945" height="1149" alt="Screenshot 2026-10-19 at 6 55 02 PM" src="https://github.com/user-attachments/assets/3438bf84-d85a-4ff9-beeb-89b3ecfdd493" />
 
 Race an open-wheel car against an AI field in 3D, on a stadium test track or on
-18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts built
-from real car positions), plus the planned RISE Motordrome in Rwanda
+18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts and
+hills built from real car positions: Spa climbs 100 m, the Red Bull Ring 63 m), plus the planned RISE Motordrome in Rwanda
 ([?track=rwanda](https://f1.gokart.games/?track=rwanda), layout, hills, banking
 and lake from the RISE Motordrome sim, with its East African trees; see [docs/RISE-MOTORDROME.md](docs/RISE-MOTORDROME.md)). It has a standing start, pit stops and tyre
 compounds, fuel, ERS and DRS, an automatic or paddle-shift gearbox, plus engine
