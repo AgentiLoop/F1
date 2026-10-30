@@ -36,3 +36,17 @@ test('RISE floodlights, paddock and villages stay off the road and out of the la
   assert.equal(plan.clear(plan.tower.x, plan.tower.y), false);
   assert.equal(plan.clear(plan.houses[0].x, plan.houses[0].y), false);
 });
+
+test('RISE trackside furniture: braking boards on the run-off, corner numbers and marshal posts behind the barrier, facing the cars', () => {
+  // 3, 2 and 1 before each of the seven heavy-braking corners, off the road but inside the barrier
+  assert.equal(plan.boards.length, 21);
+  for (const b of plan.boards) { const o = Math.abs(track.offset(b.x, b.y)); assert.ok(o > half + 1 && o < wallAt, `board ${b.n} at ${o.toFixed(1)} m`); }
+  assert.ok(plan.cornerSigns.length >= 15, `${plan.cornerSigns.length} corner numbers`);
+  assert.ok(plan.posts.length >= 12, `${plan.posts.length} marshal posts`);
+  for (const o of [...plan.cornerSigns, ...plan.posts]) assert.ok(Math.abs(track.offset(o.x, o.y)) > wallAt && lakeSdf(o.x, -o.y) > 0);
+  // the front (local +z) is (sin yaw, -cos yaw) in physics x / y: back down the track
+  for (const o of [...plan.boards, ...plan.cornerSigns, ...plan.posts]) {
+    const h = track.heading(o.s);
+    assert.ok(Math.sin(o.yaw) * Math.cos(h) - Math.cos(o.yaw) * Math.sin(h) < -0.99, `faces the cars at ${o.s}`);
+  }
+});

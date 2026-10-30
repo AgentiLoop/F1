@@ -127,7 +127,16 @@ Done:
   are ordered differently, so the exact spots differ), plastered, brick or blue walls
   under tin or tile roofs. Trees are kept out of all of them. Their night
   lighting is left out (we have no night).
+- **Braking boards, corner numbers and marshal posts** (`src/structures.mjs`,
+  after that sim's `buildBoards` and `buildMarshalPosts`): 3, 2 and 1 boards
+  (white, 1.1 x 1.45 m on two legs) 370, 270 and 170 m before its seven
+  heavy-braking corners (Turns 1, 3, 4, 8, 12, 14 and 17), on the run-off 3.5 m
+  beyond the road edge on the outside of the approach; a yellow 2.2 m corner
+  number on a post 1.5 m behind the outside barrier 25 m before each of its 17
+  corners; and 17 orange-and-white marshal posts every 330 m, 2.2 m behind the
+  barrier on the outside of the bend (switched across at the pit lane, none on
+  the start straight). All face the approaching cars, at that sim's corner
+  positions (its `track-data.js`, shifted by our 80.1 m start).
 
-Not yet: the rest of `scenery.js` (airport, lakeside pods and jetties,
-marshal posts, braking boards). Grade and bank forces in the physics were
-added in 1fc5c16.
+Not yet: the rest of `scenery.js` (airport, lakeside pods and jetties).
+Grade and bank forces in the physics were added in 1fc5c16.
