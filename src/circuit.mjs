@@ -323,7 +323,7 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     // Rouge's compression (2.5e-3, 1 km from the line) keeps 77% of its size.
     groundAt: heights ? (x, y) => {
       const q = nearest(x, y), s = ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, off = q.offset, h = headings[q.i];
-      const along = (elevation(s + 2, off) - elevation(s - 2, off)) / 4, across = elevation(s, off + 0.5) - elevation(s, off - 0.5);
+      const along = (elevation(s + 2, off) - elevation(s - 2, off)) / 4 / Math.max(0.2, 1 + curvature[q.i] * off), across = elevation(s, off + 0.5) - elevation(s, off - 0.5);
       const zss = (elevation(s + 25, off) - 2 * elevation(s, off) + elevation(s - 25, off)) / 625;
       return { gx: along * Math.cos(h) + across * Math.sin(h), gy: along * Math.sin(h) - across * Math.cos(h), zss };
     } : null,

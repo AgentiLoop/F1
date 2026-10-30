@@ -4,6 +4,7 @@ import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
 import * as THREE from '../vendor/three.module.js';
 import { SCENERY, waterField, terrainField, landcoverField } from '../src/scenery.mjs';
+import { riseStandsClear, pitBuildingSpan } from '../src/stands.mjs';
 
 // A do-nothing 2D canvas so buildCircuitWorld's textures can be drawn in Node.
 const ctx = new Proxy({}, { get: (_, k) => k === 'measureText' ? () => ({ width: 10 }) : k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
@@ -58,6 +59,20 @@ test('inland circuits have no sea; desert circuits only palms, Spa conifers and 
   assert.equal(kindsOf(bahrain), 1);
 });
 const townOf = world => { let t; world.traverse(o => { if (o.isGroup && o.userData.kind === 'buildings') t = o; }); return t; };
+// (x, y) => true on our own RISE grandstands (roofs included) or pit
+// building (stands.mjs); asserts there is at least one of them.
+const oursOf = (world, track) => {
+  const stands = world.getObjectByName('rise-stands').children.filter(o => o.isGroup), pit = track.pit;
+  const side = stands.length ? Math.sign(track.offset(stands[0].position.x, -stands[0].position.z)) : 0, offStands = riseStandsClear(track, side, 0);
+  const span = world.getObjectByName('pit-building') ? pitBuildingSpan(pit, 5) : null;
+  assert.ok(stands.length || span, track.name);
+  return (x, y) => {
+    if (!offStands(x, y)) return true;
+    if (!span) return false;
+    const o = track.offset(x, y), p = track.progress(x, y), s = p > track.length / 2 ? p - track.length : p;
+    return Math.sign(o) === -pit.side && Math.abs(o) > track.wallOffset + 1 && Math.abs(o) < track.wallOffset + 21 && s > span[0] && s < span[1];
+  };
+};
 test('every real circuit gets its real buildings (OpenStreetMap), clear of the road, the sea and the water; Monaco is lined with them', () => {
   const area = r => { let a = 0; for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
   const counts = {};
@@ -114,16 +129,9 @@ test('real grandstands nearer the circuit than our barriers are moved back behin
         assert.ok(!c, `${key}: moved stand over another building`);
       }
     }
-    // No building corner on our own grandstand or garages (their boxes, seen from above).
-    const ours = meshes(world).filter(m => m.geometry.type === 'BoxGeometry' && (m.geometry.parameters.width >= 110 || (m.geometry.parameters.height === 6 && m.geometry.parameters.depth === 7)));
-    assert.ok(ours.length > 0, key);
-    for (const m of ours) {
-      m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox, inv = m.matrixWorld.clone().invert(), y0 = m.getWorldPosition(new THREE.Vector3()).y;
-      for (const b of blocks) for (const [x, y] of b.ring) {
-        const v = new THREE.Vector3(x, y0, -y).applyMatrix4(inv);
-        assert.ok(!(v.x > bb.min.x && v.x < bb.max.x && v.z > bb.min.z && v.z < bb.max.z), `${key}: building on our stand or garages`);
-      }
-    }
+    // No building corner on our own grandstands or pit building.
+    const onOurs = oursOf(world, track);
+    for (const b of blocks) for (const [x, y] of b.ring) assert.ok(!onOurs(x, y), `${key}: building on our stand or pits`);
     moved[key] = back.length;
   }
   assert.ok(moved.monza >= 10, JSON.stringify(moved));
@@ -131,20 +139,12 @@ test('real grandstands nearer the circuit than our barriers are moved back behin
 test('real roads, walls and fences are kept off only the plot of our own grandstand and garages', () => {
   for (const key of ['monza', 'silverstone', 'spa', 'interlagos']) {
     const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] });
-    world.updateMatrixWorld(true);
-    const ours = meshes(world).filter(m => m.geometry.type === 'BoxGeometry' && (m.geometry.parameters.width >= 110 || (m.geometry.parameters.height === 6 && m.geometry.parameters.depth === 7)));
-    assert.ok(ours.length > 0, key);
+    const onOurs = oursOf(world, track);
     const lines = meshes(world).filter(m => m.userData.kind === 'roads' || ['walls', 'fences', 'hedges', 'guardRails', 'railway'].includes(m.userData.kind) || m.parent?.userData.kind === 'barriers');
     assert.ok(lines.length > 1, key);
-    for (const m of ours) {
-      m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox, inv = m.matrixWorld.clone().invert(), y0 = m.getWorldPosition(new THREE.Vector3()).y;
-      for (const l of lines) {
-        const P = l.geometry.attributes.position;
-        for (let i = 0; i < P.count; i++) {
-          const v = new THREE.Vector3(P.getX(i), y0, P.getZ(i)).applyMatrix4(inv);
-          assert.ok(!(v.x > bb.min.x && v.x < bb.max.x && v.z > bb.min.z && v.z < bb.max.z), `${key}: ${l.userData.kind} on our stand or garages`);
-        }
-      }
+    for (const l of lines) {
+      const P = l.geometry.attributes.position;
+      for (let i = 0; i < P.count; i++) assert.ok(!onOurs(P.getX(i), -P.getZ(i)), `${key}: ${l.userData.kind} on our stand or pits`);
     }
   }
 });

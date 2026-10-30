@@ -22,6 +22,16 @@ export function riseStandPlan(track, side) {
     [front, front + DEPTH + 1.2].every(f => { const [x, y] = track.point(s + dz, side * f); return Math.abs(track.offset(x, y)) > clear; })));
 }
 
+// (x, y) => true when the point is more than `margin` m outside every
+// grandstand of riseStandPlan(track, side), roof overhang included.
+export function riseStandsClear(track, side, margin = 4) {
+  const boxes = side ? riseStandPlan(track, side).map(({ s, front }) => { const h = track.heading(s), [x, y] = track.point(s, side * front); return [x, y, side * Math.sin(h), -side * Math.cos(h)]; }) : [];
+  return (px, py) => boxes.every(([x, y, ux, uy]) => {
+    const dx = px - x, dy = py - y, u = dx * ux + dy * uy, v = Math.abs(dx * uy - dy * ux);
+    return u < -5.5 - margin || u > DEPTH + 3.5 + margin || v > STAND_LEN / 2 + 3 + margin;
+  });
+}
+
 // The pit building's extent [s0, s1] in signed lap progress: 60 m before the
 // first box to 60 m past the last, kept inside the pit lane.
 export function pitBuildingSpan(pit, boxes) {

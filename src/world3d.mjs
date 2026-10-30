@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
-import { buildRiseStands } from './stands.mjs';
+import { buildRiseStands, riseStandsClear, riseStandPlan } from './stands.mjs';
 import { DEFAULT_SCENERY, waterField, terrainField, landcoverField } from './scenery.mjs';
 import { buildWildlife, wildlifePlan } from './wildlife.mjs';
 import { buildLake } from './lake.mjs';
@@ -431,15 +431,19 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
       return { x, y, nx: -Math.sin(h), ny: Math.cos(h), s: s - a, h: o => ground(s, o) };
     });
     // Ribbon offsets are positive to the left: centreline offset −(side × f).
-    const r = f => -pit.side * f;
-    world.add(ribbon(strip(pit.entry, pit.exit), r(-half), r(-pit.outer), 0.006, flood(asphaltMaterial(Math.abs(pit.outer - half)), 1.1), 30));
-    world.add(ribbon(strip(pit.limitStart, pit.limitEnd), r(-pit.inner), r(-pit.inner - 0.25), 0.009, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
-    const flat = (s, f, length, width, color, y = 0.01) => onRoad(new THREE.Mesh(new THREE.PlaneGeometry(length, width), std({ color, roughness: 0.6 })), s, pit.side * f, y);
+    // Each layer is only mm above the one below, so depth offsets (asphalt,
+    // then lines, then box paint) keep them from flickering at a distance.
+    // Units only: a slope factor pulls them through a car's low parts when
+    // the ground is seen at a grazing angle (from the cockpit).
+    const r = f => -pit.side * f, layer = (mat, k) => Object.assign(mat, { polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4 * k });
+    world.add(ribbon(strip(pit.entry, pit.exit), r(-half), r(-pit.outer), 0.006, layer(flood(asphaltMaterial(Math.abs(pit.outer - half)), 1.1), 1), 30));
+    world.add(ribbon(strip(pit.limitStart, pit.limitEnd), r(-pit.inner), r(-pit.inner - 0.25), 0.009, layer(std({ color: 0xf2f2ee, roughness: 0.6 }), 2), 10));
+    const flat = (s, f, length, width, color, y = 0.01, k = 2) => onRoad(new THREE.Mesh(new THREE.PlaneGeometry(length, width), layer(std({ color, roughness: 0.6 }), k)), s, pit.side * f, y);
     for (const s of [pit.limitStart, pit.limitEnd]) flat(s, -(pit.inner + pit.outer) / 2, 0.4, pit.outer - pit.inner, 0xf2f2ee);
     const garageAt = -(wallAt + 4.5), concreteGarage = std({ color: 0xd9dcd6, roughness: 0.7 });
     for (let i = 0; i < Math.max(boxColors.length, 5); i++) {
       const s = pit.boxStart + pit.boxSpacing * i;
-      flat(s, pit.boxOffset, 7, 3, 0xf2f2ee); flat(s, pit.boxOffset, 6.6, 2.6, boxColors[i] ?? 0x3a4450, 0.012);
+      flat(s, pit.boxOffset, 7, 3, 0xf2f2ee); flat(s, pit.boxOffset, 6.6, 2.6, boxColors[i] ?? 0x3a4450, 0.012, 3);
       const [x, y] = track.point(s, pit.side * garageAt);
       if (track.hasElevation || standSide === -pit.side || Math.abs(track.offset(x, y)) < wallAt + 3) continue;
       const g = new THREE.Mesh(new THREE.BoxGeometry(pit.boxSpacing - 0.5, 6, 7), concreteGarage);
@@ -450,13 +454,16 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // Whether (x, y) is on the plot of our own grandstand (its roof and a 3 m
   // margin: s = -125 to 5, out to wallAt + 26 on its side) or of our pit lane
   // and garages (entry to exit, out to the garages' back + 3 m), widened by
-  // `pad` m all round.
+  // `pad` m all round. With terrain: the RISE grandstands (stands.mjs, roofs
+  // and a 3 m margin) and the pit building (out to wallAt + 21, + 3 m).
+  const hilly = track.hasElevation, riseClear = new Map();
+  const offRise = (x, y, pad) => (riseClear.get(pad) ?? riseClear.set(pad, riseStandsClear(track, standSide, 3 + pad)).get(pad))(x, y);
   const ourPlot = (x, y, pad = 0) => {
     const o = track.offset(x, y), a = Math.abs(o);
-    if (a > wallAt + 26 + pad) return false;
+    if (a > wallAt + (hilly ? 38 : 26) + pad) return false;
     const near = track.progress(x, y), sp = near > track.length / 2 ? near - track.length : near;
-    if (standSide && Math.sign(o) === standSide && sp > -125 - pad && sp < 5 + pad) return true;
-    return !!pit && Math.sign(o) === -pit.side && sp > pit.entry - 10 - pad && sp < pit.exit + 10 + pad && a < Math.max(pit.outer, wallAt + 8) + 3 + pad;
+    if (standSide && Math.sign(o) === standSide && (hilly ? !offRise(x, y, pad) : sp > -125 - pad && sp < 5 + pad)) return true;
+    return !!pit && Math.sign(o) === -pit.side && sp > pit.entry - 10 - pad && sp < pit.exit + 10 + pad && a < (hilly ? wallAt + 21 : Math.max(pit.outer, wallAt + 8)) + 3 + pad;
   };
   const inside = (ring, x, y) => {
     let c = false;
@@ -465,8 +472,9 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   };
   // Points inside our grandstand and garages: no building may enclose them.
   const ourProbes = [];
-  if (standSide) for (let s = -110; s <= -10; s += 20) ourProbes.push(track.point(s, standSide * (wallAt + 14)));
-  if (pit) for (let s = pit.entry; s <= pit.exit; s += 20) ourProbes.push(track.point(s, -pit.side * (wallAt + 4.5)));
+  if (standSide && hilly) for (const { s, front } of riseStandPlan(track, standSide)) for (const d of [-40, 0, 40]) ourProbes.push(track.point(s + d, standSide * (front + 12)));
+  else if (standSide) for (let s = -110; s <= -10; s += 20) ourProbes.push(track.point(s, standSide * (wallAt + 14)));
+  if (pit) for (let s = pit.entry; s <= pit.exit; s += 20) ourProbes.push(track.point(s, -pit.side * (wallAt + (hilly ? 11 : 4.5))));
 
   // Hoardings every ~36 m both sides, facing the track (none along the pit lane).
   const logo = (w, h) => { const t = texture(1, () => {}); const cv = t.image; cv.width = w; cv.height = h; drawLogo(cv.getContext('2d'), w, h, true); t.needsUpdate = true; return t; };
@@ -695,7 +703,13 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
       const [ax, ay, bx, by] = flat.slice(i, i + 4), m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
       for (let k = i ? 1 : 0; k <= m; k++) path.push([ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
     }
-    const keep = path.map(([x, y]) => !ours(x, y, w) && beach(x, y) < -w / 2 && shore(x, y) > 0);
+    // (Both edges checked too: far from the road the nearest part of the
+    // circuit can change across a street's width.)
+    const keep = path.map(([x, y], k) => {
+      if (ours(x, y, w) || beach(x, y) >= -w / 2 || shore(x, y) <= 0) return false;
+      const [nx, ny] = across(path, k);
+      return !ourPlot(x + nx * w / 2, y + ny * w / 2, 1) && !ourPlot(x - nx * w / 2, y - ny * w / 2, 1);
+    });
     for (let a = 0; a < path.length;) {
       if (!keep[a]) { a++; continue; }
       let b = a; while (b + 1 < path.length && keep[b + 1]) b++;
@@ -990,7 +1004,8 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // from the water, 4 m from any building and 2 m from any street, and not
   // on sand, gravel or paved ground (landcover.mjs).
   const onBare = terrainHeight.cover ?? (() => 0);
-  const clear = (x, y) => Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4) && !paved(x, y, 2) && onBare(x, y) < 4;
+  const offStands = track.hasElevation ? riseStandsClear(track, standSide) : () => true;
+  const clear = (x, y) => Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4) && !paved(x, y, 2) && onBare(x, y) < 4 && offStands(x, y);
   // The real woods and trees (scenery.woods, woods.mjs: OpenStreetMap): each
   // wood filled with trees on a jittered 8 m grid, kept 9 m apart on average
   // up to 150 m from the road and thinning to 20 m apart by 600 m, and the
