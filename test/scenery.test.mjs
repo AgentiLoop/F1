@@ -327,6 +327,26 @@ test('every real circuit gets its real roads and streets (OpenStreetMap), on the
   assert.ok(km.monaco > 20, `monaco: ${km.monaco} km`);
 });
 
+test('the real roads 6 m wide or more get painted lines, lying just over their asphalt', () => {
+  for (const key of ['monza', 'silverstone', 'montreal', 'mexico']) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] });
+    const roads = meshes(world).find(m => m.userData.kind === 'roads'), paint = meshes(world).find(m => m.userData.kind === 'markings');
+    assert.ok(paint && paint.userData.km > 1, `${key}: ${paint?.userData.km} km of lines`);
+    const R = roads.geometry.attributes.position, grid = new Map(), cell = 20;
+    for (let i = 0; i < R.count; i += 2) {
+      const x = (R.getX(i) + R.getX(i + 1)) / 2, y = -(R.getZ(i) + R.getZ(i + 1)) / 2, hw = Math.hypot(R.getX(i) - R.getX(i + 1), R.getZ(i) - R.getZ(i + 1)) / 2, h = (R.getY(i) + R.getY(i + 1)) / 2;
+      const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`; (grid.get(k) ?? grid.set(k, []).get(k)).push([x, y, hw, h]);
+    }
+    const P = paint.geometry.attributes.position;
+    for (let i = 0; i < P.count; i += 4) {
+      const x = P.getX(i), y = -P.getZ(i);
+      let on = false;
+      for (let u = -1; u <= 1 && !on; u++) for (let v = -1; v <= 1 && !on; v++) for (const [cx, cy, hw] of grid.get(`${Math.floor(x / cell) + u},${Math.floor(y / cell) + v}`) ?? []) if (Math.hypot(x - cx, y - cy) < hw + 0.5) { on = true; break; }
+      assert.ok(on, `${key}: line off the road at ${x.toFixed(0)}, ${y.toFixed(0)}`);
+    }
+  }
+});
+
 test('every real circuit gets its real walls, fences, hedges, guard rails and railway lines (OpenStreetMap), clear of the circuit, the sea and the water', () => {
   const km = {};
   for (const [key, s] of Object.entries(SCENERY)) {

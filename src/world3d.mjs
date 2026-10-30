@@ -630,8 +630,13 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // our own grandstand and pits (ourPlot).
   const roadDist = terrainHeight.dist ?? ((x, y) => Math.abs(track.offset(x, y)));
   const ours = (x, y, w) => roadDist(x, y) <= wallAt + 80 && (Math.abs(track.offset(x, y)) < wallAt + w / 2 + 3 || ourPlot(x, y, w / 2 + 1));
-  const onGround = terrainHeight.mesh ?? terrainHeight, laneGrid = new Map(), rp = [], ruv = [], ri = [];
-  let roadKm = 0;
+  const onGround = terrainHeight.mesh ?? terrainHeight, laneGrid = new Map(), rp = [], ruv = [], ri = [], mp = [], mi = [];
+  let roadKm = 0, markKm = 0;
+  // Unit left normal of a run at point k.
+  const across = (run, k) => {
+    const [px, py] = run[Math.max(0, k - 1)], [qx, qy] = run[Math.min(run.length - 1, k + 1)], l = Math.hypot(qx - px, qy - py) || 1;
+    return [-(qy - py) / l, (qx - px) / l];
+  };
   for (const [w, ...flat] of scenery.roads ?? []) {
     // Densified path, then its runs of kept points.
     const path = [];
@@ -651,6 +656,29 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
           if (k) { const q = at + 2 * k; ri.push(q - 2, q - 1, q, q - 1, q + 1, q); roadKm += Math.hypot(x - run[k - 1][0], y - run[k - 1][1]) / 1000; }
           const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`; (laneGrid.get(key) ?? laneGrid.set(key, []).get(key)).push([x, y, w / 2]);
         });
+        // Painted lines: a dashed centre line (4.5 m dashes, 4.5 m gaps) on
+        // roads 6 m wide or more, solid edge lines 0.3 m in on roads 8 m or
+        // more; 0.12 m wide.
+        if (w >= 6) {
+          let d = 0;
+          for (let k = 1; k < run.length; k++) {
+            const [ax, ay] = run[k - 1], [bx, by] = run[k], l = Math.hypot(bx - ax, by - ay);
+            const lines = [];
+            if (Math.floor((d + l / 2) / 4.5) % 2 === 0) lines.push(0);
+            if (w >= 8) lines.push(w / 2 - 0.3, 0.3 - w / 2);
+            d += l;
+            if (!lines.length) continue;
+            const [nax, nay] = across(run, k - 1), [nbx, nby] = across(run, k);
+            for (const o of lines) {
+              const q = mp.length / 3;
+              for (const [x, y, nx, ny] of [[ax, ay, nax, nay], [bx, by, nbx, nby]]) for (const s of [0.06, -0.06]) {
+                const vx = x + nx * (o + s), vy = y + ny * (o + s); mp.push(vx, onGround(vx, vy) + 0.14, -vy);
+              }
+              mi.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
+              markKm += l / 1000;
+            }
+          }
+        }
       }
       a = b + 1;
     }
@@ -664,6 +692,15 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
     const streets = new THREE.Mesh(geo, mat); streets.receiveShadow = true;
     streets.userData = { kind: 'roads', km: Math.round(roadKm * 10) / 10 }; world.add(streets);
+  }
+  if (mi.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(mp, 3));
+    geo.setIndex(mi); geo.computeVertexNormals();
+    const mat = std({ color: 0xe8e8e2, roughness: 0.7 });
+    mat.polygonOffset = true; mat.polygonOffsetFactor = -3; mat.polygonOffsetUnits = -3;
+    const paint = new THREE.Mesh(geo, mat); paint.receiveShadow = true;
+    paint.userData = { kind: 'markings', km: Math.round(markKm * 10) / 10 }; world.add(paint);
   }
   // Whether (x, y) is within `pad` m of a road's edge (points every 3 m).
   const paved = (x, y, pad) => {
@@ -680,11 +717,6 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // water, our grandstand and pits), on the streets and inside buildings.
   const LINE = [{ h: 2, w: 0.3, color: 0xb3ab9c }, { h: 1.8 }, { h: 1.6, w: 1, color: 0x2e5524 }, { h: 0.8, w: 0.25, color: 0xb4babe }, { w: 3 }];
   const sp = [], sc = [], si = [], fp = [], fuv = [], fi = [], bp = [], bi = [], tp = [], ti = [], lineKm = [0, 0, 0, 0, 0];
-  // Unit left normal of a run at point k.
-  const across = (run, k) => {
-    const [px, py] = run[Math.max(0, k - 1)], [qx, qy] = run[Math.min(run.length - 1, k + 1)], l = Math.hypot(qx - px, qy - py) || 1;
-    return [-(qy - py) / l, (qx - px) / l];
-  };
   // A flat band from a to b m left of a run, `lift` m over the ground mesh.
   const band = (run, a, b, lift, P, I) => run.forEach(([x, y], k) => {
     const [nx, ny] = across(run, k);
