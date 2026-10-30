@@ -18,13 +18,14 @@ export const cached = async (name, fetcher) => {
 };
 const traces = await cached('f1-circuits.geojson', async () => (await fetch('https://raw.githubusercontent.com/bacinger/f1-circuits/master/f1-circuits.geojson')).text());
 
-// Overpass (needs a User-Agent; overpass-api.de often 504s, so it retries
-// and alternates with kumi.systems), cached as /tmp/osm/<name>.
+// Overpass (needs a User-Agent; overpass-api.de and kumi.systems often 504,
+// so it retries and alternates between them and the mail.ru mirror),
+// cached as /tmp/osm/<name>.
 export const overpass = (name, q) => cached(name, async () => {
   for (let attempt = 0; ; attempt++) {
     await new Promise(r => setTimeout(r, 3000 + attempt * 15000));
-    const host = ['https://overpass-api.de', 'https://overpass.kumi.systems'][attempt % 2];
-    const res = await fetch(`${host}/api/interpreter`, { method: 'POST', headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
+    const host = ['https://maps.mail.ru/osm/tools/overpass', 'https://overpass-api.de', 'https://overpass.kumi.systems'][attempt % 3];
+    const res = await fetch(`${host}/api/interpreter`, { method: 'POST', headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) }).catch(e => ({ ok: false, status: e.message }));
     if (res.ok) return res.text();
     if (attempt >= 5) throw new Error(`${name}: Overpass ${res.status}`);
   }
@@ -65,6 +66,21 @@ export const inside = (rings, x, y) => {
   }
   return c;
 };
+// Joins open ways (arrays of [lon, lat]) end to end into closed rings.
+export const stitch = ways => {
+  const key = p => `${p[0]},${p[1]}`, rings = [], left = ways.map(w => w.slice());
+  while (left.length) {
+    let cur = left.shift();
+    while (key(cur[0]) !== key(cur.at(-1))) {
+      const i = left.findIndex(w => key(w[0]) === key(cur.at(-1)) || key(w.at(-1)) === key(cur.at(-1)));
+      if (i < 0) { cur = null; break; }
+      const w = left.splice(i, 1)[0];
+      cur = cur.concat((key(w[0]) === key(cur.at(-1)) ? w : w.reverse()).slice(1));
+    }
+    if (cur) rings.push(cur.slice(0, -1));
+  }
+  return rings;
+};
 // Sutherland–Hodgman against an axis-aligned box.
 export const clip = (ring, [x0, y0, x1, y1]) => {
   let out = ring;
@@ -81,6 +97,26 @@ export const clip = (ring, [x0, y0, x1, y1]) => {
   return out;
 };
 // Douglas–Peucker on an open path.
+// The parts of an open path inside the box (Liang–Barsky on each segment).
+export const clipPath = (pts, [x0, y0, x1, y1]) => {
+  const out = []; let cur = null;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[i + 1], dx = bx - ax, dy = by - ay;
+    let t0 = 0, t1 = 1, ok = true;
+    for (const [p, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dy, ay - y0], [dy, y1 - ay]]) {
+      if (p === 0) { if (q < 0) ok = false; continue; }
+      const r = q / p;
+      if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+    }
+    if (!ok || t0 > t1) { cur = null; continue; }
+    const a = [ax + dx * t0, ay + dy * t0], b = [ax + dx * t1, ay + dy * t1];
+    if (!cur || t0 > 0) { cur = [a]; out.push(cur); }
+    cur.push(b);
+    if (t1 < 1) cur = null;
+  }
+  return out;
+};
+
 export const simplify = (pts, tol) => {
   if (pts.length < 3) return pts;
   let best = 0, at = 0;
@@ -106,7 +142,7 @@ export function frame(c) {
   const f = traces.features.find(t => t.properties.Name === c.name);
   const geo = f.geometry.coordinates, lon0 = geo.reduce((a, p) => a + p[0], 0) / geo.length, lat0 = geo.reduce((a, p) => a + p[1], 0) / geo.length;
   const project = ([lon, lat]) => [R * (lon - lon0) * rad * Math.cos(lat0 * rad), R * (lat - lat0) * rad];
-  const track = createCircuitTrack({ ...c, pitLane: false }), { x: X, y: Y } = track.samples;
+  const track = createCircuitTrack({ ...c, pitLane: false, timingLine: 0 }), { x: X, y: Y } = track.samples;
   const ours = resample(Array.from(X, (x, i) => [x, Y[i]]), 400);
   const traced = geo.map(project); if (Math.hypot(traced[0][0] - traced.at(-1)[0], traced[0][1] - traced.at(-1)[1]) < 1) traced.pop();
   let fit = null;

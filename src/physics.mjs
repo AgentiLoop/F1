@@ -222,10 +222,11 @@ export function aeroMap(car) {
     bottoming: rawFront <= 0 || rawRear <= 0 };
 }
 
-export function wheelLoads(car, downforce, frontShare = car.config.frontAero) {
+// gravity: the weight's share pressing into the road (m/s², 9.81 on the flat).
+export function wheelLoads(car, downforce, frontShare = car.config.frontAero, gravity = 9.81) {
   const c = car.config, m = carMass(car);
-  const total = m * 9.81 + downforce;
-  const front = clamp(m * 9.81 * c.frontWeight + downforce * frontShare
+  const total = m * gravity + downforce;
+  const front = clamp(m * gravity * c.frontWeight + downforce * frontShare
     - m * car.ax * c.cgHeight / c.wheelbase, 0, total);
   const rear = total - front;
   // Quasi-static transfer split by roll stiffness (front-biased for stability).
@@ -330,12 +331,18 @@ export function resolveBarrier(car, barrierAt) {
   return closing;
 }
 
-// surfaceAt receives each contact's world position and returns a grip multiplier;
-// optional barrierAt (see resolveBarrier) stops the car at walls; optional
-// slopeAt(x, y) gives the ground's gradient [dz/dx, dz/dy], whose gravity
-// component slows the car uphill and pulls it down banking (as RISE's
-// vehicle.js grade and bankHelp terms do; loads still assume level ground).
-export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrierAt = null, slopeAt = null) {
+// surfaceAt receives each contact's world position and returns a grip multiplier,
+// or { grip, rolling } on a loose surface whose ploughing drags the contact
+// with rolling × its load against its motion (faded out below 1 m/s);
+// optional barrierAt (see resolveBarrier) stops the car at walls.
+// Optional groundAt(x, y) (circuit.mjs) gives the ground under the car:
+// { gx, gy } its gradient and zss the road profile's second derivative along
+// the lap. The weight's share along the slope pulls the car downhill (and
+// down a banking's cross-slope); the share into the road, plus the push of
+// a compression (less over a crest) and of cornering against a banking
+// (N = m cos θ (g + zss u² − a·∇z), a the cornering acceleration across the
+// slope), sets the wheel loads.
+export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrierAt = null, groundAt = null) {
   if (!(Number.isFinite(dt) && dt > 0 && dt <= 1 / 60)) throw new RangeError('Use a positive timestep <= 1/60 s');
   const c = car.config, m = carMass(car);
   // An empty tank starves the engine: no drive, whatever the pedal.
@@ -365,7 +372,15 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const drag = q * dragArea;
   // The open flap only unloads the rear: the front's share of what is left grows.
   const frontShare = aero.frontShare / drsDownforce;
-  const loads = wheelLoads(car, downforce, frontShare);
+  let gravity = 9.81, slopeX = 0, slopeY = 0;
+  const ground = groundAt?.(car.x, car.y);
+  if (ground) {
+    const cos2 = 1 / (1 + ground.gx * ground.gx + ground.gy * ground.gy), across = -ground.gx * sin + ground.gy * cos;
+    slopeX = -9.81 * ground.gx * cos2; slopeY = -9.81 * ground.gy * cos2;
+    const lateral = car.ay + (-slopeX * sin + slopeY * cos);
+    gravity = Math.sqrt(cos2) * clamp(9.81 + ground.zss * u * u - lateral * across, 2, 40);
+  }
+  const loads = wheelLoads(car, downforce, frontShare, gravity);
   const frontX = c.wheelbase * (1 - c.frontWeight);
   const rearX = -c.wheelbase * c.frontWeight;
   const positions = [[frontX, c.track / 2], [frontX, -c.track / 2], [rearX, c.track / 2], [rearX, -c.track / 2]];
@@ -456,7 +471,7 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     }
     const worldX = car.x + x * cos - y * sin;
     const worldY = car.y + x * sin + y * cos;
-    const grip = clamp(surfaceAt(worldX, worldY), 0, 2);
+    const under = surfaceAt(worldX, worldY), grip = clamp(under.grip ?? under, 0, 2), rolling = under.rolling ?? 0;
     const temp = car.tireTemp[i], tempGrip = tireTempGrip(c, temp), wearGrip = tireWearGrip(c, car.tireWear[i]);
     const compound = TIRE_COMPOUNDS[car.compound ?? c.tireCompound];
     const kinematicSlip = steadySlipAngle(wheelV, wheelU);
@@ -477,22 +492,18 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     const slipPower = Math.abs(tire.fx * (r * car.wheelOmega[i] - wheelU)) + Math.abs(tire.fy * wheelV);
     updateTireTemp(temp, c, slipPower, c.rollingResistance * loads[i] * Math.abs(wheelU), Math.abs(wheelU), dt);
     car.tireWear[i] = updateTireWear(car.tireWear[i], c, slipPower * compound.wear, temp.surface, dt);
-    const bodyFx = tire.fx * ca - tire.fy * sa;
-    const bodyFy = tire.fx * sa + tire.fy * ca;
+    // Ploughing through a loose surface drags the contact against its motion.
+    const contactSpeed = Math.hypot(contactU, contactV), plough = contactSpeed > 0 ? rolling * loads[i] * Math.min(1, contactSpeed) / contactSpeed : 0;
+    const bodyFx = tire.fx * ca - tire.fy * sa - plough * contactU;
+    const bodyFy = tire.fx * sa + tire.fy * ca - plough * contactV;
     fx += bodyFx;
     fy += bodyFy;
     moment += x * bodyFy - y * bodyFx;
-    return { ...tire, load: loads[i], grip, compoundGrip: compound.grip, tempGrip, wearGrip, wear: car.tireWear[i], slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
+    return { ...tire, load: loads[i], grip, rolling, compoundGrip: compound.grip, tempGrip, wearGrip, wear: car.tireWear[i], slipPower, surfaceTemp: temp.surface, carcassTemp: temp.carcass,
       x: worldX, y: worldY, steer: angle,
       omega: car.wheelOmega[i], driveTorque: torque,
       resistanceTorque: (freeOmega - car.wheelOmega[i]) * inertia / dt };
   });
-  const slope = slopeAt?.(car.x, car.y);
-  if (slope) {
-    const [gx, gy] = slope, a = -9.81 / Math.sqrt(1 + gx * gx + gy * gy);
-    fx += m * a * (gx * cos + gy * sin);
-    fy += m * a * (-gx * sin + gy * cos);
-  }
   // Apply drag to the post-contact velocity so braking plus drag cannot reverse it.
   const nextU = u + fx / m * dt;
   const nextV = v + fy / m * dt;
@@ -506,6 +517,8 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   car.ay += (fy / m - car.ay) * response;
   car.vx += (fx * cos - fy * sin) / m * dt;
   car.vy += (fx * sin + fy * cos) / m * dt;
+  car.vx += slopeX * dt;
+  car.vy += slopeY * dt;
   car.yawRate += moment / c.yawInertia * dt;
   const finalU = car.vx * cos + car.vy * sin;
   const finalV = -car.vx * sin + car.vy * cos;
@@ -536,14 +549,14 @@ export class Simulation {
     this.accumulator = 0;
     this.droppedTime = 0;
   }
-  advance(elapsed, input, surfaceAt, barrierAt, slopeAt) {
+  advance(elapsed, input, surfaceAt, barrierAt, groundAt) {
     if (!Number.isFinite(elapsed) || elapsed < 0) throw new RangeError('Elapsed time must be finite and nonnegative');
     const accepted = Math.min(elapsed, 0.25);
     this.droppedTime += elapsed - accepted;
     this.accumulator += accepted;
     let steps = 0;
     while (this.accumulator + 1e-12 >= FIXED_DT) {
-      step(this.car, input, FIXED_DT, surfaceAt, barrierAt, slopeAt);
+      step(this.car, input, FIXED_DT, surfaceAt, barrierAt, groundAt);
       this.accumulator = Math.max(0, this.accumulator - FIXED_DT);
       steps++;
     }

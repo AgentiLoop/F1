@@ -32,7 +32,7 @@ export function createTimeTrial(track, { tyre = 'medium', runUp = 150, car: carS
     // input: the player's command, or null to let the circuit autopilot drive
     // (re-planned every physics step). Frames are capped at 0.25 s like Simulation.
     // Crossing the start/finish line forwards starts a new ERS lap.
-    advance(elapsed, input, surfaceAt = track.surfaceAt, barrierAt = track.barrierAt, slopeAt = track.slopeAt) {
+    advance(elapsed, input, surfaceAt = track.surfaceAt, barrierAt = track.barrierAt, groundAt = track.groundAt) {
       accumulator += Math.min(elapsed, 0.25);
       let steps = 0;
       while (accumulator + 1e-12 >= FIXED_DT) {
@@ -40,7 +40,7 @@ export function createTimeTrial(track, { tyre = 'medium', runUp = 150, car: carS
         entry.drsAllowed = drsZones.some(z => inDrsZone(track, z, track.progress(car.x, car.y)));
         const command = input ?? { ...drive(car, { grip: tyreGrip() }), drs: true };
         entry.command = { ...command, drs: entry.drsAllowed && command.drs === true };
-        sim.advance(FIXED_DT, entry.command, surfaceAt, barrierAt, slopeAt);
+        sim.advance(FIXED_DT, entry.command, surfaceAt, barrierAt, groundAt);
         const p = track.progress(car.x, car.y);
         if (last - p > track.length / 2) newErsLap(car);
         last = p;

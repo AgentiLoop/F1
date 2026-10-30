@@ -8,10 +8,10 @@ Race an open-wheel car against an AI field in 3D, on a stadium test track or on
 18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts and
 hills built from real car positions: Spa climbs 100 m, the Red Bull Ring 63 m; Zandvoort's 19° and 18° banked corners and Jeddah's 12° Turn 13, and each venue's own setting: Spa's conifer forest,
 Monza's park, palms and sand at Bahrain, Jeddah and Yas Marina, the dunes at
-Zandvoort, Monte Carlo's apartment blocks and the
-towns around Interlagos, Mexico City, Jeddah and Yas Marina, and the real lakes, ponds,
+Zandvoort, the real buildings from OpenStreetMap (Monte Carlo's apartment blocks,
+the grandstands, raked with seated crowds and set back behind our barriers where they stand nearer, and pit buildings, the towns around Interlagos and Mexico City), and the real lakes, ponds,
 rivers and basins from OpenStreetMap: Montreal's Olympic Basin and St. Lawrence, Interlagos's lakes,
-Imola's Santerno, Miami's canals; and the real coastline: the North Sea at Zandvoort, the Red Sea along Jeddah's Corniche, Port Hercule inside Monaco's lap, the marina at Yas Marina), plus the planned RISE Motordrome in Rwanda
+Imola's Santerno, Miami's canals; the real woods, tree rows and single trees from OpenStreetMap; the real land cover from OpenStreetMap: Hungary's and Imola's farmland, Monza's park lawns, Zandvoort's dune heath, gravel traps, car parks and paddocks, which also set the surface beside the road: run wide into a mapped gravel trap and it grips less and drags the car down, paved run-off keeps its grip; the real roads and streets around each circuit from OpenStreetMap: Monte Carlo's streets, Mexico City's and São Paulo's neighbourhoods, the roads through Monza's park and the motorways past Miami and Mexico City; the real walls, fences, hedges, guard rails and railway lines from OpenStreetMap: Silverstone's hedgerows, Monte Carlo's walls, the railway past Shanghai and through Monza's park; the real ground around each circuit from open elevation data: the Ardennes valleys round Spa, the Styrian hills above the Red Bull Ring, the mountainside behind Monaco; and the real coastline: the North Sea at Zandvoort, the Red Sea along Jeddah's Corniche, Port Hercule inside Monaco's lap, the marina at Yas Marina), plus the planned RISE Motordrome in Rwanda
 ([?track=rwanda](https://f1.gokart.games/?track=rwanda), layout, hills, banking
 and lake from the RISE Motordrome sim, with its East African trees, membrane-roofed grandstands and pit building; see [docs/RISE-MOTORDROME.md](docs/RISE-MOTORDROME.md)). It has a standing start, pit stops and tyre
 compounds, fuel, ERS and DRS, an automatic or paddle-shift gearbox, plus engine
@@ -68,7 +68,8 @@ in `.assetsignore` (tests, tools, this README) are not uploaded.
   disqualified. **B** cycles the pit request (Soft → Medium → Hard →
   cancel). On autopilot the car boxes at the next pit entry. When you drive,
   take the pit lane (on the inside of the stadium's main straight; on a real
-  circuit beside the start/finish straight, entry about 300 m before the line),
+  circuit on the side and stretch of the start/finish straight where the real
+  pit lane runs, from OpenStreetMap),
   keep to the 80 km/h limit (+5 s for speeding) and stop on your box, the first
   one, painted green. The crew holds you until it is safe to leave.
 * **DRS.** Hold **F** (gamepad right-stick click). In a race it opens from
@@ -184,4 +185,5 @@ For example [a race at Monza](https://f1.gokart.games/?track=monza&race) or
 ## Credits
 
 Three.js is MIT licensed (`vendor/LICENSE-three`). 3D models and textures keep their own licences; see `models/CREDITS.md`.
-The water and sea around the real circuits (`src/water.mjs`, `src/coast.mjs`) are from OpenStreetMap, © OpenStreetMap contributors, under the ODbL (openstreetmap.org/copyright).
+The water, sea, buildings, woods, land cover, roads, walls, fences, hedges, railways, bridges and viaducts around the real circuits and the circuits' own tunnels (`src/water.mjs`, `src/coast.mjs`, `src/buildings.mjs`, `src/woods.mjs`, `src/landcover.mjs`, `src/roads.mjs`, `src/barriers.mjs`, `src/bridges.mjs`, `src/tunnels.mjs`) are from OpenStreetMap, © OpenStreetMap contributors, under the ODbL (openstreetmap.org/copyright).
+The ground around them (`src/terrain.mjs`) is from the Mapzen/AWS Terrain Tiles (open data from SRTM, NED, EU-DEM, ETOPO1 and others; see github.com/tilezen/joerd/blob/master/docs/attribution.md).

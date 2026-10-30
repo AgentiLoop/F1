@@ -16,21 +16,39 @@ export function createCircuitAutopilot(track, tuning = {}) {
   const t = { latGrip: 0.74, brakeGrip: 0.62, lookahead: 0.45, minLookahead: 8, curvatureWindow: 6, preview: 0.3, maxSpeed: 100, edgeMargin: 2, laneSmoothing: 100, lateBrake: 1.2, recoverySpeed: 8, coastThrottle: 0.15, coastSpeed: 15,
     slipTarget: 0.1, slipBand: 0.15, rearDemand: 1.6, rearDemandBand: 0.8, crossTrackGain: 0.012, crossTrackSpeed: 60, yawGain: 2, rearSlide: 0.08, frontSlide: 0.16, slideBand: 0.08, ersPlan: true, ersReserve: 0.5, ...tuning };
   const { lineCurvature: curvature, lineStep } = track.samples, n = curvature.length, step = track.length / n;
+  // The ground along the lap (all zero on a flat circuit): grade (dz/ds) and
+  // the cross-slope bank (height gained per metre to the left).
+  const { z = new Float64Array(n), bank = new Float64Array(n) } = track.samples;
+  const grade = Float64Array.from(z, (_, i) => (z[(i + 1) % n] - z[(i - 1 + n) % n]) / (2 * step));
   let plan = null;
   // Deceleration (m/s²) the plan brakes at from speed v: brakeGrip of the tire
   // limit with downforce, plus drag (a + b·v²).
   const brakeDecel = (c, v) => t.brakeGrip * c.tireMu * (9.81 + 0.5 * c.airDensity * c.downforceArea / c.mass * v * v) + 0.5 * c.airDensity * c.dragArea / c.mass * v * v;
+  // The plan reads the ground as the physics applies it (physics.mjs step).
+  // A banking b (tan of its angle, + when the outside of the turn is higher)
+  // lets gravity carry g·b of the cornering and presses the car in by v²|κ|·b:
+  // v²|κ| − g·b = latGrip·μ·(g + v²(|κ|·b + q)), so
+  // v² = g(latGrip·μ + b) / (|κ|(1 − latGrip·μ·b) − latGrip·μ·q).
+  // Braking uphill gravity helps (g·grade); downhill it eats into it.
+  // Crests and compressions (the physics' zss·v²) are left to the latGrip and
+  // brakeGrip margins: the heights, from car telemetry, carry ±0.001/m of
+  // profile curvature even at flat Monza (±0.6 g of load at 80 m/s), and
+  // planning on it made every circuit slower without making any safer.
   function speedPlan(c, k0 = curvature, ds = lineStep, late = 1) {
-    const g = 9.81, mu = c.tireMu, q = 0.5 * c.airDensity * c.downforceArea / c.mass;
+    const g = 9.81, mu = t.latGrip * c.tireMu, q = 0.5 * c.airDensity * c.downforceArea / c.mass;
     const w = Math.round(t.curvatureWindow / step), v = new Float64Array(n);
+    const cornerSpeed = j => {
+      const k = Math.abs(k0[j]), b = -Math.sign(k0[j]) * bank[j], den = k * (1 - mu * b) - mu * q;
+      return den > 0 ? Math.min(t.maxSpeed, Math.sqrt(g * (mu + b) / den)) : t.maxSpeed;
+    };
+    // The slowest speed over the window (it covers a traced corner's polygon).
     for (let i = 0; i < n; i++) {
-      let k = 0; for (let j = -w; j <= w; j++) k = Math.max(k, Math.abs(k0[(i + j + n) % n]));
-      const den = k - t.latGrip * mu * q;
-      v[i] = den > 0 ? Math.min(t.maxSpeed, Math.sqrt(t.latGrip * mu * g / den)) : t.maxSpeed;
+      v[i] = t.maxSpeed;
+      for (let j = -w; j <= w; j++) v[i] = Math.min(v[i], cornerSpeed((i + j + n) % n));
     }
     for (let lap = 0; lap < 2; lap++) for (let i = n - 1; i >= 0; i--) {
       const next = v[(i + 1) % n];
-      v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * late * brakeDecel(c, next) * ds[i]));
+      v[i] = Math.min(v[i], Math.sqrt(Math.max(0, next * next + 2 * late * (brakeDecel(c, next) + g * grade[i]) * ds[i])));
     }
     return v;
   }

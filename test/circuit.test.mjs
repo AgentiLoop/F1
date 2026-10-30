@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
+import { PITS } from '../src/pits.mjs';
 import { createTimeTrial } from '../src/trial.mjs';
 import { createLapTimer } from '../src/laptimer.mjs';
 import { SURFACE_GRIP } from '../src/track.mjs';
@@ -190,8 +191,8 @@ test('a race on a real circuit: grid behind the line, fuel for the distance, a c
 });
 
 test('every circuit gets a pit lane beside the start/finish straight, with pit surface off the road', () => {
-  for (const [key, spec] of Object.entries(CIRCUITS)) {
-    const track = createCircuitTrack(spec), pit = track.pit;
+  for (const [key, spec] of Object.entries(CIRCUITS)) for (const pits of [null, PITS[key]]) {
+    const track = createCircuitTrack({ ...spec, pits }), pit = track.pit;
     assert.ok(pit, `${key}: no pit lane`);
     assert.ok(pit.entry < pit.limitStart && pit.limitStart < pit.boxStart && pit.boxStart + 4 * pit.boxSpacing < pit.limitEnd && pit.limitEnd < pit.mergeStart && pit.mergeStart < pit.exit, key);
     assert.ok(pit.entry < 0 && pit.exit > 0, `${key}: the lane spans the line`);
@@ -205,6 +206,20 @@ test('every circuit gets a pit lane beside the start/finish straight, with pit s
     assert.notEqual(track.surface(x, y), 'pit', `${key}: no pit surface away from the lane`);
   }
   assert.equal(createCircuitTrack({ ...CIRCUITS.monza, pitLane: false }).pit, null);
+});
+
+test('the lap starts on the real timing line, and the pit lane lies on the real one\'s side beside it', () => {
+  for (const [key, spec] of Object.entries(CIRCUITS)) {
+    const t = createCircuitTrack({ ...spec, pits: PITS[key] }), trace = createCircuitTrack({ ...spec, timingLine: 0, pitLane: false });
+    const [x, y] = t.point(0), [tx, ty] = trace.point(spec.timingLine);
+    assert.ok(Math.hypot(x - tx, y - ty) < 1.5, `${key}: the lap starts ${Math.hypot(x - tx, y - ty).toFixed(1)} m off the timing line`);
+    if (!PITS[key]) continue;
+    const [side, entry, exit] = PITS[key], pit = t.pit;
+    assert.equal(pit.side, side, key);
+    // Our lane runs beside most of the real one (all of it when that is the shorter).
+    const overlap = Math.min(exit, pit.exit) - Math.max(entry, pit.entry);
+    assert.ok(overlap >= 0.6 * Math.min(exit - entry, pit.exit - pit.entry), `${key}: ${pit.entry}..${pit.exit} against the real ${entry}..${exit}`);
+  }
 });
 
 test('pit-disabled circuits advance without pit strategy or compound requirements', () => {
@@ -245,23 +260,26 @@ test('a field completes a pit-disabled circuit race without stops or compound di
 });
 
 test('circuit pit stops: the field stops under the compound rule without speeding, contact or running off', () => {
-  const track = createCircuitTrack(CIRCUITS['red-bull-ring']), pit = track.pit;
-  const race = createRace(track, { grid: DEFAULT_GRID, start: { seed: 2 }, laps: 2, compoundRule: true });
-  assert.equal(race.compoundRule, true);
-  let contact = 0, off = 0, inLane = 0;
-  while (!race.finish.done && race.time < 260) {
-    race.advance(0.25, null, track.surfaceAt, track.barrierAt);
-    for (const e of race.entries) {
-      contact = Math.max(contact, e.car.contact?.speed ?? 0);
-      if (!['asphalt', 'kerb', 'pit'].includes(track.surface(e.car.x, e.car.y))) off += 0.25;
-      if (race.inPitLane(e.car)) inLane++;
+  // Our placement at the Red Bull Ring, and Monaco's real lane, the shortest (150 m of boxes).
+  for (const [key, pits] of [['red-bull-ring', null], ['monaco', PITS.monaco]]) {
+    const track = createCircuitTrack({ ...CIRCUITS[key], pits }), pit = track.pit;
+    const race = createRace(track, { grid: DEFAULT_GRID, start: { seed: 2 }, laps: 2, compoundRule: true });
+    assert.equal(race.compoundRule, true);
+    let contact = 0, off = 0, inLane = 0;
+    while (!race.finish.done && race.time < 260) {
+      race.advance(0.25, null, track.surfaceAt, track.barrierAt);
+      for (const e of race.entries) {
+        contact = Math.max(contact, e.car.contact?.speed ?? 0);
+        if (!['asphalt', 'kerb', 'pit'].includes(track.surface(e.car.x, e.car.y))) off += 0.25;
+        if (race.inPitLane(e.car)) inLane++;
+      }
     }
+    assert.ok(race.finish.done, 'every car took the flag');
+    const rows = race.classification();
+    assert.ok(rows.every(r => r.finished && !r.dsq && r.stops === 1 && r.penalty === 0 && new Set(r.compounds).size === 2), JSON.stringify(rows));
+    for (const e of race.entries) assert.ok(e.stops[0].stationary >= RACE_DEFAULTS.stopTimeMin && e.stops[0].stationary < 12, `${e.name} stood ${e.stops[0].stationary.toFixed(1)} s`);
+    assert.ok(inLane > 0 && pit.speedLimit < 23);
+    assert.ok(contact < 1, `contact ${contact.toFixed(1)} m/s`);
+    assert.ok(off <= 1, `${key}: ${off} s off the road`);
   }
-  assert.ok(race.finish.done, 'every car took the flag');
-  const rows = race.classification();
-  assert.ok(rows.every(r => r.finished && !r.dsq && r.stops === 1 && r.penalty === 0 && new Set(r.compounds).size === 2), JSON.stringify(rows));
-  for (const e of race.entries) assert.ok(e.stops[0].stationary >= RACE_DEFAULTS.stopTimeMin && e.stops[0].stationary < 12, `${e.name} stood ${e.stops[0].stationary.toFixed(1)} s`);
-  assert.ok(inLane > 0 && pit.speedLimit < 23);
-  assert.ok(contact < 1, `contact ${contact.toFixed(1)} m/s`);
-  assert.ok(off <= 1, `${off} s off the road`);
 });
