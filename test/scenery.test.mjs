@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
+import * as THREE from '../vendor/three.module.js';
 import { SCENERY, waterField, terrainField, landcoverField } from '../src/scenery.mjs';
 
 // A do-nothing 2D canvas so buildCircuitWorld's textures can be drawn in Node.
@@ -96,6 +97,36 @@ test('the real grandstands (OpenStreetMap building=grandstand) are raked: seats 
     placed[key] = stands.length;
   }
   assert.ok(placed.monza >= 10 && placed.silverstone >= 10 && placed.catalunya >= 8, JSON.stringify(placed));
+});
+test('real grandstands nearer the circuit than our barriers are moved back behind them, onto nobody else\'s plot', () => {
+  const moved = {};
+  for (const key of ['monza', 'silverstone', 'catalunya']) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), town = townOf(world);
+    world.updateMatrixWorld(true);
+    const blocks = town.userData.blocks, back = blocks.filter(b => b.moved);
+    for (const b of back) {
+      assert.ok(b.moved > 0 && b.moved <= 12, key);
+      for (const [x, y] of b.ring) assert.ok(Math.abs(track.offset(x, y)) >= track.wallOffset + 3 - 1e-6, `${key}: moved stand inside the barriers`);
+      // No other building's corner inside it.
+      for (const o of blocks) if (o !== b) for (const [x, y] of o.ring) {
+        let c = false; const r = b.ring;
+        for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c;
+        assert.ok(!c, `${key}: moved stand over another building`);
+      }
+    }
+    // No building corner on our own grandstand or garages (their boxes, seen from above).
+    const ours = meshes(world).filter(m => m.geometry.type === 'BoxGeometry' && (m.geometry.parameters.width >= 110 || (m.geometry.parameters.height === 6 && m.geometry.parameters.depth === 7)));
+    assert.ok(ours.length > 0, key);
+    for (const m of ours) {
+      m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox, inv = m.matrixWorld.clone().invert(), y0 = m.getWorldPosition(new THREE.Vector3()).y;
+      for (const b of blocks) for (const [x, y] of b.ring) {
+        const v = new THREE.Vector3(x, y0, -y).applyMatrix4(inv);
+        assert.ok(!(v.x > bb.min.x && v.x < bb.max.x && v.z > bb.min.z && v.z < bb.max.z), `${key}: building on our stand or garages`);
+      }
+    }
+    moved[key] = back.length;
+  }
+  assert.ok(moved.monza >= 10, JSON.stringify(moved));
 });
 
 

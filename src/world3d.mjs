@@ -424,6 +424,26 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     }
   }
 
+  // Whether (x, y) is on the plot of our own grandstand (its roof and a 3 m
+  // margin: s = -125 to 5, out to wallAt + 26 on its side) or of our pit lane
+  // and garages (entry to exit, out to the garages' back + 3 m).
+  const ourPlot = (x, y) => {
+    const o = track.offset(x, y), a = Math.abs(o);
+    if (a > wallAt + 26) return false;
+    const near = track.progress(x, y), sp = near > track.length / 2 ? near - track.length : near;
+    if (standSide && Math.sign(o) === standSide && sp > -125 && sp < 5) return true;
+    return !!pit && Math.sign(o) === -pit.side && sp > pit.entry - 10 && sp < pit.exit + 10 && a < Math.max(pit.outer, wallAt + 8) + 3;
+  };
+  const inside = (ring, x, y) => {
+    let c = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) if ((ring[i][1] > y) !== (ring[j][1] > y) && x < (ring[j][0] - ring[i][0]) * (y - ring[i][1]) / (ring[j][1] - ring[i][1]) + ring[i][0]) c = !c;
+    return c;
+  };
+  // Points inside our grandstand and garages: no building may enclose them.
+  const ourProbes = [];
+  if (standSide) for (let s = -110; s <= -10; s += 20) ourProbes.push(track.point(s, standSide * (wallAt + 14)));
+  if (pit) for (let s = pit.entry; s <= pit.exit; s += 20) ourProbes.push(track.point(s, -pit.side * (wallAt + 4.5)));
+
   // Hoardings every ~36 m both sides, facing the track (none along the pit lane).
   const logo = (w, h) => { const t = texture(1, () => {}); const cv = t.image; cv.width = w; cv.height = h; drawLogo(cv.getContext('2d'), w, h, true); t.needsUpdate = true; return t; };
   const logoMat = new THREE.MeshStandardMaterial({ map: logo(1024, 128), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.08 });
@@ -478,28 +498,20 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // The real buildings (scenery.buildings, buildings.mjs: OpenStreetMap
   // footprints with their heights), extruded from their lowest ground, flat
   // roofed, with window bays of 3.5 m × 3.2 m floors. Left out where the fit
-  // to the globe puts one within 3 m of the barriers, in the sea or water, or
-  // where our own grandstand and garages stand (the straight before the line,
-  // the pit lane). The grandstands among them (scenery.stands) are raked
+  // to the globe puts one within 3 m of the barriers (a grandstand is moved
+  // back behind them instead), in the sea or water, or on the plot of our own
+  // grandstand and garages (ourPlot). The grandstands among them (scenery.stands) are raked
   // instead: their seating rises from 1.5 m over the ground at the side
   // facing the circuit to their full height at the back, rows of spectators
   // 0.8 m deep on top.
-  const blocks = [], cell = 40, blockGrid = new Map(), standSet = new Set(scenery.stands ?? []);
-  (scenery.buildings ?? []).forEach((b, bi) => {
-    const ring = Array.from({ length: (b.length - 1) / 2 }, (_, i) => [b[1 + 2 * i], b[2 + 2 * i]]);
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, ok = true;
-    for (const [x, y] of ring) {
-      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-      if (Math.abs(track.offset(x, y)) < wallAt + 3 || beach(x, y) > -1 || shore(x, y) < 1) { ok = false; break; }
-    }
-    if (!ok) return;
+  const blocks = [], cell = 40, blockGrid = new Map(), standSet = new Set(scenery.stands ?? []), movedStands = [];
+  const fits = r => r.every(([x, y]) => Math.abs(track.offset(x, y)) >= wallAt + 3 && beach(x, y) <= -1 && shore(x, y) >= 1);
+  const addBlock = (ring, b, bi, moved = 0) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
     const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-    if (Math.abs(track.offset(mx, my)) < wallAt + 40) {
-      const near = track.progress(mx, my), sp = near > track.length / 2 ? near - track.length : near;
-      if ((sp > -140 && sp < 20) || (pit && sp > pit.entry - 20 && sp < pit.exit + 20)) return;
-    }
     const gs = ring.map(([x, y]) => terrainHeight(x, y)), base = Math.min(...gs);
-    const blk = { ring, box: [x0, y0, x1, y1], base, top: Math.max(base + b[0], Math.max(...gs) + 2.5) };
+    const blk = { ring, box: [x0, y0, x1, y1], base, top: Math.max(base + b[0], Math.max(...gs) + 2.5), moved };
     if (standSet.has(bi)) {
       // Raked by distance from the circuit; seat rows run across ux, uy (away
       // from the nearest point of the centreline).
@@ -511,6 +523,31 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     for (let u = Math.floor((x0 - 5) / cell); u <= Math.floor((x1 + 5) / cell); u++) for (let v = Math.floor((y0 - 5) / cell); v <= Math.floor((y1 + 5) / cell); v++) {
       const k = `${u},${v}`; (blockGrid.get(k) ?? blockGrid.set(k, []).get(k)).push(blk);
     }
+  };
+  // Points every 2 m along a footprint's outline.
+  const outline = ring => ring.flatMap(([ax, ay], i) => {
+    const [bx, by] = ring[(i + 1) % ring.length], m = Math.ceil(Math.hypot(bx - ax, by - ay) / 2);
+    return Array.from({ length: m }, (_, k) => [ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
+  });
+  (scenery.buildings ?? []).forEach((b, bi) => {
+    let ring = Array.from({ length: (b.length - 1) / 2 }, (_, i) => [b[1 + 2 * i], b[2 + 2 * i]]), moved = 0;
+    if (!fits(ring)) {
+      // A real grandstand nearer the circuit than our barriers (Monza's,
+      // Silverstone's): moved straight back until it stands 3.5 m behind
+      // them, by at most 12 m, where no other building stands (below).
+      if (!standSet.has(bi)) return;
+      for (let pass = 0; pass < 3 && !fits(ring); pass++) {
+        const cx0 = ring.reduce((a, p) => a + p[0], 0) / ring.length, cy0 = ring.reduce((a, p) => a + p[1], 0) / ring.length;
+        const [px, py] = track.point(track.progress(cx0, cy0)), l = Math.hypot(cx0 - px, cy0 - py) || 1;
+        const shift = wallAt + 3.5 - Math.min(...ring.map(([x, y]) => Math.abs(track.offset(x, y))));
+        if (shift <= 0 || (moved += shift) > 12) return;
+        ring = ring.map(([x, y]) => [x + (cx0 - px) / l * shift, y + (cy0 - py) / l * shift]);
+      }
+      if (!fits(ring)) return;
+    }
+    // Clear of our own grandstand and pits.
+    if (outline(ring).some(([x, y]) => ourPlot(x, y)) || ourProbes.some(([px, py]) => inside(ring, px, py))) return;
+    if (moved) movedStands.push([ring, b, bi, moved]); else addBlock(ring, b, bi);
   });
 
   // Whether (x, y) is within `pad` (up to 5) m of a building.
@@ -525,6 +562,13 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     }
     return c || d2 < pad * pad;
   });
+  for (const [ring, b, bi, moved] of movedStands) {
+    const near = new Set(); let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    for (let u = Math.floor(x0 / cell); u <= Math.floor(x1 / cell); u++) for (let v = Math.floor(y0 / cell); v <= Math.floor(y1 / cell); v++) for (const o of blockGrid.get(`${u},${v}`) ?? []) near.add(o);
+    if (outline(ring).some(([x, y]) => built(x, y, 0.5)) || [...near].some(o => o.ring.some(([x, y]) => inside(ring, x, y)))) continue;
+    addBlock(ring, b, bi, moved);
+  }
   if (blocks.length) {
     const facade = texture(64, (g, s) => {
       g.fillStyle = '#ffffff'; g.fillRect(0, 0, s, s);
