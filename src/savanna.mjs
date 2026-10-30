@@ -133,7 +133,36 @@ function merge(parts) {
     for (const g of parts) { arr.set(g.attributes[name].array, o); o += g.attributes[name].array.length; }
     geo.setAttribute(name, new THREE.BufferAttribute(arr, size));
   }
+  // Wind sway weight, after the RISE sim's trees.js: grows with the square of
+  // height, foliage (atlas left of the bark) three times the wood, plus 0.3
+  // for the foliage, so a trunk's foot stays put.
+  const pos = geo.attributes.position, uv = geo.attributes.uv, sway = new Float32Array(total);
+  let h = 0; for (let i = 0; i < total; i++) h = Math.max(h, pos.getY(i));
+  for (let i = 0; i < total; i++) { const leaf = uv.getX(i) < BARK_U[0] ? 1 : 0, y = Math.max(0, pos.getY(i)) / h; sway[i] = y * y * (0.7 * leaf + 0.3) + 0.3 * leaf; }
+  geo.setAttribute('aSway', new THREE.BufferAttribute(sway, 1));
   return geo;
+}
+
+// Every tree bends with the wind (uWind 1 = the RISE sim's default breeze):
+// a slow lean of up to 0.2 m by 0.14 m at the top, phase from the tree's
+// position, and leaves flutter on top. Shadows keep the still shape.
+const swayUniforms = { uTime: { value: 0 }, uWind: { value: 1 } };
+function addSway(mat) {
+  mat.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, swayUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aSway; uniform float uTime, uWind;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        float phase = 0.0;
+        #ifdef USE_INSTANCING
+          phase = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.283;
+        #endif
+        float w = uTime * 1.1 + phase, leaf = step(0.3, aSway); // wood stays below 0.3
+        float flutter = sin(uTime * 7.0 + position.x * 3.0 + phase) * 0.03 * leaf;
+        transformed += vec3(sin(w) * 0.2 + flutter, 0.0, cos(w * 0.8) * 0.14) * aSway * uWind;`);
+  };
+  mat.customProgramCacheKey = () => 'savanna-sway';
+  return mat;
 }
 
 function speciesGeometry(kind) {
@@ -175,7 +204,8 @@ function speciesGeometry(kind) {
 // returns how many were placed. Trees within shadowRange m of the road cast
 // shadows; only that band is drawn into the shadow map.
 export function buildSavanna(world, plan, terrain, { shadowRange = 160 } = {}) {
-  const map = atlas(), mat = new THREE.MeshStandardMaterial({ map, vertexColors: true, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 });
+  const map = atlas(), mat = addSway(new THREE.MeshStandardMaterial({ map, vertexColors: true, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }));
+  const start = performance.now(), tick = () => { swayUniforms.uTime.value = (performance.now() - start) / 1000; };
   const rnd = mulberry(7), m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
   let total = 0;
   for (const kind of SPECIES) {
@@ -192,7 +222,7 @@ export function buildSavanna(world, plan, terrain, { shadowRange = 160 } = {}) {
         mesh.setColorAt(i, tint.setRGB(v * (0.95 + warm * 0.15), v, v * (0.8 + (1 - warm) * 0.2)));
       });
       mesh.castShadow = near && kind !== 'papyrus'; mesh.receiveShadow = true;
-      mesh.name = `savanna-${kind}-${near ? 'near' : 'far'}`;
+      mesh.name = `savanna-${kind}-${near ? 'near' : 'far'}`; mesh.onBeforeRender = tick;
       world.add(mesh); total += list.length;
     }
   }

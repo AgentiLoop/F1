@@ -24,7 +24,7 @@ function scenery(track) {
   }
 }
 
-test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners only', () => {
+test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners only', async () => {
   const dispose = w => w.traverse(m => { m.geometry?.dispose(); m.material?.dispose?.(); });
   const monza = scenery(createCircuitTrack(CIRCUITS.monza));
   assert.equal(monza.getObjectByName('tecpro'), undefined);
@@ -42,6 +42,16 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
     light.position.set(35, 70, 25); scene.add(light, world);
     sky.onBeforeRender(null, scene);
     assert.ok(sky.material.uniforms.uSunDir.value.distanceTo(new THREE.Vector3(35, 70, 25).normalize()) < 1e-6);
+    // Trees sway in the wind (RISE trees.js): crowns more than wood, a trunk's foot not at all.
+    const acacia = world.getObjectByName('savanna-acacia-near'), sway = acacia.geometry.attributes.aSway, pos = acacia.geometry.attributes.position, uv = acacia.geometry.attributes.uv;
+    let footMax = 0, leafMin = Infinity;
+    for (let i = 0; i < sway.count; i++) { if (uv.getX(i) >= 0.7 && pos.getY(i) < 0.5) footMax = Math.max(footMax, sway.getX(i)); if (uv.getX(i) < 0.7) leafMin = Math.min(leafMin, sway.getX(i)); }
+    assert.ok(footMax < 0.01 && leafMin >= 0.3, `foot ${footMax}, leaves ${leafMin}`);
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>' };
+    acacia.material.onBeforeCompile(shader);
+    assert.match(shader.vertexShader, /transformed \+= .* aSway \* uWind/);
+    const t0 = shader.uniforms.uTime.value; await new Promise(r => setTimeout(r, 20)); acacia.onBeforeRender();
+    assert.ok(shader.uniforms.uTime.value > t0, 'the wind clock runs');
     const tecpro = world.children.filter(m => m.name === 'tecpro');
     assert.ok(tecpro.length >= 3, `${tecpro.length} TecPro runs`);
     // Every TecPro vertex is at the wall on the outside of a bend: its offset

@@ -62,7 +62,10 @@ Done:
   forest along the lake shore, open acacia savanna far from the road, papyrus
   on the shore and in the shallows, nothing within 10 m of the barriers or
   beside the start straight's stand and garages. About 4,400 trees; those
-  within 160 m of the road cast shadows. No wind sway yet.
+  within 160 m of the road cast shadows. They sway in the wind as in
+  `trees.js`: a slow lean that grows with the square of height (crowns three
+  times the wood), each tree on its own phase, leaves fluttering on top; done
+  in the vertex shader, so it costs no CPU time. Shadows keep the still shape.
 - **Grandstands and pit building** (`src/stands.mjs`, our own WebGL code after
   that sim's `js/scenery.js`): its four 112 m, 30-row grandstands at -185, -62,
   62 and 186 m from the line, across the straight from the pits, each under a
@@ -125,10 +128,6 @@ Done:
   under tin or tile roofs. Trees are kept out of all of them. Their night
   lighting is left out (we have no night).
 
-Not yet (in order):
-
-1. Grade and bank forces in the physics: the cars are only drawn on the hills.
-   The physics is still 2D, so climbs, descents and banked corners do not yet
-   change speed or grip.
-2. Wind sway in the trees (`trees.js`). The rest of `scenery.js` (airport,
-   lakeside, marshal posts, braking boards) is not borrowed.
+Not yet: the rest of `scenery.js` (airport, lakeside pods and jetties,
+marshal posts, braking boards). Grade and bank forces in the physics were
+added in 1fc5c16.
