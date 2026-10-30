@@ -29,6 +29,7 @@ export async function loadRB22Template(source = RB22_URL) {
   const meshes = []; gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
   const template = new THREE.Group(), wheels = CORNERS.map(name => Object.assign(new THREE.Group(), { name }));
   const steering = new THREE.Group(); steering.name = 'steering';
+  const rest = [];
   for (const m of meshes) {
     const geometry = toFloat(m.geometry).applyMatrix4(m.matrixWorld);
     if (m.material.name.startsWith('redbull_detail')) dropTriangles(geometry, NOSE_PLATE);
@@ -37,6 +38,33 @@ export async function loadRB22Template(source = RB22_URL) {
       splitCorners(geometry).forEach((g, i) => g && wheels[i].add(new THREE.Mesh(g, m.material)));
       continue;
     }
+    rest.push([m, geometry]);
+  }
+  // The hub, brake and upright parts inside each wheel are in the bodywork meshes: they go
+  // to the corner's upright (steers with the wheel), or a steered wheel swings off them; the
+  // round brake drum among them goes to the corner's drum (steers and spins with the wheel).
+  // Inside = centroid within the tyre radius, in the wheel's box stretched
+  // 8 cm inboard (the brake drum and upright stand out of the rim there); the painted layers
+  // stay whole (the livery is baked onto one mesh of each).
+  const uprights = CORNERS.map(name => Object.assign(new THREE.Group(), { name: `${name}-upright` }));
+  const drums = CORNERS.map(name => Object.assign(new THREE.Group(), { name: `${name}-drum` }));
+  const hubs = wheels.map(w => {
+    const box = new THREE.Box3().setFromObject(w), c = box.getCenter(new THREE.Vector3());
+    if (c.x > 0) box.min.x -= 0.08; else box.max.x += 0.08;
+    return { box, c, r: 0.95 * (box.max.y - box.min.y) / 2 };
+  });
+  for (const [m, src] of rest) {
+    let geometry = src;
+    if (!Object.values(LAYERS).some(l => m.material.name.startsWith(l))) hubs.forEach(({ box, c, r }, i) => {
+      const taken = takeTriangles(geometry, p => box.containsPoint(p) && Math.hypot(p.y - c.y, p.z - c.z) < r);
+      if (!taken) return;
+      geometry = taken.kept;
+      const isRound = roundParts(taken.inside, c), drum = takeTriangles(taken.inside, (_, t) => isRound(t));
+      if (drum) drums[i].add(new THREE.Mesh(drum.inside, m.material));
+      const still = drum ? drum.kept : taken.inside;
+      if (still.attributes.position.count) uprights[i].add(new THREE.Mesh(still, m.material));
+    });
+    geometry.computeBoundingBox();
     // Both mirrors' glass is one mesh: split left / right so each can reflect its own view.
     if (m.material.name.startsWith('redbull_mirror')) {
       splitCorners(geometry).slice(0, 2).forEach((g, i) => template.add(Object.assign(new THREE.Mesh(g, m.material), { name: MIRRORS[i] })));
@@ -45,8 +73,52 @@ export async function loadRB22Template(source = RB22_URL) {
     const mesh = new THREE.Mesh(geometry, m.material); mesh.name = m.name;
     (STEERING_BOX.containsBox(geometry.boundingBox) ? steering : template).add(mesh);
   }
-  template.add(steering, ...wheels);
+  template.add(steering, ...wheels, ...uprights, ...drums);
   return template;
+}
+
+// Split geometry by triangle centroid: null if no centroid passes test, else
+// { inside, kept } (non-indexed).
+function takeTriangles(geometry, test) {
+  const g = geometry.index ? geometry.toNonIndexed() : geometry, pos = g.attributes.position;
+  const inside = [], kept = [], c = new THREE.Vector3(), v = new THREE.Vector3();
+  for (let t = 0; t < pos.count; t += 3) {
+    c.set(0, 0, 0); for (let k = 0; k < 3; k++) c.add(v.fromBufferAttribute(pos, t + k));
+    (test(c.divideScalar(3), t / 3) ? inside : kept).push(t);
+  }
+  if (!inside.length) return null;
+  const build = tris => {
+    const out = new THREE.BufferGeometry();
+    for (const [name, attr] of Object.entries(g.attributes)) {
+      const n = attr.itemSize, src = attr.array, dst = new src.constructor(tris.length * 3 * n);
+      tris.forEach((t, k) => dst.set(src.subarray(t * n, (t + 3) * n), k * 3 * n));
+      out.setAttribute(name, new THREE.BufferAttribute(dst, n));
+    }
+    return out;
+  };
+  return { inside: build(inside), kept: build(kept) };
+}
+
+// Triangle indices of the round parts of a non-indexed geometry centred on the hub c (the
+// brake drum): connected pieces about as tall as long, at least 35 cm across, centred within
+// 3 cm of the axle. The off-centre brackets and arms around it are left out.
+function roundParts(geometry, c) {
+  const pos = geometry.attributes.position, n = pos.count / 3, parent = [...Array(n).keys()], seen = new Map();
+  const find = a => parent[a] === a ? a : (parent[a] = find(parent[a]));
+  for (let t = 0; t < n; t++) for (let k = 0; k < 3; k++) {
+    const i = t * 3 + k, key = `${pos.getX(i).toFixed(5)},${pos.getY(i).toFixed(5)},${pos.getZ(i).toFixed(5)}`;
+    if (seen.has(key)) parent[find(t)] = find(seen.get(key)); else seen.set(key, t);
+  }
+  const boxes = new Map(), v = new THREE.Vector3();
+  for (let t = 0; t < n; t++) {
+    const r = find(t); if (!boxes.has(r)) boxes.set(r, new THREE.Box3());
+    for (let k = 0; k < 3; k++) boxes.get(r).expandByPoint(v.fromBufferAttribute(pos, t * 3 + k));
+  }
+  const round = new Set([...boxes].filter(([, b]) => {
+    const s = b.getSize(new THREE.Vector3()), m = b.getCenter(new THREE.Vector3());
+    return Math.min(s.y, s.z) > 0.35 && Math.abs(s.y - s.z) < 0.03 && Math.hypot(m.y - c.y, m.z - c.z) < 0.03;
+  }).map(([r]) => r));
+  return t => round.has(find(t));
 }
 
 // A copy with float attributes (meshopt quantizes them, which a transform would clip).
@@ -336,15 +408,16 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
   const F = config.wheelbase * (1 - config.frontWeight);
   root.position.x = F - box(root.getObjectByName(CORNERS[0])).getCenter(new THREE.Vector3()).x;
 
-  // Wheels: the whole corner (tyre, rim, disc) spins about its hub, on the wheel's own
-  // axle: the front wheels are modelled with camber, and spun about the car's lateral
-  // axis instead they wobble.
+  // Wheels: the whole corner (tyre, rim, disc, and the brake drum cut from the bodywork;
+  // the other upright parts only steer) spins about its hub, on the wheel's own axle: the front wheels are modelled
+  // with camber, and spun about the car's lateral axis instead they wobble. (On the real car
+  // the drum does not spin, but a still drum inside a turning wheel reads as a stuck rim.)
   const wheels = CORNERS.map((name, i) => {
     const node = root.getObjectByName(name), hub = box(node).getCenter(new THREE.Vector3());
     const pivot = new THREE.Group(); pivot.position.copy(hub); car.add(pivot);
     const axle = new THREE.Group(); axle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axleOf(node)); pivot.add(axle);
     const spin = new THREE.Group(); axle.add(spin); car.updateMatrixWorld(true);
-    spin.attach(node);
+    spin.attach(node); spin.attach(root.getObjectByName(`${name}-drum`)); pivot.attach(root.getObjectByName(`${name}-upright`));
     return { pivot, spin, front: i < 2 };
   });
 
@@ -359,8 +432,9 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
   // Bring the wheel 12 cm back toward the driver (the eye and helmet keep their places).
   steeringWheel.position.x -= 0.12;
 
-  // The model has no driver: a helmet sits behind the steering wheel.
-  const head = new THREE.Vector3(sc.x - 0.80, 0.70, 0);
+  // The model has no driver: a helmet sits in the cockpit opening, its back in the headrest just
+  // ahead of the airbox, standing well clear of the cockpit rim as on the real cars.
+  const head = new THREE.Vector3(sc.x - 0.565, 0.80, 0);
   const helmetMesh = new THREE.Mesh(new THREE.SphereGeometry(0.125, 32, 20), physical({ color: helmet, roughness: 0.25, clearcoat: 1 }));
   helmetMesh.scale.set(1.1, 1, 0.95); helmetMesh.position.copy(head);
   const visor = new THREE.Mesh(new THREE.SphereGeometry(0.127, 32, 12, -0.9, 1.8, 1.2, 0.45),
@@ -374,6 +448,6 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
   const pivots = new Set(wheels.map(w => w.pivot));
   car.children.filter(o => !pivots.has(o)).forEach(o => body.add(o));
   car.add(body);
-  return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, steeringWheel, eye: [sc.x - 0.55, head.y + 0.07],
+  return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, steeringWheel, eye: [sc.x - 0.55, 0.77],
     mirrors: MIRRORS.map(name => root.getObjectByName(name)) };
 }
