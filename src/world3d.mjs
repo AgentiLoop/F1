@@ -426,13 +426,14 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
 
   // Whether (x, y) is on the plot of our own grandstand (its roof and a 3 m
   // margin: s = -125 to 5, out to wallAt + 26 on its side) or of our pit lane
-  // and garages (entry to exit, out to the garages' back + 3 m).
-  const ourPlot = (x, y) => {
+  // and garages (entry to exit, out to the garages' back + 3 m), widened by
+  // `pad` m all round.
+  const ourPlot = (x, y, pad = 0) => {
     const o = track.offset(x, y), a = Math.abs(o);
-    if (a > wallAt + 26) return false;
+    if (a > wallAt + 26 + pad) return false;
     const near = track.progress(x, y), sp = near > track.length / 2 ? near - track.length : near;
-    if (standSide && Math.sign(o) === standSide && sp > -125 && sp < 5) return true;
-    return !!pit && Math.sign(o) === -pit.side && sp > pit.entry - 10 && sp < pit.exit + 10 && a < Math.max(pit.outer, wallAt + 8) + 3;
+    if (standSide && Math.sign(o) === standSide && sp > -125 - pad && sp < 5 + pad) return true;
+    return !!pit && Math.sign(o) === -pit.side && sp > pit.entry - 10 - pad && sp < pit.exit + 10 + pad && a < Math.max(pit.outer, wallAt + 8) + 3 + pad;
   };
   const inside = (ring, x, y) => {
     let c = false;
@@ -625,17 +626,10 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // asphalt ribbons of their width, cut into steps of at most 3 m that lie
   // 0.12 m over the ground mesh's own facets. Left out within 3 m of the
   // barriers (where a street circuit runs on public roads, the circuit is
-  // drawn there instead), in the sea or water, and where our own grandstand
-  // and pits stand.
+  // drawn there instead), in the sea or water, and within 1 m of the plot of
+  // our own grandstand and pits (ourPlot).
   const roadDist = terrainHeight.dist ?? ((x, y) => Math.abs(track.offset(x, y)));
-  const ours = (x, y, w) => {
-    if (roadDist(x, y) > wallAt + 80) return false;
-    const o = Math.abs(track.offset(x, y));
-    if (o < wallAt + w / 2 + 3) return true;
-    if (o > wallAt + 40) return false;
-    const near = track.progress(x, y), sp = near > track.length / 2 ? near - track.length : near;
-    return (sp > -140 && sp < 20) || (pit && sp > pit.entry - 20 && sp < pit.exit + 20);
-  };
+  const ours = (x, y, w) => roadDist(x, y) <= wallAt + 80 && (Math.abs(track.offset(x, y)) < wallAt + w / 2 + 3 || ourPlot(x, y, w / 2 + 1));
   const onGround = terrainHeight.mesh ?? terrainHeight, laneGrid = new Map(), rp = [], ruv = [], ri = [];
   let roadKm = 0;
   for (const [w, ...flat] of scenery.roads ?? []) {

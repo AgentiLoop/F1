@@ -128,6 +128,27 @@ test('real grandstands nearer the circuit than our barriers are moved back behin
   }
   assert.ok(moved.monza >= 10, JSON.stringify(moved));
 });
+test('real roads, walls and fences are kept off only the plot of our own grandstand and garages', () => {
+  for (const key of ['monza', 'silverstone', 'spa', 'interlagos']) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] });
+    world.updateMatrixWorld(true);
+    const ours = meshes(world).filter(m => m.geometry.type === 'BoxGeometry' && (m.geometry.parameters.width >= 110 || (m.geometry.parameters.height === 6 && m.geometry.parameters.depth === 7)));
+    assert.ok(ours.length > 0, key);
+    const lines = meshes(world).filter(m => m.userData.kind === 'roads' || ['walls', 'fences', 'hedges', 'guardRails', 'railway'].includes(m.userData.kind) || m.parent?.userData.kind === 'barriers');
+    assert.ok(lines.length > 1, key);
+    for (const m of ours) {
+      m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox, inv = m.matrixWorld.clone().invert(), y0 = m.getWorldPosition(new THREE.Vector3()).y;
+      for (const l of lines) {
+        const P = l.geometry.attributes.position;
+        for (let i = 0; i < P.count; i++) {
+          const v = new THREE.Vector3(P.getX(i), y0, P.getZ(i)).applyMatrix4(inv);
+          assert.ok(!(v.x > bb.min.x && v.x < bb.max.x && v.z > bb.min.z && v.z < bb.max.z), `${key}: ${l.userData.kind} on our stand or garages`);
+        }
+      }
+    }
+  }
+});
+
 
 
 test('real water (OpenStreetMap) lies off the road; Montreal has the Olympic Basin beside it', () => {
