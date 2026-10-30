@@ -1,6 +1,6 @@
 // Test-drive car: "2026 Redbull RB22" by Tyler_Dave (CC BY 4.0, see models/CREDITS.md),
 // fitted to the physics car as a drop-in for buildF1Car: { group, body, wheels, driver,
-// drsFlap, steeringWheel, eye, mirrors }. The standard car; each car is repainted in its own colours
+// drsFlap, steeringWheel, eye, mirrors, cockpitSides }. The standard car; each car is repainted in its own colours
 // with our sponsors in place of the Red Bull livery.
 import * as THREE from '../vendor/three.module.js';
 import { GLTFLoader } from '../vendor/GLTFLoader.js';
@@ -18,6 +18,10 @@ export const STEERING_RATIO = 5;
 // A flat 4 cm plate on top of the bodywork, left of the cockpit (part of the detail mesh): its
 // magenta-and-white metallic texture flashes white in the cockpit view, so it is left out.
 const NOSE_PLATE = new THREE.Box3(new THREE.Vector3(0.07, 0.69, 1.11), new THREE.Vector3(0.125, 0.712, 1.165));
+// The painted cockpit rim beside the driver's head (either side, |x|; below the halo): it fills
+// the lower corners of the Driver camera, so it is a mesh of its own, hidden in that view.
+export const COCKPIT_SIDES = 'cockpit-sides';
+const COCKPIT_SIDES_BOX = new THREE.Box3(new THREE.Vector3(0.12, 0.55, 0), new THREE.Vector3(0.4, 0.75, 0.8));
 
 // Load once (a URL in the browser, an ArrayBuffer in node, where textures are skipped);
 // bake every mesh into model space and split the merged wheel meshes per corner.
@@ -69,6 +73,11 @@ export async function loadRB22Template(source = RB22_URL) {
     if (m.material.name.startsWith('redbull_mirror')) {
       splitCorners(geometry).slice(0, 2).forEach((g, i) => template.add(Object.assign(new THREE.Mesh(g, m.material), { name: MIRRORS[i] })));
       continue;
+    }
+    const rim = Object.values(LAYERS).some(l => m.material.name.startsWith(l)) && takeTriangles(geometry, c => COCKPIT_SIDES_BOX.containsPoint(c.setX(Math.abs(c.x))));
+    if (rim) {
+      geometry = rim.kept; geometry.computeBoundingBox();
+      template.add(Object.assign(new THREE.Mesh(rim.inside, m.material), { name: COCKPIT_SIDES }));
     }
     const mesh = new THREE.Mesh(geometry, m.material); mesh.name = m.name;
     (STEERING_BOX.containsBox(geometry.boundingBox) ? steering : template).add(mesh);
@@ -218,7 +227,7 @@ const HALO = new WeakMap(); // template -> one decal geometry per HALO_SLOTS ent
 // The paint triangles of the bar facing the eye under each slot, lifted off the surface,
 // with UVs across the slot's label (0..1; the label canvas is transparent outside).
 function haloGeometries(template, slots = HALO_SLOTS) {
-  let mesh; template.traverse(o => { if (o.isMesh && o.material.name.startsWith(LAYERS.paint)) mesh = o; });
+  let mesh; template.traverse(o => { if (o.isMesh && o.material.name.startsWith(LAYERS.paint) && o.name !== COCKPIT_SIDES) mesh = o; });
   const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry, P = g.attributes.position, N = g.attributes.normal;
   const F = new THREE.Vector3(0, -Math.sin(HALO_PITCH), Math.cos(HALO_PITCH)), U = new THREE.Vector3(0, Math.cos(HALO_PITCH), Math.sin(HALO_PITCH));
   const p = new THREE.Vector3(), d = new THREE.Vector3(), nrm = new THREE.Vector3();
@@ -256,7 +265,7 @@ export function liveryTexels(template, slots = LIVERY_SLOTS, size = PAINT_SIZE) 
   const out = [];
   for (const [layer, material] of Object.entries(LAYERS)) {
     const keys = slots.flatMap((s, k) => (s.on ?? 'paint') === layer ? [k] : []);
-    let mesh; template.traverse(o => { if (o.isMesh && o.material.name.startsWith(material)) mesh = o; });
+    let mesh; template.traverse(o => { if (o.isMesh && o.material.name.startsWith(material) && o.name !== COCKPIT_SIDES) mesh = o; });
     rasterSlots(mesh, keys.map(k => slots[k]), size).forEach((texels, j) => { out[keys[j]] = texels; });
   }
   return out;
@@ -449,5 +458,5 @@ export function buildRB22Car(template, config, { paint = 0x0e1626, accent = 0x39
   car.children.filter(o => !pivots.has(o)).forEach(o => body.add(o));
   car.add(body);
   return { group: car, body, wheels, driver: [helmetMesh, visor, stripe], drsFlap, steeringWheel, eye: [sc.x - 0.55, 0.77],
-    mirrors: MIRRORS.map(name => root.getObjectByName(name)) };
+    mirrors: MIRRORS.map(name => root.getObjectByName(name)), cockpitSides: root.children.filter(o => o.name === COCKPIT_SIDES) };
 }

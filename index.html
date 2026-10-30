@@ -336,6 +336,7 @@ let model;
 function wearSkins(list) {
   model?.mirrors?.forEach(m => m.userData.mirror(false));
   model?.driver.forEach(m => { m.visible = true; }); // the cockpit view hides your own driver
+  model?.cockpitSides?.forEach(m => { m.visible = true; }); // and the Driver view the cockpit rim
   skins.splice(0, skins.length, ...list);
   model = cars[skins[0]].model;
   // The mirrors leave out your own rear wheels, so they show the track behind instead.
@@ -409,6 +410,8 @@ function placeScene(dt) {
   forward.set(Math.cos(c.heading), 0, -Math.sin(c.heading));
   // The helmet stays in the T-cam shot, below and ahead of the lens.
   model.driver.forEach(m => { m.visible = overview || !(mode === 'Cockpit' || mode === 'Driver'); });
+  // The cockpit rim beside the head fills the Driver view's lower corners: hidden there.
+  model.cockpitSides?.forEach(m => { m.visible = overview || mode !== 'Driver'; });
   if (overview) {
     camera.fov = 42; camera.near = 0.1;
     if (circuitKey) { const [x, y] = world.userData.center, e = world.userData.extent; camera.position.set(x, 1.6 * e, -y + 1.2 * e); camera.lookAt(x, 0, -y); }
