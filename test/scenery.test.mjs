@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
-import { SCENERY, waterField, terrainField } from '../src/scenery.mjs';
+import { SCENERY, waterField, terrainField, landcoverField } from '../src/scenery.mjs';
 
 // A do-nothing 2D canvas so buildCircuitWorld's textures can be drawn in Node.
 const ctx = new Proxy({}, { get: (_, k) => k === 'measureText' ? () => ({ width: 10 }) : k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
@@ -179,4 +179,28 @@ test('the trees are the real woods and trees (OpenStreetMap), clear of the road,
   // Red Bull Ring and Monza's park fill the cap.
   for (const key of Object.keys(SCENERY).filter(k => k !== 'jeddah')) assert.ok(real[key] >= 200, `${key}: ${real[key]} real trees`);
   for (const key of ['spa', 'red-bull-ring', 'monza']) assert.equal(real[key], 6000, key);
+});
+
+test('landcoverField rasterises areas in order, smaller ones over larger, with holes', () => {
+  const field = landcoverField([[2, [0, 0, 100, 0, 100, 100, 0, 100], [40, 40, 40, 60, 60, 60, 60, 40]], [6, [70, 70, 90, 70, 90, 90, 70, 90]]]);
+  assert.equal(field(10, 10), 2);
+  assert.equal(field(50, 50), 0, 'hole');
+  assert.equal(field(80, 80), 6, 'later area on top');
+  assert.equal(field(-10, 50), 0);
+  assert.equal(field(150, 50), 0);
+});
+
+test('every real circuit gets its real land cover (OpenStreetMap) on the ground, with no tree on sand, gravel or paving', () => {
+  for (const key of Object.keys(CIRCUITS).filter(k => k !== 'rwanda')) assert.ok(SCENERY[key].landcover?.length > 40, key);
+  const cases = { hungaroring: 1, imola: 1, monza: 2, zandvoort: 3, bahrain: 4, jeddah: 6 };
+  for (const [key, cls] of Object.entries(cases)) {
+    const world = buildCircuitWorld(createCircuitTrack(CIRCUITS[key]), { scenery: SCENERY[key] }), field = landcoverField(SCENERY[key].landcover);
+    const ground = meshes(world).find(m => m.userData.kind === 'ground');
+    const { covered } = ground.userData, total = covered.reduce((a, b) => a + b, 0);
+    assert.ok(covered[cls] > total * 0.01, `${key}: class ${cls} on ${covered[cls]} of ${total} ground points`);
+    const m = new (ground.matrix.constructor)();
+    for (const t of meshes(world).filter(o => o.isInstancedMesh && o.userData.kind === 'trees')) {
+      for (let i = 0; i < t.count; i++) { t.getMatrixAt(i, m); assert.ok(field(m.elements[12], -m.elements[14]) < 4, `${key}: tree on bare ground`); }
+    }
+  }
 });

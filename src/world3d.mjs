@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
-import { DEFAULT_SCENERY, waterField, terrainField } from './scenery.mjs';
+import { DEFAULT_SCENERY, waterField, terrainField, landcoverField } from './scenery.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -552,8 +552,10 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     world.add(town);
   }
   // Trees stand at least 20 m clear of the road, 40 m in from the sea, 5 m
-  // from the water and 4 m from any building.
-  const clear = (x, y) => Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4);
+  // from the water and 4 m from any building, and not on sand, gravel or
+  // paved ground (landcover.mjs).
+  const onBare = terrainHeight.cover ?? (() => 0);
+  const clear = (x, y) => Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4) && onBare(x, y) < 4;
   // The real woods and trees (scenery.woods, woods.mjs: OpenStreetMap): each
   // wood filled with trees on a jittered 8 m grid, kept 9 m apart on average
   // up to 150 m from the road and thinning to 20 m apart by 600 m, and the
@@ -754,16 +756,27 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx); geo.computeVertexNormals();
-  // Colours (scenery.ground): grass patched with dry grass, bare soil where
-  // the ground is steep (red laterite by the lake), sand along the shore and
-  // mud under the water.
+  // Colours (scenery.ground): grass patched with dry grass, then the real
+  // land cover (scenery.landcover, landcover.mjs: farmland in a patchwork of
+  // crop, stubble and ploughed tones, mown grass, scrub, sand, gravel, paved
+  // ground), bare soil where natural ground is steep (red laterite by the
+  // lake), sand along the shore and mud under the water.
   const { ground: tone } = scenery;
   const grass = new THREE.Color(tone.grass), dry = new THREE.Color(tone.dry), laterite = new THREE.Color(lake !== null ? 0xa4532e : tone.soil), sand = new THREE.Color(0xb9a57a), mud = new THREE.Color(0x5b5040);
+  const cover = scenery.landcover ? landcoverField(scenery.landcover) : null;
+  const covered = new Array(7).fill(0), COVER = [0, 0x8f8b4e, 0x5e8f3e, 0x56633a, 0xd2bf8e, 0x9e988c, 0x5d5e60].map(v => new THREE.Color(v)), crop = new THREE.Color(0x6e8c3a), ploughed = new THREE.Color(0x7a6448), tint = new THREE.Color();
   const col = new Float32Array(N * 3), c = new THREE.Color(), nrm = geo.attributes.normal;
   for (let k = 0; k < N; k++) {
     const x = pos[3 * k], h = pos[3 * k + 1], z = pos[3 * k + 2];
     c.copy(grass).lerp(dry, smooth(-0.2, 0.8, Math.sin(x * 0.0041 + 1.7) * Math.cos(z * 0.0053 - 0.6) + 0.3 * Math.sin((x + z) * 0.017)));
-    c.lerp(laterite, smooth(0.06, 0.2, 1 - nrm.getY(k)));
+    const kind = cover ? cover(x, -z) : 0;
+    covered[kind]++;
+    if (kind) {
+      tint.copy(COVER[kind]);
+      if (kind === 1) { const f = Math.sin(x * 0.021 + 0.4) * Math.cos(z * 0.017 + 1.1) + 0.5 * Math.sin((x - z) * 0.009); tint.lerp(f > 0.4 ? crop : ploughed, f > 0.4 ? 0.8 : smooth(-0.2, -0.8, f) * 0.8); }
+      c.lerp(tint, 0.85);
+    }
+    if (kind < 5) c.lerp(laterite, smooth(0.06, 0.2, 1 - nrm.getY(k)));
     if (water !== null) c.lerp(sand, smooth(water + 3.5, water + 1, h)).lerp(mud, smooth(water, water - 1.5, h));
     if (wf.list.length) { const sd = wf.sd(x, -z, 8); if (sd < 8) c.lerp(sand, smooth(6, 1, sd) * 0.7).lerp(mud, smooth(0, -2, sd)); }
     col.set([c.r, c.g, c.b], 3 * k);
@@ -771,7 +784,7 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const detail = texture(256, (g, s) => noise(g, s, '#d4d4d4', 0.45, 14000));
   const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: detail, vertexColors: true, roughness: 1 }));
-  ground.receiveShadow = true; world.add(ground);
+  ground.receiveShadow = true; ground.userData = { kind: 'ground', covered }; world.add(ground);
   // The real water's surfaces, islands cut out.
   const pondMat = new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 });
   wf.list.forEach((p, k) => {
@@ -804,6 +817,7 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   height.lake = lake !== null ? (x, y) => lakeSdf(x, -y) : null;
   height.sea = seaSide;
   height.water = wf.list.length ? wf.sd : null;
+  height.cover = cover;
   return height;
 }
 

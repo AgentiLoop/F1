@@ -11,25 +11,10 @@
 //   node tools/import_woods.mjs
 import { writeFileSync } from 'node:fs';
 import { CIRCUITS } from '../src/circuits.mjs';
-import { overpass, area, inside, clip, simplifyRing, frame } from './osm_frame.mjs';
+import { overpass, area, inside, clip, simplifyRing, stitch, frame } from './osm_frame.mjs';
 
 const MARGIN = 600, MIN_AREA = 300, TOL = 4, ROW_STEP = 8;
 const LEAF = { broadleaved: 1, needleleaved: 2, mixed: 3 };
-// Joins open ways (arrays of [lon, lat]) end to end into closed rings.
-const stitch = ways => {
-  const key = p => `${p[0]},${p[1]}`, rings = [], left = ways.map(w => w.slice());
-  while (left.length) {
-    let cur = left.shift();
-    while (key(cur[0]) !== key(cur.at(-1))) {
-      const i = left.findIndex(w => key(w[0]) === key(cur.at(-1)) || key(w.at(-1)) === key(cur.at(-1)));
-      if (i < 0) { cur = null; break; }
-      const w = left.splice(i, 1)[0];
-      cur = cur.concat((key(w[0]) === key(cur.at(-1)) ? w : w.reverse()).slice(1));
-    }
-    if (cur) rings.push(cur.slice(0, -1));
-  }
-  return rings;
-};
 const r1 = v => Math.round(v * 10) / 10;
 
 const out = {}, report = [];

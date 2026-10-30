@@ -21,15 +21,18 @@ const DUNES = { grass: 0x8f9a5a, dry: 0xd2c08e, soil: 0xc8b07c };
 // Spa's Ardennes valleys, the Styrian hills round the Red Bull Ring, the
 // Maritime Alps above Monaco), and woods: the real woods, single trees and
 // tree rows around it (woods.mjs, OpenStreetMap: the Ardennes forest at Spa,
-// the royal park at Monza), added to every entry below. Where OSM maps few
+// the royal park at Monza), and landcover: what covers the open ground
+// (landcover.mjs, OpenStreetMap: farmland, meadows and lawns, scrub, sand,
+// gravel traps, car parks and paddocks), added to every entry below. Where OSM maps few
 // trees, clusters random clusters of trees of these kinds are added.
 import { WATER } from './water.mjs';
 import { WOODS } from './woods.mjs';
 import { COAST } from './coast.mjs';
 import { BUILDINGS } from './buildings.mjs';
 import { TERRAIN } from './terrain.mjs';
+import { LANDCOVER } from './landcover.mjs';
 
-export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, water: null, terrain: null, woods: null });
+export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, water: null, terrain: null, woods: null, landcover: null });
 
 export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'bahrain': { ground: DESERT, clusters: 60, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
@@ -50,7 +53,7 @@ export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'zandvoort': { ground: DUNES, clusters: 120, trees: { conifer: 0.85, broadleaf: 0.15, palm: 0 } },
   'jeddah': { ground: DESERT, clusters: 80, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
   'miami': { ground: GREEN, clusters: 160, trees: { conifer: 0, broadleaf: 0.3, palm: 0.7 } },
-}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null, terrain: TERRAIN[key] ?? null, woods: WOODS[key] && (WOODS[key].woods.length || WOODS[key].trees.length) ? WOODS[key] : null })])));
+}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null, terrain: TERRAIN[key] ?? null, woods: WOODS[key] && (WOODS[key].woods.length || WOODS[key].trees.length) ? WOODS[key] : null, landcover: LANDCOVER[key]?.length ? LANDCOVER[key] : null })])));
 
 
 // Water polygons (water.mjs form) prepared for the terrain: each as rings
@@ -95,4 +98,38 @@ export function terrainField({ x0, y0, step, nx, ny, h }) {
     const u = Math.min(nx - 1.001, Math.max(0, (x - x0) / step)), w = Math.min(ny - 1.001, Math.max(0, (y - y0) / step)), i = Math.floor(u), j = Math.floor(w), a = u - i, b = w - j, k = j * nx + i;
     return (v[k] * (1 - a) + v[k + 1] * a) * (1 - b) + (v[k + nx] * (1 - a) + v[k + nx + 1] * a) * b;
   };
+}
+
+// landcover.mjs areas as the class (1 farmland … 6 paved, landcover.mjs) of
+// the ground at (x, y), 0 where none is mapped: rasterised every `cell` m
+// (even-odd scanline fill of each area's rings, in order, so later, smaller
+// areas cover earlier, larger ones), read from the nearest cell. Also
+// returns its count of cells of each class (counts[k]).
+export function landcoverField(areas, cell = 4) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [, outer] of areas) for (let i = 0; i < outer.length; i += 2) { x0 = Math.min(x0, outer[i]); x1 = Math.max(x1, outer[i]); y0 = Math.min(y0, outer[i + 1]); y1 = Math.max(y1, outer[i + 1]); }
+  const nx = Math.max(1, Math.ceil((x1 - x0) / cell) + 1), ny = Math.max(1, Math.ceil((y1 - y0) / cell) + 1), grid = new Uint8Array(nx * ny);
+  for (const [cls, ...rings] of areas) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 1; i < rings[0].length; i += 2) { lo = Math.min(lo, rings[0][i]); hi = Math.max(hi, rings[0][i]); }
+    for (let j = Math.max(0, Math.ceil((lo - y0) / cell - 0.5)); j < ny && y0 + (j + 0.5) * cell <= hi; j++) {
+      const y = y0 + (j + 0.5) * cell, xs = [];
+      for (const r of rings) for (let i = 0, m = r.length / 2, k = m - 1; i < m; k = i++) {
+        const ay = r[2 * k + 1], by = r[2 * i + 1];
+        if ((ay > y) !== (by > y)) xs.push(r[2 * k] + (r[2 * i] - r[2 * k]) * (y - ay) / (by - ay));
+      }
+      xs.sort((a, b) => a - b);
+      for (let q = 0; q + 1 < xs.length; q += 2) {
+        const a = Math.max(0, Math.ceil((xs[q] - x0) / cell - 0.5)), b = Math.min(nx - 1, Math.floor((xs[q + 1] - x0) / cell - 0.5));
+        if (b >= a) grid.fill(cls, j * nx + a, j * nx + b + 1);
+      }
+    }
+  }
+  const counts = new Array(7).fill(0); for (const v of grid) counts[v]++;
+  const at = (x, y) => {
+    const i = Math.floor((x - x0) / cell), j = Math.floor((y - y0) / cell);
+    return i < 0 || j < 0 || i >= nx || j >= ny ? 0 : grid[j * nx + i];
+  };
+  at.counts = counts;
+  return at;
 }

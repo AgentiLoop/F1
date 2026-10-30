@@ -18,12 +18,13 @@ export const cached = async (name, fetcher) => {
 };
 const traces = await cached('f1-circuits.geojson', async () => (await fetch('https://raw.githubusercontent.com/bacinger/f1-circuits/master/f1-circuits.geojson')).text());
 
-// Overpass (needs a User-Agent; overpass-api.de often 504s, so it retries
-// and alternates with kumi.systems), cached as /tmp/osm/<name>.
+// Overpass (needs a User-Agent; overpass-api.de and kumi.systems often 504,
+// so it retries and alternates between them and the mail.ru mirror),
+// cached as /tmp/osm/<name>.
 export const overpass = (name, q) => cached(name, async () => {
   for (let attempt = 0; ; attempt++) {
     await new Promise(r => setTimeout(r, 3000 + attempt * 15000));
-    const host = ['https://overpass-api.de', 'https://overpass.kumi.systems'][attempt % 2];
+    const host = ['https://maps.mail.ru/osm/tools/overpass', 'https://overpass-api.de', 'https://overpass.kumi.systems'][attempt % 3];
     const res = await fetch(`${host}/api/interpreter`, { method: 'POST', headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
     if (res.ok) return res.text();
     if (attempt >= 5) throw new Error(`${name}: Overpass ${res.status}`);
@@ -64,6 +65,21 @@ export const inside = (rings, x, y) => {
     if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c;
   }
   return c;
+};
+// Joins open ways (arrays of [lon, lat]) end to end into closed rings.
+export const stitch = ways => {
+  const key = p => `${p[0]},${p[1]}`, rings = [], left = ways.map(w => w.slice());
+  while (left.length) {
+    let cur = left.shift();
+    while (key(cur[0]) !== key(cur.at(-1))) {
+      const i = left.findIndex(w => key(w[0]) === key(cur.at(-1)) || key(w.at(-1)) === key(cur.at(-1)));
+      if (i < 0) { cur = null; break; }
+      const w = left.splice(i, 1)[0];
+      cur = cur.concat((key(w[0]) === key(cur.at(-1)) ? w : w.reverse()).slice(1));
+    }
+    if (cur) rings.push(cur.slice(0, -1));
+  }
+  return rings;
 };
 // Sutherland–Hodgman against an axis-aligned box.
 export const clip = (ring, [x0, y0, x1, y1]) => {
