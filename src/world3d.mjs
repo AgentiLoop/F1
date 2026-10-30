@@ -6,6 +6,7 @@ import { buildSavanna, savannaPlan } from './savanna.mjs';
 import { buildRiseStands } from './stands.mjs';
 import { buildWildlife, wildlifePlan } from './wildlife.mjs';
 import { buildLake } from './water.mjs';
+import { buildSky } from './sky.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -293,7 +294,9 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   }
   sky.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   const skyMesh = new THREE.Mesh(sky, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
-  skyMesh.position.set(cx, 0, -cy); world.add(skyMesh);
+  skyMesh.position.set(cx, 0, -cy);
+  // With the lake: the RISE sim's day sky, sun disc and clouds (sky.mjs).
+  if (track.lakeLevel !== null) { sky.dispose(); skyMesh.material.dispose(); world.add(buildSky(skyR, cx, -cy)); } else world.add(skyMesh);
   const size = 2 * extent + 1200;
   const grass = texture(256, (g, s) => {
     noise(g, s, '#3f6b2e', 0.25, 9000);

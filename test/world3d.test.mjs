@@ -29,10 +29,19 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
   const monza = scenery(createCircuitTrack(CIRCUITS.monza));
   assert.equal(monza.getObjectByName('tecpro'), undefined);
   assert.equal(monza.getObjectByName('rise-runoff'), undefined);
+  assert.equal(monza.getObjectByName('rise-sky'), undefined);
   dispose(monza);
   const track = createCircuitTrack(CIRCUITS.rwanda), world = scenery(track);
   try {
     assert.equal(world.children.filter(m => m.name === 'rise-runoff').length, 2);
+    // RISE day sky: one dome (no old gradient sphere), its sun disc where the scene's light shines from.
+    const sky = world.getObjectByName('rise-sky');
+    assert.ok(sky?.material.isShaderMaterial);
+    assert.equal(world.children.filter(m => m.geometry?.type === 'SphereGeometry').length, 1);
+    const scene = new THREE.Scene(), light = new THREE.DirectionalLight();
+    light.position.set(35, 70, 25); scene.add(light, world);
+    sky.onBeforeRender(null, scene);
+    assert.ok(sky.material.uniforms.uSunDir.value.distanceTo(new THREE.Vector3(35, 70, 25).normalize()) < 1e-6);
     const tecpro = world.children.filter(m => m.name === 'tecpro');
     assert.ok(tecpro.length >= 3, `${tecpro.length} TecPro runs`);
     // Every TecPro vertex is at the wall on the outside of a bend: its offset
