@@ -126,7 +126,7 @@ Done:
   frame: 220 m or more from the road, 60 m from the lake; the random draws
   are ordered differently, so the exact spots differ), plastered, brick or blue walls
   under tin or tile roofs. Trees are kept out of all of them. They glow at
-  night (see times of day), except the village houses.
+  night (see times of day).
 - **Braking boards, corner numbers and marshal posts** (`src/structures.mjs`,
   after that sim's `buildBoards` and `buildMarshalPosts`): 3, 2 and 1 boards
   (white, 1.1 x 1.45 m on two legs) 370, 270 and 170 m before its seven
@@ -137,6 +137,12 @@ Done:
   barrier on the outside of the bend (switched across at the pit lane, none on
   the start straight). All face the approaching cars, at that sim's corner
   positions (its `track-data.js`, shifted by our 80.1 m start).
+- **Raised billboards** (`src/structures.mjs`, after that sim's
+  `buildBillboards`): a 22 x 6.9 m board (its 3.2 : 1) 3.5 m up on two steel
+  posts, 5 m behind the outside wall 5 m past Turns 3, 8, 12 and 17, turned to
+  face the braking zone 150 m back up the track; none in the lake. Both faces
+  carry our AgentiLoop Racing logo (theirs carries their sponsor) and glow at
+  night like its sign material (0.55, halved to 0.28). Trees are kept out.
 - **Lakeside hospitality pods and jetties** (`src/lakeside.mjs`, after that
   sim's `buildLakeside`): round pods with plastered walls and thatched cone
   roofs on wooden decks, each with a 34 m plank jetty out over the water, on
@@ -155,17 +161,56 @@ Done:
   exposure and the sky dome's colours and clouds; its light levels are scaled
   to ours and its exponential fog turned into our linear fog's distance. Day
   keeps this game's own lighting. T (or the Time button) cycles them on this
-  circuit; `?time=dawn|day|sunset|night` starts there. Switches instantly (it
-  blends over 2.2 s); no floodlight pools on the road and no night sounds.
+  circuit; `?time=dawn|day|sunset|night` starts there. A switch fades over
+  2.2 s with a smoothstep like the sim's (`lerpTime` / `TIME_BLEND`): colours,
+  light levels, fog, clouds, stars and night glow blend, the sun swinging over
+  the top rather than through the ground; the button shows the new time at
+  once. No night sounds.
   At night the sim's emissive night terms light up the buildings
   (`nightGlow` / `setNightGlow` in `src/sky.mjs`, at half its strength,
   as our night light is about half its): the grandstand seats and crowd
   (0.22) and membrane roofs (0.28), the pit building's garages and windows
-  (0.35 by day, 1 at night), the paddock tower (0.2) and pavilion domes
-  (0.18), the braking boards (0.4) and corner numbers (0.3) and the lakeside
-  pods' walls (0.25), besides the floodlight lamp faces (4). Left out: the
-  tower's glowing helix ribs (it glows evenly) and the sim's dim glow on a
-  few village houses (0.12 on some of them).
+  (0.35 by day, 1 at night), the paddock tower's helix ribs (its rib x 2.2
+  + 0.15, halved: 1.1 on the ribs, 0.075 between, through an emissive mask
+  of the rib texture) and pavilion domes (0.18), the braking boards (0.4)
+  and corner numbers (0.3), the lakeside pods' walls (0.25) and the village
+  houses with its tint 0.6 and up (0.06, about four in ten), besides the
+  floodlight lamp faces (4).
+  The floodlit circuit (its `js/trackmesh.js` and `js/terrain.js` flood
+  terms, flood 0.34 halved to 0.17 x their factor, in `buildCircuitWorld` /
+  `buildTerrain` in `src/world3d.mjs`): at night the road, white edge lines
+  and pit lane (x1.1), kerbs and painted run-off (x1) and walls and TecPro
+  (x0.8) give off their own colour, and the ground gets a spill fading from
+  5 m to 160 m off the centreline (a per-vertex `flood` attribute). The trees
+  near the road are floodlit too (its `js/trees.js` per-tree term, in
+  `buildSavanna` in `src/savanna.mjs`): leaf and bark colour x 0.17, each tree
+  weighted by its distance to the road (smoothstep 160 m to 10 m, a per-tree
+  `aFlood` attribute). Away from the floodlit band the countryside goes dark
+  as in that sim: the ground's colour x 0.06 + 0.9 x smoothstep(320 m, 50 m)
+  of its distance off the centreline (a per-vertex `nightFade`), and each
+  tree's x 0.07 + 0.9 x its `aFlood`, both blended in by the time of day's
+  night value (a `uNight` uniform that `setNightGlow` sets).
 
-Not yet: the rest of `scenery.js` (airport).
+- **Rubbered racing line and grid slots** (`src/trackpaint.mjs`, after that
+  sim's road material in `js/trackmesh.js`; every real circuit): the asphalt
+  darkens along the racing line by 30% times its patchy skid noise (so 15-45%),
+  fading out between 0.3 and 1.9 m from the line, as an unlit black overlay
+  strip (measured in headless Chrome: about 28% darker on the line, unchanged
+  3 m off it); its lower roughness there is left out. Behind the start line a
+  white grid box at each car's slot (our race grid: 8 m apart, alternating
+  2.6 m either side, pole on the centre): a 3.6 m line across in front of the
+  car and two 1.4 m lines back from its ends; the pole's front is the start
+  line. They glow at night like the road's other lines.
+- **Mowing stripes** (`mowMaterial` in `src/trackpaint.mjs`, after that sim's
+  `grassMaterial` in `js/trackmesh.js`; every real circuit): the grass verge
+  from the run-off to the wall is mown in bands that alternate every 6 m along
+  the lap (its `fract(s / 12)`), the unrolled band 0.9 / 1.06 of the rolled one,
+  so 15% darker, as an unlit black overlay just over our own ground (0.15 m
+  over the terrain, 1 cm over the flat field) where the wall stands. Measured
+  in headless Chrome from beside the road: the dark band 7% darker on screen
+  (sRGB, about 15% in linear light) at Rwanda by day and night and at Monza,
+  the light band unchanged. Its grass colour, noise and bump are left to our
+  ground.
+Not yet: the rest of `scenery.js` (airport). Its sponsor boards along the
+wall faces are covered by our own hoardings every 36 m.
 Grade and bank forces in the physics were added in 1fc5c16.

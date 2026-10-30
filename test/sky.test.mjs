@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../vendor/three.module.js';
-import { buildSky, setSkyTime, TIMES, TIME_ORDER, nightGlow, setNightGlow } from '../src/sky.mjs';
+import { buildSky, setSkyTime, TIMES, TIME_ORDER, TIME_BLEND, lerpTime, nightGlow, setNightGlow } from '../src/sky.mjs';
 
 test('RISE times of day: dawn in the east, sunset in the west, day keeps our lighting', () => {
   assert.deepEqual(TIME_ORDER, ['dawn', 'day', 'sunset', 'night']);
@@ -46,4 +46,21 @@ test('nightGlow / setNightGlow switch the RISE night glow on every tagged materi
   assert.equal(lamp.emissiveIntensity, 4); assert.equal(board.emissiveIntensity, 0.4); assert.equal(plain.emissiveIntensity, 1);
   setNightGlow(root, 0);
   assert.equal(lamp.emissiveIntensity, 0.15); assert.equal(board.emissiveIntensity, 0);
+});
+test('lerpTime fades between times of day like the RISE sim (2.2 s, sun over the top)', () => {
+  assert.equal(TIME_BLEND, 2.2);
+  for (const a of TIME_ORDER) for (const b of TIME_ORDER) {
+    const s = lerpTime(TIMES[a], TIMES[b], 0), e = lerpTime(TIMES[a], TIMES[b], 1);
+    for (const [x, t] of [[s, TIMES[a]], [e, TIMES[b]]]) {
+      for (const k of ['sunColor', 'hemiSky', 'hemiGround', 'fogColor']) assert.equal(x[k], t[k]);
+      for (const k of ['sunIntensity', 'hemi', 'env', 'fogFar', 'exposure', 'night']) assert.ok(Math.abs(x[k] - t[k]) < 1e-9);
+      assert.deepEqual(Object.keys(x.sky), Object.keys(t.sky)); assert.equal(x.sky.horizon, t.sky.horizon);
+      assert.ok(x.sun.distanceTo(t.sun) < 1e-9); assert.equal(x.label, t.label);
+    }
+    for (let i = 0; i <= 10; i++) assert.ok(lerpTime(TIMES[a], TIMES[b], i / 10).sun.y > 0.05, `${a}→${b} sun stays up`);
+  }
+  // dawn (east) to sunset (west): the halfway sun is lifted overhead, not through the ground
+  assert.ok(lerpTime(TIMES.dawn, TIMES.sunset, 0.5).sun.y > 0.9);
+  const half = lerpTime(TIMES.day, TIMES.night, 0.5);
+  assert.equal(half.night, 0.5); assert.ok(half.fogFar < TIMES.day.fogFar && half.fogFar > TIMES.night.fogFar);
 });

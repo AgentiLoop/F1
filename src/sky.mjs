@@ -32,6 +32,25 @@ export const TIMES = {
     fogColor: 0x0b1220, fogFar: 930, exposure: 1.05, sky: { horizon: 0x0b1220, zenith: 0x02040c, clouds: 0.18, cloudDensity: 0.25 }, night: 1 },
 };
 export const TIME_ORDER = ['dawn', 'day', 'sunset', 'night'];
+// Changing time fades over TIME_BLEND seconds with a smoothstep, after the
+// sim's sky.js update: lerpTime(a, b, t) mixes two TIMES entries, colours and
+// numbers linearly, the label switching halfway, and the sun swinging over
+// the top (via its halfway direction, lifted to 0.6 if under 0.15) rather
+// than through the ground.
+export const TIME_BLEND = 2.2;
+export function lerpTime(a, b, t) {
+  const col = (x, y) => new THREE.Color(x).lerp(new THREE.Color(y), t).getHex(), num = (x, y) => x + (y - x) * t;
+  const mid = a.sun.clone().add(b.sun).multiplyScalar(0.5);
+  if (mid.y < 0.15) mid.y = 0.6;
+  const sun = (t < 0.5 ? a.sun.clone().lerp(mid, t * 2) : mid.clone().lerp(b.sun, (t - 0.5) * 2)).normalize();
+  return {
+    label: t < 0.5 ? a.label : b.label, sun, sunColor: col(a.sunColor, b.sunColor), sunIntensity: num(a.sunIntensity, b.sunIntensity),
+    hemiSky: col(a.hemiSky, b.hemiSky), hemiGround: col(a.hemiGround, b.hemiGround), hemi: num(a.hemi, b.hemi), env: num(a.env, b.env),
+    fogColor: col(a.fogColor, b.fogColor), fogFar: num(a.fogFar, b.fogFar), exposure: num(a.exposure, b.exposure),
+    sky: { horizon: col(a.sky.horizon, b.sky.horizon), zenith: col(a.sky.zenith, b.sky.zenith), clouds: num(a.sky.clouds, b.sky.clouds), cloudDensity: num(a.sky.cloudDensity, b.sky.cloudDensity) },
+    night: num(a.night, b.night),
+  };
+}
 
 // Sky sphere of the given radius centred at (x, 0, z).
 export function buildSky(radius, x, z, preset = RISE_DAY) {
@@ -121,7 +140,8 @@ export function buildSky(radius, x, z, preset = RISE_DAY) {
 // Night glow, after the sim's emissive "* U.night" terms: the material glows
 // `color` at `night` (at `day` otherwise, 0 by default); with useMap its own
 // map is the glow's pattern. setNightGlow switches every such material under
-// root. Strengths are the sim's halved, as our night light is about half its.
+// root, and sets a material's userData.uNight uniform (0 day to 1 night) if it
+// has one. Strengths are the sim's halved, as our night light is about half its.
 export function nightGlow(mat, color, night, { day = 0, useMap = false } = {}) {
   mat.emissive = new THREE.Color(color); mat.emissiveIntensity = day;
   if (useMap) mat.emissiveMap = mat.map;
@@ -132,7 +152,7 @@ export function setNightGlow(root, night) {
   const seen = new Set();
   root.traverse(o => [o.material].flat().forEach(m => {
     const g = m?.userData?.nightGlow;
-    if (g && !seen.has(m)) { seen.add(m); m.emissiveIntensity = g[0] + (g[1] - g[0]) * night; }
+    if (g && !seen.has(m)) { seen.add(m); m.emissiveIntensity = g[0] + (g[1] - g[0]) * night; if (m.userData.uNight) m.userData.uNight.value = night; }
   }));
   return seen.size;
 }
