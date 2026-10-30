@@ -80,7 +80,7 @@ for (const [key, session] of Object.entries(SESSIONS)) {
 const file = new URL('../src/circuits.mjs', import.meta.url);
 let text = readFileSync(file, 'utf8');
 for (const [key, h] of Object.entries(heightsOf)) {
-  const re = new RegExp(`(  '${key}': \\{[^\\n]*\\n)(?:    heights: [^\\n]*\\n)?(    points: )`);
+  const re = new RegExp(`(  '${key}': \\{[^\\n]*\\n)(?:    heights: [^\\n]*\\n)?((?:    banks: [^\\n]*\\n)?    points: )`);
   if (!re.test(text)) throw new Error(`${key}: entry not found`);
   text = text.replace(re, `$1    heights: [${h.join(',')}],\n$2`);
 }
