@@ -3,6 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
+import { DEFAULT_SCENERY, coast } from './scenery.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -269,8 +270,9 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
 // start/finish line and light gantry at s = 0, a grandstand beside it,
 // hoardings, trees off the circuit and a hill ring sized to the layout (with
 // elevation: everything on the ground's height, and terrain with the lake
-// instead of the hill ring and flat field, buildTerrain).
-export function buildCircuitWorld(track, { boxColors = [] } = {}) {
+// instead of the hill ring and flat field, buildTerrain). scenery
+// (scenery.mjs): the ground's colours, the trees and the sea, if any.
+export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCENERY } = {}) {
   const world = new THREE.Group(), half = track.roadWidth / 2, wallAt = track.wallOffset;
   const { x: X, y: Y, s: S, heading: H, kerb } = track.samples, n = X.length;
   // Ground height (circuit.mjs elevation; offsets there are + right, here + left).
@@ -298,7 +300,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   }, size / 8, size / 8);
   // With elevation: terrain shaped around the road and the lake beside it
   // (terrainHeight); otherwise a flat field.
-  const terrainHeight = track.hasElevation ? buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) : () => 0;
+  const terrainHeight = track.hasElevation ? buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, scenery) : () => 0;
   if (!track.hasElevation) {
     const field = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
     field.rotation.x = -Math.PI / 2; field.position.set(cx, -0.03, -cy); field.receiveShadow = true; world.add(field);
@@ -465,8 +467,9 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   if (!track.hasElevation) world.add(new THREE.Mesh(hillGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
 
   // Beside the lake (the RISE Motordrome): East African vegetation
-  // (savanna.mjs); otherwise tree clusters anywhere at least 20 m clear of
-  // the road, on the terrain when there is one.
+  // (savanna.mjs); otherwise scenery.clusters tree clusters of the circuit's
+  // kinds anywhere at least 20 m clear of the road and off the beach, on the
+  // terrain when there is one.
   if (track.lakeLevel !== null) {
     const terrain = { height: terrainHeight, dist: terrainHeight.dist, lake: terrainHeight.lake, lakeLevel: track.lakeLevel };
     world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, savannaPlan(track, terrain, { minX, maxX, minY, maxY }), terrain) };
@@ -474,16 +477,19 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
   const spots = [];
-  for (let tries = 0; spots.length < 900 && tries < 600; tries++) {
+  const beach = terrainHeight.sea ?? (() => -Infinity);
+  for (let tries = 0; spots.length < scenery.clusters * 3 && tries < scenery.clusters * 2; tries++) {
     const tx = cx + (rng() - 0.5) * (maxX - minX + 300), ty = cy + (rng() - 0.5) * (maxY - minY + 300), m = 3 + Math.floor(rng() * 9);
     for (let i = 0; i < m; i++) {
       const x = tx + (rng() - 0.5) * 40, y = ty + (rng() - 0.5) * 40;
-      if (Math.abs(track.offset(x, y)) > half + 20 && !(track.lakeLevel !== null && terrainHeight(x, y) < track.lakeLevel + 1)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
+      if (Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
     }
   }
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
-  world.add(...[treeGeometry('conifer'), treeGeometry('broadleaf')].map((geo, k) => {
-    const list = spots.filter(t => (t[4] < 0.45) === (k === 0));
+  // Each spot's kind from its random draw t[4] against the cumulative weights.
+  const kinds = ['conifer', 'broadleaf', 'palm'], weight = kinds.map(k => scenery.trees[k] ?? 0), sum = weight.reduce((a, b) => a + b, 0) || 1;
+  const kindOf = v => { let acc = 0; for (let k = 0; k < kinds.length; k++) if (v < (acc += weight[k] / sum)) return k; return kinds.length - 1; };
+  world.add(...kinds.map((kind, k) => [treeGeometry(kind), spots.filter(t => kindOf(t[4]) === k)]).filter(([, list]) => list.length).map(([geo, list]) => {
     const mesh = new THREE.InstancedMesh(geo, treeMat, list.length);
     list.forEach(([x, y, sc, rot, v], i) => {
       dummy.position.set(x, terrainHeight(x, y) - 0.2, -y); dummy.rotation.set(0, rot, 0); dummy.scale.set(sc, sc * (0.85 + v * 0.3), sc);
@@ -518,10 +524,16 @@ export function lakeSdf(x, z) {
 }
 const smooth = (a, b, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-// Adds the terrain (and the lake, when the track has one) to world and
-// returns the ground height at physics (x, y).
-function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) {
+// Adds the terrain (and the lake, when the track has one, or the sea at
+// scenery.sea: a straight coast 160 m beyond the circuit, 3 m below its
+// lowest point, with a beach) to world and returns the ground height at
+// physics (x, y).
+function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, scenery = DEFAULT_SCENERY) {
   const wallAt = track.wallOffset, lake = track.lakeLevel, { x: X, y: Y, s: S } = track.samples, n = X.length;
+  const sea = scenery.sea == null ? null : coast(Array.from(X, (x, i) => [x, Y[i]]), scenery.sea);
+  let seaLevel = null;
+  if (sea) { seaLevel = Infinity; for (let k = 0; k < n; k++) seaLevel = Math.min(seaLevel, track.elevation(S[k])); seaLevel -= 3; }
+  const water = lake ?? seaLevel;
   // Coarse fields every 25 m out to 900 m beyond the circuit: the nearest
   // centreline sample (of every 5th), the distance to it and the road height
   // there (blurred, so there is no seam where the nearest part changes).
@@ -552,6 +564,11 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) 
       const sdf = lakeSdf(x, -y);
       h += (lake + 1.4 + Math.max(0, sdf) * 0.06 - h) * smooth(140, 0, sdf) * 0.85;
       if (sdf < 0) h = Math.min(h, lake - 0.6 + Math.max(sdf * 0.05, -8));
+    }
+    if (sea) {
+      const o = sea.seaSide(x, y);
+      h += (seaLevel + 1.2 + Math.max(0, -o) * 0.02 - h) * smooth(-160, 0, o);
+      if (o > 0) h = Math.min(h, seaLevel - 0.6 - Math.min(o * 0.05, 10));
     }
     return h;
   };
@@ -588,16 +605,17 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx); geo.computeVertexNormals();
-  // Colours: green grass patched with dry grass, bare soil where the ground
-  // is steep (red laterite by the lake, brown earth elsewhere), sand along the
-  // shore and mud under the water.
-  const grass = new THREE.Color(0x4f7d33), dry = new THREE.Color(0x8c8a4a), laterite = new THREE.Color(lake !== null ? 0xa4532e : 0x6e5a3f), sand = new THREE.Color(0xb9a57a), mud = new THREE.Color(0x5b5040);
+  // Colours (scenery.ground): grass patched with dry grass, bare soil where
+  // the ground is steep (red laterite by the lake), sand along the shore and
+  // mud under the water.
+  const { ground: tone } = scenery;
+  const grass = new THREE.Color(tone.grass), dry = new THREE.Color(tone.dry), laterite = new THREE.Color(lake !== null ? 0xa4532e : tone.soil), sand = new THREE.Color(0xb9a57a), mud = new THREE.Color(0x5b5040);
   const col = new Float32Array(N * 3), c = new THREE.Color(), nrm = geo.attributes.normal;
   for (let k = 0; k < N; k++) {
     const x = pos[3 * k], h = pos[3 * k + 1], z = pos[3 * k + 2];
     c.copy(grass).lerp(dry, smooth(-0.2, 0.8, Math.sin(x * 0.0041 + 1.7) * Math.cos(z * 0.0053 - 0.6) + 0.3 * Math.sin((x + z) * 0.017)));
     c.lerp(laterite, smooth(0.06, 0.2, 1 - nrm.getY(k)));
-    if (lake !== null) c.lerp(sand, smooth(lake + 3.5, lake + 1, h)).lerp(mud, smooth(lake, lake - 1.5, h));
+    if (water !== null) c.lerp(sand, smooth(water + 3.5, water + 1, h)).lerp(mud, smooth(water, water - 1.5, h));
     col.set([c.r, c.g, c.b], 3 * k);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -612,9 +630,18 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) 
       new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 }));
     water.rotation.x = -Math.PI / 2; water.position.set((lx0 + lx1) / 2, lake, (lz0 + lz1) / 2); world.add(water);
   }
+  if (sea) {
+    // Sea from 150 m inside the shore out past the terrain's edge, across its width.
+    const along = cx * sea.dir[0] + cy * sea.dir[1], a = sea.shore - 150, b = along + R + 1500, mid = (a + b) / 2 - along;
+    const plane = new THREE.PlaneGeometry(b - a, 2 * R + 3000).rotateX(-Math.PI / 2);
+    const seaMesh = new THREE.Mesh(plane, new THREE.MeshStandardMaterial({ color: 0x1f5b78, roughness: 0.06, metalness: 0.3, transparent: true, opacity: 0.92 }));
+    seaMesh.rotation.y = Math.atan2(sea.dir[1], sea.dir[0]);
+    seaMesh.position.set(cx + sea.dir[0] * mid, seaLevel, -(cy + sea.dir[1] * mid)); world.add(seaMesh);
+  }
   // For the vegetation: coarse distance to the centreline, and the shore.
   height.dist = (x, y) => bilinear(dist, x, y);
   height.lake = lake !== null ? (x, y) => lakeSdf(x, -y) : null;
+  height.sea = sea ? sea.seaSide : null;
   return height;
 }
 
@@ -683,6 +710,16 @@ function treeGeometry(kind) {
     for (let i = 0; i < 5; i++) {
       const r = 2.7 * (1 - i * 0.17), y = 2.6 + i * 1.75;
       add(new THREE.ConeGeometry(r, 3.4 - i * 0.2, 11, 2).translate(0, y + 1.6, 0), green, new THREE.Vector3(0, 7, 0), [2.2, top], 0.35);
+    }
+  } else if (kind === 'palm') {
+    // Slender, slightly leaning trunk with a crown of drooping fronds.
+    const trunk = new THREE.Color(0x7a6448), frond = new THREE.Color(0x4f7a2a), lean = 0.5;
+    for (let i = 0; i < 4; i++) add(new THREE.CylinderGeometry(0.2 - i * 0.02, 0.24 - i * 0.02, 2.6, 7).translate(lean * (i + 0.5) / 4, 1.3 + i * 2.5, 0), trunk);
+    const top = new THREE.Vector3(lean, 10.2, 0);
+    for (let f = 0; f < 9; f++) {
+      const geo = new THREE.BoxGeometry(4.2, 0.08, 0.9, 4, 1, 1), p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++) { const x = p.getX(i) + 2.1; p.setXYZ(i, x, p.getY(i) - 0.12 * x * x, p.getZ(i) * (1 - x / 5)); }
+      add(geo.rotateZ(0.25).rotateY(f / 9 * Math.PI * 2 + (f % 2) * 0.3).translate(top.x, top.y, top.z), frond, top, [8, 10.5]);
     }
   } else {
     add(new THREE.CylinderGeometry(0.22, 0.38, 4.2, 7).translate(0, 2.1, 0), bark);
