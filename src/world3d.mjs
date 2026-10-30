@@ -551,11 +551,67 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     town.userData = { kind: 'buildings', count: blocks.length, blocks };
     world.add(town);
   }
+  // The real roads and streets (scenery.roads, roads.mjs: OpenStreetMap):
+  // asphalt ribbons of their width, cut into steps of at most 3 m that lie
+  // 0.12 m over the ground mesh's own facets. Left out within 3 m of the
+  // barriers (where a street circuit runs on public roads, the circuit is
+  // drawn there instead), in the sea or water, and where our own grandstand
+  // and pits stand.
+  const roadDist = terrainHeight.dist ?? ((x, y) => Math.abs(track.offset(x, y)));
+  const ours = (x, y, w) => {
+    if (roadDist(x, y) > wallAt + 80) return false;
+    const o = Math.abs(track.offset(x, y));
+    if (o < wallAt + w / 2 + 3) return true;
+    if (o > wallAt + 40) return false;
+    const near = track.progress(x, y), sp = near > track.length / 2 ? near - track.length : near;
+    return (sp > -140 && sp < 20) || (pit && sp > pit.entry - 20 && sp < pit.exit + 20);
+  };
+  const onGround = terrainHeight.mesh ?? terrainHeight, laneGrid = new Map(), rp = [], ruv = [], ri = [];
+  let roadKm = 0;
+  for (const [w, ...flat] of scenery.roads ?? []) {
+    // Densified path, then its runs of kept points.
+    const path = [];
+    for (let i = 0; i + 3 < flat.length; i += 2) {
+      const [ax, ay, bx, by] = flat.slice(i, i + 4), m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
+      for (let k = i ? 1 : 0; k <= m; k++) path.push([ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
+    }
+    const keep = path.map(([x, y]) => !ours(x, y, w) && beach(x, y) < -w / 2 && shore(x, y) > 0);
+    for (let a = 0; a < path.length;) {
+      if (!keep[a]) { a++; continue; }
+      let b = a; while (b + 1 < path.length && keep[b + 1]) b++;
+      if (b > a) {
+        const run = path.slice(a, b + 1), at = rp.length / 3;
+        run.forEach(([x, y], k) => {
+          const [px, py] = run[Math.max(0, k - 1)], [qx, qy] = run[Math.min(run.length - 1, k + 1)], l = Math.hypot(qx - px, qy - py) || 1, nx = -(qy - py) / l * w / 2, ny = (qx - px) / l * w / 2;
+          for (const s of [1, -1]) { const vx = x + nx * s, vy = y + ny * s; rp.push(vx, onGround(vx, vy) + 0.12, -vy); ruv.push(vx / 2.5, vy / 2.5); }
+          if (k) { const q = at + 2 * k; ri.push(q - 2, q - 1, q, q - 1, q + 1, q); roadKm += Math.hypot(x - run[k - 1][0], y - run[k - 1][1]) / 1000; }
+          const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`; (laneGrid.get(key) ?? laneGrid.set(key, []).get(key)).push([x, y, w / 2]);
+        });
+      }
+      a = b + 1;
+    }
+  }
+  if (ri.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(ruv, 2));
+    geo.setIndex(ri); geo.computeVertexNormals();
+    const mat = asphaltMaterial(1, 1); mat.color.setHex(0xa9a9a9);
+    mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
+    const streets = new THREE.Mesh(geo, mat); streets.receiveShadow = true;
+    streets.userData = { kind: 'roads', km: Math.round(roadKm * 10) / 10 }; world.add(streets);
+  }
+  // Whether (x, y) is within `pad` m of a road's edge (points every 3 m).
+  const paved = (x, y, pad) => {
+    const u = Math.floor(x / cell), v = Math.floor(y / cell);
+    for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) for (const [px, py, hw] of laneGrid.get(`${u + du},${v + dv}`) ?? []) if ((x - px) ** 2 + (y - py) ** 2 < (hw + pad + 1.5) ** 2) return true;
+    return false;
+  };
   // Trees stand at least 20 m clear of the road, 40 m in from the sea, 5 m
-  // from the water and 4 m from any building, and not on sand, gravel or
-  // paved ground (landcover.mjs).
+  // from the water, 4 m from any building and 2 m from any street, and not
+  // on sand, gravel or paved ground (landcover.mjs).
   const onBare = terrainHeight.cover ?? (() => 0);
-  const clear = (x, y) => Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4) && onBare(x, y) < 4;
+  const clear = (x, y) => Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4) && !paved(x, y, 2) && onBare(x, y) < 4;
   // The real woods and trees (scenery.woods, woods.mjs: OpenStreetMap): each
   // wood filled with trees on a jittered 8 m grid, kept 9 m apart on average
   // up to 150 m from the road and thinning to 20 m apart by 600 m, and the
@@ -818,6 +874,15 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   height.sea = seaSide;
   height.water = wf.list.length ? wf.sd : null;
   height.cover = cover;
+  // The ground mesh's own height at (x, y): linear over the triangle of its
+  // grid cell that holds it (each cell split along its (i, j-1)–(i-1, j)
+  // diagonal), so what lies on it follows its facets.
+  const cellOf = (v, a) => { let lo = 0, hi = v.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (v[m] <= a) lo = m; else hi = m; } return lo; };
+  height.mesh = (x, y) => {
+    const i = cellOf(ax, x), j = cellOf(ay, y), fx = Math.max(0, Math.min(1, (x - ax[i]) / (ax[i + 1] - ax[i]))), fy = Math.max(0, Math.min(1, (y - ay[j]) / (ay[j + 1] - ay[j])));
+    const hAt = (u, v) => pos[3 * ((j + v) * W + i + u) + 1], a = hAt(0, 0), b = hAt(1, 0), c = hAt(0, 1), d = hAt(1, 1);
+    return fx + fy <= 1 ? a + (b - a) * fx + (c - a) * fy : d + (c - d) * (1 - fx) + (b - d) * (1 - fy);
+  };
   return height;
 }
 

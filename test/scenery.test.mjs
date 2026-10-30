@@ -222,3 +222,35 @@ test('with its land cover, a real circuit\'s run-off is its real surface: gravel
   assert.deepEqual(cat.t.surfaceAt(...g), { grip: 0.45, rolling: 0.25 });
   assert.equal(cat.t.surfaceAt(...cat.t.point(100)), 1);
 });
+
+test('every real circuit gets its real roads and streets (OpenStreetMap), on the ground, clear of the circuit, the sea and the water, with no tree on them', () => {
+  const km = {};
+  for (const [key, s] of Object.entries(SCENERY)) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: s });
+    const roads = meshes(world).filter(m => m.userData.kind === 'roads');
+    assert.ok(s.roads && roads.length === 1, key);
+    const P = roads[0].geometry.attributes.position, sea = s.sea && waterField(s.sea), water = s.water && waterField(s.water);
+    // Each step's two edge vertices: their middle is the road's centre.
+    const centres = [];
+    for (let i = 0; i < P.count; i += 2) {
+      const x = (P.getX(i) + P.getX(i + 1)) / 2, y = -(P.getZ(i) + P.getZ(i + 1)) / 2, hw = Math.hypot(P.getX(i) - P.getX(i + 1), P.getZ(i) - P.getZ(i + 1)) / 2;
+      assert.ok(Math.abs(track.offset(x, y)) > track.wallOffset + hw + 2, `${key}: street on the circuit`);
+      if (sea) assert.ok(sea.sd(x, y, Infinity) > 0, `${key}: street in the sea`);
+      if (water) assert.ok(water.sd(x, y) > 0, `${key}: street in the water`);
+      centres.push([x, y, hw]);
+    }
+    km[key] = roads[0].userData.km;
+    const m = new (world.matrix.constructor)(), grid = new Map(), cell = 20;
+    for (const c of centres) { const k = `${Math.floor(c[0] / cell)},${Math.floor(c[1] / cell)}`; (grid.get(k) ?? grid.set(k, []).get(k)).push(c); }
+    for (const t of meshes(world).filter(o => o.userData.kind === 'trees')) for (let i = 0; i < t.count; i++) {
+      t.getMatrixAt(i, m);
+      const x = m.elements[12], y = -m.elements[14];
+      for (let u = -1; u <= 1; u++) for (let v = -1; v <= 1; v++) for (const [cx, cy, hw] of grid.get(`${Math.floor(x / cell) + u},${Math.floor(y / cell) + v}`) ?? []) {
+        assert.ok(Math.hypot(x - cx, y - cy) > hw + 2, `${key}: tree on a street`);
+      }
+    }
+  }
+  // Every circuit has streets around it; Monte Carlo, Montreal's island and Miami's stadium grounds many.
+  for (const key of Object.keys(SCENERY)) assert.ok(km[key] > 3, `${key}: ${km[key]} km`);
+  assert.ok(km.monaco > 20, `monaco: ${km.monaco} km`);
+});
