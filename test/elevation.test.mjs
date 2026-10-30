@@ -15,6 +15,17 @@ test('the RISE Motordrome keeps its climb: 1363.5-1415 m above sea level (height
   assert.ok(lo > rwanda.lakeLevel);
 });
 
+test("the road profile's curvature is smooth: flat Monza barely jolts the load, Eau Rouge still compresses", () => {
+  const zss = key => { const c = CIRCUITS[key], t = createCircuitTrack({ ...c, pitLane: false }), out = [];
+    for (let s = 0; s < t.length; s += 2) out.push({ d: ((s - c.timingLine * t.length / c.length) % t.length + t.length) % t.length, zss: t.groundAt(...t.point(s)).zss });
+    return out; };
+  // Under 0.4 g at 90 m/s anywhere at Monza.
+  for (const { d, zss: k } of zss('monza')) assert.ok(Math.abs(k) * 90 * 90 < 0.4 * 9.81, `Monza ${d}: ${k}`);
+  // Eau Rouge's compression, ~1 km from Spa's line, keeps over 1.5e-3/m (0.4 g at 50 m/s).
+  const eau = Math.max(...zss('spa').filter(p => p.d > 900 && p.d < 1150).map(p => p.zss));
+  assert.ok(eau > 1.5e-3, `${eau}`);
+});
+
 test('banking tilts the road: positive banks raise the left edge, and the verges fall away 2%', () => {
   const banks = CIRCUITS.rwanda.banks;
   // Turn 2's banked section: the source banks peak at 0.12 there.

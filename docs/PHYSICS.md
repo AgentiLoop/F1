@@ -93,6 +93,8 @@ coordinates are right-handed, with body x forward, y left, and positive yaw left
   the car downhill (Raidillon's 14% climb slows a coasting car by ~1.4 m/s²,
   the 7% drop to Eau Rouge speeds it up by ~0.7 m/s²), and the share into the road sets the wheel loads:
   m cos θ (g + zss u² − a·∇z), so a compression presses the car down, a crest
+  (zss is the profile's curvature over ±25 m, wide enough that the telemetry
+  heights' 0.1 m steps don't jolt the load by up to 0.6 g on flat road)
   lightens it, and cornering against a banking (Zandvoort's 19° Turn 3) adds
   load and grip. The slope is read from the nearest part of the lap, so a
   crossover's other level never leaks in. The autopilot's (and rivals')
