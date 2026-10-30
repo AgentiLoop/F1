@@ -123,11 +123,13 @@ function canvasTexture(w, h, draw) {
 }
 
 // The cone's skin: white with grey ribs winding six times round it, one turn
-// every 9 m of height (u around, v up the 64 m lathe).
-function towerTexture() {
+// every 9 m of height (u around, v up the 64 m lathe). With other colours it is
+// the night-glow mask: the sim's rib * 2.2 + 0.15, as 1 on the ribs and 0.064
+// (sRGB #474747) between them.
+function towerTexture(skin = '#eeeee6', rib = '#c7ccd1') {
   return canvasTexture(512, 512, (g, w, h) => {
-    g.fillStyle = '#eeeee6'; g.fillRect(0, 0, w, h);
-    g.fillStyle = '#c7ccd1';
+    g.fillStyle = skin; g.fillRect(0, 0, w, h);
+    g.fillStyle = rib;
     const turns = 64 / 9;
     for (let k = -8; k <= 6; k++) {
       const u = (c, v) => (k + c - turns * v) / 6 * w;
@@ -190,7 +192,9 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null, 
   const pts = [];
   for (let i = 0; i <= 40; i++) { const t = i / 40; pts.push(new THREE.Vector2(11 * Math.pow(1 - t, 1.35) + 1.3, t * 64)); }
   pts.push(new THREE.Vector2(0.01, 64.6));
-  const tower = shade(new THREE.Mesh(new THREE.LatheGeometry(pts, 64), nightGlow(std({ map: towerTexture(), roughness: 0.35, metalness: 0.1 }), 0xffd980, 0.2)));
+  const towerMat = nightGlow(std({ map: towerTexture(), roughness: 0.35, metalness: 0.1 }), 0xffd980, 1.18);
+  towerMat.emissiveMap = towerTexture('#474747', '#ffffff');
+  const tower = shade(new THREE.Mesh(new THREE.LatheGeometry(pts, 64), towerMat));
   tower.name = 'paddock-tower'; tower.position.set(plan.tower.x, ground(plan.tower.x, plan.tower.y) - 0.5, -plan.tower.y); group.add(tower);
   q.identity();
   const dome = nightGlow(std({ color: 0xf4f2ec, roughness: 0.7, side: THREE.DoubleSide }), 0xffebbf, 0.18);
@@ -206,9 +210,12 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null, 
   const prism = new THREE.Shape(); prism.moveTo(-0.58, 0); prism.lineTo(0.58, 0); prism.lineTo(0, 0.42); prism.closePath();
   const roofGeo = new THREE.ExtrudeGeometry(prism, { depth: 1.08, bevelEnabled: false }); roofGeo.translate(0, 0, -0.54);
   const plaster = new THREE.Color(0xc7b89e), brick = new THREE.Color(0x8c6b4d), blue = new THREE.Color(0x9ebdcc), tin = new THREE.Color(0x8c8f94), tile = new THREE.Color(0x732919);
-  const walls = instanced(wallGeo, std({ roughness: 0.9 }), plan.houses,
-    o => { v.set(o.x, ground(o.x, o.y) - 2, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(o.w, 4.8, o.l); },
-    o => o.tint > 0.85 ? blue : o.tint > 0.55 ? brick : plaster);
+  // Houses with tint 0.6 and up have a light on at night (warm, faint).
+  const atHouse = o => { v.set(o.x, ground(o.x, o.y) - 2, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(o.w, 4.8, o.l); };
+  const wallTint = o => o.tint > 0.85 ? blue : o.tint > 0.55 ? brick : plaster;
+  const walls = instanced(wallGeo, std({ roughness: 0.9 }), plan.houses.filter(o => o.tint < 0.6), atHouse, wallTint);
+  const litWalls = instanced(wallGeo, nightGlow(std({ roughness: 0.9 }), 0xffc773, 0.06), plan.houses.filter(o => o.tint >= 0.6), atHouse, wallTint);
+  if (litWalls) litWalls.name = 'village-houses-lit';
   instanced(roofGeo, std({ roughness: 0.45, metalness: 0.5 }), plan.houses,
     o => { v.set(o.x, ground(o.x, o.y) + 2.8, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(o.w, o.w * 0.9, o.l); },
     o => o.roof > 0.6 ? tile : tin);

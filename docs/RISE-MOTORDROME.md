@@ -126,7 +126,7 @@ Done:
   frame: 220 m or more from the road, 60 m from the lake; the random draws
   are ordered differently, so the exact spots differ), plastered, brick or blue walls
   under tin or tile roofs. Trees are kept out of all of them. They glow at
-  night (see times of day), except the village houses.
+  night (see times of day).
 - **Braking boards, corner numbers and marshal posts** (`src/structures.mjs`,
   after that sim's `buildBoards` and `buildMarshalPosts`): 3, 2 and 1 boards
   (white, 1.1 x 1.45 m on two legs) 370, 270 and 170 m before its seven
@@ -170,11 +170,12 @@ Done:
   (`nightGlow` / `setNightGlow` in `src/sky.mjs`, at half its strength,
   as our night light is about half its): the grandstand seats and crowd
   (0.22) and membrane roofs (0.28), the pit building's garages and windows
-  (0.35 by day, 1 at night), the paddock tower (0.2) and pavilion domes
-  (0.18), the braking boards (0.4) and corner numbers (0.3) and the lakeside
-  pods' walls (0.25), besides the floodlight lamp faces (4). Left out: the
-  tower's glowing helix ribs (it glows evenly) and the sim's dim glow on a
-  few village houses (0.12 on some of them).
+  (0.35 by day, 1 at night), the paddock tower's helix ribs (its rib x 2.2
+  + 0.15, halved: 1.1 on the ribs, 0.075 between, through an emissive mask
+  of the rib texture) and pavilion domes (0.18), the braking boards (0.4)
+  and corner numbers (0.3), the lakeside pods' walls (0.25) and the village
+  houses with its tint 0.6 and up (0.06, about four in ten), besides the
+  floodlight lamp faces (4).
   The floodlit circuit (its `js/trackmesh.js` and `js/terrain.js` flood
   terms, flood 0.34 halved to 0.17 x their factor, in `buildCircuitWorld` /
   `buildTerrain` in `src/world3d.mjs`): at night the road, white edge lines
