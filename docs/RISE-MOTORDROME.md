@@ -86,13 +86,21 @@ Done:
   the legs swing, heads dip, trunks and tails sway, and the coats (giraffe
   patches, zebra stripes, impala and hippo bellies, wrinkled skin) are drawn in
   a patched MeshStandardMaterial instead of its node shader. About 85 animals.
+- **Reflective lake** (`src/water.mjs`, our own WebGL code after that sim's
+  `js/water.js`): a planar mirror of the scene (a mirror camera with its near
+  plane tilted onto the water, rendered at 45% resolution just before the lake
+  is drawn in the main view) broken up by three layers of drifting wind-ripple
+  noise, blended by Fresnel from the dark lake colour to the reflection, with a
+  sun glint; plus its 46 papyrus islands (same seed, sizes and spacing, 30-260
+  m out from the shore). Its TSL nodes are re-done as a GLSL ShaderMaterial
+  with our fog and tone mapping. The rear-view mirror shows the last frame's
+  reflection rather than drawing its own.
 
 Not yet (in order):
 
 1. Grade and bank forces in the physics: the cars are only drawn on the hills.
    The physics is still 2D, so climbs, descents and banked corners do not yet
    change speed or grip.
-2. Scenery: paddock pavilions, footbridges, floodlights, villages, wind sway in
-   the trees and a reflective lake (the rest of `scenery.js`, `trees.js`,
-   `water.js`). These use TSL node materials and would have to be rewritten for
-   our WebGL renderer.
+2. Scenery: paddock pavilions, footbridges, floodlights, villages and wind sway
+   in the trees (the rest of `scenery.js` and `trees.js`). These use TSL node
+   materials and would have to be rewritten for our WebGL renderer.

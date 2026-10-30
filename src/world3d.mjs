@@ -5,6 +5,7 @@ import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
 import { buildRiseStands } from './stands.mjs';
 import { buildWildlife, wildlifePlan } from './wildlife.mjs';
+import { buildLake } from './water.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -636,14 +637,9 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) 
   const detail = texture(256, (g, s) => noise(g, s, '#d4d4d4', 0.45, 14000));
   const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: detail, vertexColors: true, roughness: 1 }));
   ground.receiveShadow = true; world.add(ground);
-  if (lake !== null) {
-    // Water over the lake's extent (the ground rises above it everywhere else).
-    let lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
-    for (const [bx, bz, r] of LAKE_BLOBS) { lx0 = Math.min(lx0, bx - r - 100); lx1 = Math.max(lx1, bx + r + 100); lz0 = Math.min(lz0, bz - r - 100); lz1 = Math.max(lz1, bz + r + 100); }
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(lx1 - lx0, lz1 - lz0),
-      new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 }));
-    water.rotation.x = -Math.PI / 2; water.position.set((lx0 + lx1) / 2, lake, (lz0 + lz1) / 2); world.add(water);
-  }
+  // Water over the lake's extent (the ground rises above it everywhere else):
+  // the RISE sim's reflective lake and papyrus islands (water.mjs).
+  if (lake !== null) world.add(buildLake(LAKE_BLOBS, lake, lakeSdf));
   // For the vegetation: coarse distance to the centreline, and the shore.
   height.dist = (x, y) => bilinear(dist, x, y);
   height.lake = lake !== null ? (x, y) => lakeSdf(x, -y) : null;
