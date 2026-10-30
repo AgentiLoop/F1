@@ -8,8 +8,8 @@ Race an open-wheel car against an AI field in 3D, on a stadium test track or on
 18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts and
 hills built from real car positions: Spa climbs 100 m, the Red Bull Ring 63 m; Zandvoort's 19° and 18° banked corners and Jeddah's 12° Turn 13, and each venue's own setting: Spa's conifer forest,
 Monza's park, palms and sand at Bahrain, Jeddah and Yas Marina, the dunes at
-Zandvoort, Monte Carlo's apartment blocks and the
-towns around Interlagos, Mexico City, Jeddah and Yas Marina, and the real lakes, ponds,
+Zandvoort, the real buildings from OpenStreetMap (Monte Carlo's apartment blocks,
+the grandstands and pit buildings, the towns around Interlagos and Mexico City), and the real lakes, ponds,
 rivers and basins from OpenStreetMap: Montreal's Olympic Basin and St. Lawrence, Interlagos's lakes,
 Imola's Santerno, Miami's canals; and the real coastline: the North Sea at Zandvoort, the Red Sea along Jeddah's Corniche, Port Hercule inside Monaco's lap, the marina at Yas Marina), plus the planned RISE Motordrome in Rwanda
 ([?track=rwanda](https://f1.gokart.games/?track=rwanda), layout, hills, banking
@@ -184,4 +184,4 @@ For example [a race at Monza](https://f1.gokart.games/?track=monza&race) or
 ## Credits
 
 Three.js is MIT licensed (`vendor/LICENSE-three`). 3D models and textures keep their own licences; see `models/CREDITS.md`.
-The water and sea around the real circuits (`src/water.mjs`, `src/coast.mjs`) are from OpenStreetMap, © OpenStreetMap contributors, under the ODbL (openstreetmap.org/copyright).
+The water, sea and buildings around the real circuits (`src/water.mjs`, `src/coast.mjs`, `src/buildings.mjs`) are from OpenStreetMap, © OpenStreetMap contributors, under the ODbL (openstreetmap.org/copyright).

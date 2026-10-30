@@ -56,27 +56,27 @@ test('inland circuits have no sea; desert circuits only palms, Spa conifers and 
   const bahrain = buildCircuitWorld(createCircuitTrack(CIRCUITS.bahrain), { scenery: SCENERY.bahrain });
   assert.equal(kindsOf(bahrain), 1);
 });
-const townOf = world => meshes(world).find(m => m.userData.kind === 'buildings');
-test('town circuits get buildings clear of the road and the sea; Monaco is lined with them', () => {
-  for (const key of ['monaco', 'interlagos', 'mexico', 'jeddah', 'yas-marina']) {
-    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), town = townOf(world);
-    assert.ok(town && town.count > 0, key);
-    const m = new (town.matrix.constructor)(), c = SCENERY[key].sea && waterField(SCENERY[key].sea);
-    for (let i = 0; i < town.count; i++) {
-      town.getMatrixAt(i, m);
-      const e = m.elements, x = e[12], y = -e[14], hw = Math.hypot(e[0], e[2]) / 2, hd = Math.hypot(e[8], e[10]) / 2;
-      // Every corner of the footprint is behind the barriers, and on land.
-      for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        const px = x + u * e[0] / 2 + v * e[8] / 2, py = y - (u * e[2] / 2 + v * e[10] / 2);
-        assert.ok(Math.abs(track.offset(px, py)) > track.wallOffset + 3, `${key} block ${i}`);
-        if (c) assert.ok(c.sd(px, py, Infinity) > 0, `${key} block ${i} in the sea`);
+const townOf = world => { let t; world.traverse(o => { if (o.isGroup && o.userData.kind === 'buildings') t = o; }); return t; };
+test('every real circuit gets its real buildings (OpenStreetMap), clear of the road, the sea and the water; Monaco is lined with them', () => {
+  const area = r => { let a = 0; for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
+  const counts = {};
+  for (const key of Object.keys(SCENERY)) {
+    const s = SCENERY[key], track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: s }), town = townOf(world);
+    assert.ok(s.buildings && town && town.userData.count > 0, key);
+    // Most of the imported footprints are placed.
+    assert.ok(town.userData.count > 0.6 * s.buildings.length, `${key}: ${town.userData.count} of ${s.buildings.length}`);
+    const sea = s.sea && waterField(s.sea), water = s.water && waterField(s.water);
+    for (const b of town.userData.blocks) {
+      assert.ok(area(b.ring) > 0 && b.top > b.base + 2, key);
+      for (const [x, y] of b.ring) {
+        assert.ok(Math.abs(track.offset(x, y)) > track.wallOffset + 3, `${key}: building on the road`);
+        if (sea) assert.ok(sea.sd(x, y, Infinity) > 0, `${key}: building in the sea`);
+        if (water) assert.ok(water.sd(x, y) > 0, `${key}: building in the water`);
       }
-      assert.ok(hw > 5 && hd > 4, key);
     }
-    // (Port Hercule and the sea now take over a third of Monaco's box.)
-    if (key === 'monaco') assert.ok(town.count >= 350, `monaco: ${town.count}`);
+    counts[key] = town.userData.count;
   }
-  for (const key of ['spa', 'silverstone']) assert.equal(townOf(buildCircuitWorld(createCircuitTrack(CIRCUITS[key]), { scenery: SCENERY[key] })), undefined, key);
+  assert.ok(counts.monaco >= 1000, `monaco: ${counts.monaco}`);
 });
 
 test('real water (OpenStreetMap) lies off the road; Montreal has the Olympic Basin beside it', () => {
