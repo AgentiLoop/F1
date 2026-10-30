@@ -9,6 +9,7 @@ import { buildLake } from './water.mjs';
 import { buildSky, nightGlow } from './sky.mjs';
 import { structuresPlan, buildStructures } from './structures.mjs';
 import { lakesidePlan, buildLakeside } from './lakeside.mjs';
+import { buildTrackPaint } from './trackpaint.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -353,6 +354,8 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const fenceMat = new THREE.MeshStandardMaterial({ map: meshTex, alphaTest: 0.4, side: THREE.DoubleSide, metalness: 0.6, roughness: 0.5 });
   const steel = new THREE.MeshStandardMaterial({ color: 0x2b2f35, metalness: 0.7, roughness: 0.4 });
   world.add(ribbon(pts, -half, half, 0, flood(asphaltMaterial(track.roadWidth), 1.1), 30));
+  // The RISE sim's rubbered racing line and painted grid slots (trackpaint.mjs).
+  world.add(buildTrackPaint(track, { slots: boxColors.length, glow: m => flood(m, 1.1) }));
   const postSpots = [];
   for (const side of [-1, 1]) {
     world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, flood(std({ color: 0xf2f2ee, roughness: 0.6 }), 1.1), 10));

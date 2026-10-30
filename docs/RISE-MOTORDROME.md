@@ -184,6 +184,16 @@ Done:
   its per-tree floodlight term and its darkening of the ground far from the
   circuit.
 
+- **Rubbered racing line and grid slots** (`src/trackpaint.mjs`, after that
+  sim's road material in `js/trackmesh.js`; every real circuit): the asphalt
+  darkens along the racing line by 30% times its patchy skid noise (so 15-45%),
+  fading out between 0.3 and 1.9 m from the line, as an unlit black overlay
+  strip (measured in headless Chrome: about 28% darker on the line, unchanged
+  3 m off it); its lower roughness there is left out. Behind the start line a
+  white grid box at each car's slot (our race grid: 8 m apart, alternating
+  2.6 m either side, pole on the centre): a 3.6 m line across in front of the
+  car and two 1.4 m lines back from its ends; the pole's front is the start
+  line. They glow at night like the road's other lines.
 Not yet: the rest of `scenery.js` (airport). Its sponsor boards along the
 wall faces are covered by our own hoardings every 36 m.
 Grade and bank forces in the physics were added in 1fc5c16.
