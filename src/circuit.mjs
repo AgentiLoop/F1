@@ -277,6 +277,14 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     // is the height of the water beside it.
     hasElevation: !!heights, lakeLevel, elevation,
     heightAt: (x, y) => { const q = nearest(x, y); return elevation(ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, q.offset); },
+    // slopeAt(x, y): the ground's gradient [dz/dx, dz/dy] there (null when
+    // flat), from its grade along the lap and its cross-slope to the right.
+    slopeAt: heights ? (x, y) => {
+      const q = nearest(x, y), s = ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, h = headings[q.i];
+      const along = (elevation(s + 1, q.offset) - elevation(s - 1, q.offset)) / 2 / Math.max(0.2, 1 + curvature[q.i] * q.offset);
+      const right = (elevation(s, q.offset + 0.25) - elevation(s, q.offset - 0.25)) / 0.5;
+      return [along * Math.cos(h) + right * Math.sin(h), along * Math.sin(h) - right * Math.cos(h)];
+    } : null,
     // Walls wallOffset either side of the centreline; where two parts of the
     // circuit run closer than that, the boundary is the midline between them.
     barrierAt: (x, y) => {

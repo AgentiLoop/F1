@@ -67,7 +67,7 @@ const halfStraight = 220, radius = 90, roadWidth = 15;
 // without it, the stadium test track hosts the race against the AI field.
 const circuitKey = Object.hasOwn(CIRCUITS, new URLSearchParams(location.search).get('track')) ? new URLSearchParams(location.search).get('track') : null;
 const track = circuitKey ? createCircuitTrack(CIRCUITS[circuitKey]) : createStadiumTrack({ halfStraight, radius, roadWidth });
-const { surfaceAt, barrierAt } = track;
+const { surfaceAt, barrierAt, slopeAt } = track;
 const timer = createLapTimer(track, circuitKey ? { lineProgress: 0 } : undefined);
 let autopilot = false, command = { throttle: 0, brake: 0, steer: 0 }, opponents = !circuitKey || new URLSearchParams(location.search).has('race');
 const driver = createDriverInput();
@@ -517,7 +517,7 @@ function frame(now) {
     // send a forward-path autopilot's throttle through a reverse gearbox.
     const forwardRecovery = autopilot && sim.car.gear < 0;
     if (forwardRecovery) command = { throttle: 0, brake: 1, steer: 0, reverse: false };
-    sim.advance((now - previousTime) / 1000, command, surfaceAt, barrierAt);
+    sim.advance((now - previousTime) / 1000, command, surfaceAt, barrierAt, slopeAt);
     // On autopilot the race's traffic-aware driver chooses the player's inputs.
     if (autopilot && !forwardRecovery) command = sim.entries[0].command ?? { throttle: 0, brake: 0, steer: 0 };
     timer.update(sim.car);

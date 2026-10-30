@@ -742,7 +742,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     return { throttle: car.telemetry.speed < o.recoverySpeed ? 0.12 : 0, brake: car.telemetry.speed > o.recoverySpeed + 0.2 ? 0.3 : 0, steer };
   }
 
-  function stepAll(input, surfaceAt, barrierAt) {
+  function stepAll(input, surfaceAt, barrierAt, slopeAt) {
     for (const e of entries) {
       let w = 0;
       for (const lead of entries) if (lead !== e) w = Math.max(w, wakeStrength(lead.car, e.car, o));
@@ -771,7 +771,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
       command = { ...command, drs: e.drsAllowed && (!e.manual || command.drs === true) };
       return (e.command = command);
     });
-    entries.forEach((e, i) => step(e.car, commands[i], FIXED_DT, surfaceAt, barrierAt));
+    entries.forEach((e, i) => step(e.car, commands[i], FIXED_DT, surfaceAt, barrierAt, slopeAt));
     for (let i = 0; i < entries.length; i++)
       for (let j = i + 1; j < entries.length; j++) resolveCarContact(entries[i].car, entries[j].car, o);
     time += FIXED_DT;
@@ -841,11 +841,11 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
         lit: time < lightsOut ? Math.min(5, Math.floor(time / o.lightInterval + 1e-9)) : 0 };
     },
     // input: the player's command, or null to let the player's autopilot drive.
-    advance(elapsed, input, surfaceAt, barrierAt) {
+    advance(elapsed, input, surfaceAt, barrierAt, slopeAt) {
       if (!Number.isFinite(elapsed) || elapsed < 0) throw new RangeError('Elapsed time must be finite and nonnegative');
       accumulator += Math.min(elapsed, 0.25);
       let steps = 0;
-      while (accumulator + 1e-12 >= FIXED_DT) { stepAll(input, surfaceAt, barrierAt); accumulator = Math.max(0, accumulator - FIXED_DT); steps++; }
+      while (accumulator + 1e-12 >= FIXED_DT) { stepAll(input, surfaceAt, barrierAt, slopeAt); accumulator = Math.max(0, accumulator - FIXED_DT); steps++; }
       return steps;
     },
     // Running order by distance covered since the start line; interval to the
