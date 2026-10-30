@@ -708,21 +708,46 @@ function treeGeometry(kind) {
     parts.push(g);
   };
   const bark = new THREE.Color(0x4a3527);
+  // Seeded so every build of a species is identical.
+  let seed = kind === 'conifer' ? 11 : 23;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   if (kind === 'conifer') {
     add(new THREE.CylinderGeometry(0.16, 0.3, 4, 7).translate(0, 2, 0), bark);
-    const green = new THREE.Color(0x1f4a2b), top = 12.5;
-    for (let i = 0; i < 5; i++) {
-      const r = 2.7 * (1 - i * 0.17), y = 2.6 + i * 1.75;
-      add(new THREE.ConeGeometry(r, 3.4 - i * 0.2, 11, 2).translate(0, y + 1.6, 0), green, new THREE.Vector3(0, 7, 0), [2.2, top], 0.35);
+    const green = new THREE.Color(0x1f4a2b), top = 12.5, c = new THREE.Vector3(0, 7, 0);
+    for (let i = 0; i < 6; i++) {
+      const r = 2.8 * (1 - i * 0.15), h = 3.3 - i * 0.2, y = 2.5 + i * 1.5 + 1.6;
+      add(new THREE.ConeGeometry(r, h, 13, 2).translate(0, y, 0), green, c, [2.2, top], 0.35);
+      // Drooping branch tips around each tier's rim break up the smooth cone edge.
+      const tips = 11 - i;
+      for (let j = 0; j < tips; j++) {
+        const a = (j + rnd() * 0.6) / tips * Math.PI * 2, rr = r * (0.82 + rnd() * 0.18), len = 0.9 + r * 0.25;
+        const tip = new THREE.ConeGeometry(0.32 + r * 0.06, len, 4).rotateZ(-Math.PI / 2 - 0.4 - rnd() * 0.25).rotateY(-a)
+          .translate(Math.cos(a) * rr, y - h / 2 + 0.35 + rnd() * 0.25, Math.sin(a) * rr);
+        add(tip, green, c, [2.2, top], 0);
+      }
     }
   } else {
     add(new THREE.CylinderGeometry(0.22, 0.38, 4.2, 7).translate(0, 2.1, 0), bark);
     add(new THREE.CylinderGeometry(0.08, 0.16, 2.4, 5).rotateZ(0.7).translate(0.7, 4.2, 0), bark);
     add(new THREE.CylinderGeometry(0.08, 0.16, 2.2, 5).rotateZ(-0.6).rotateY(2).translate(-0.4, 4.0, 0.5), bark);
+    add(new THREE.CylinderGeometry(0.06, 0.12, 2.0, 5).rotateX(0.75).rotateY(-0.8).translate(0.3, 4.4, -0.7), bark);
     const leaf = new THREE.Color(0x3d6a2c), c = new THREE.Vector3(0, 6.6, 0);
-    const blobs = [[0, 6.8, 0, 2.6], [1.6, 6.0, 0.4, 1.9], [-1.5, 6.2, -0.5, 2.0], [0.3, 6.1, 1.6, 1.8], [-0.4, 5.9, -1.6, 1.8], [0.2, 8.4, 0.1, 1.8], [1.1, 7.7, -1.0, 1.5]];
+    const blobs = [[0, 6.8, 0, 2.6], [1.6, 6.0, 0.4, 1.9], [-1.5, 6.2, -0.5, 2.0], [0.3, 6.1, 1.6, 1.8], [-0.4, 5.9, -1.6, 1.8], [0.2, 8.4, 0.1, 1.8], [1.1, 7.7, -1.0, 1.5],
+      [-1.4, 7.6, 1.1, 1.5], [1.5, 7.4, 1.4, 1.3], [-1.2, 8.0, -1.2, 1.3]];
     for (const [x, y, z, r] of blobs) add(new THREE.IcosahedronGeometry(r, 1).translate(x, y, z), leaf, c, [4.2, 9.8], 0.45);
+    // Leaf clusters on the exposed surface of the lobes: a ragged, clumpy outline instead of smooth balls.
+    for (const lobe of blobs) {
+      const [x, y, z, r] = lobe;
+      for (let k = 0; k < 7; k++) {
+        const u = rnd() * 2 - 1, t = rnd() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+        const px = x + s * Math.cos(t) * r * 1.02, py = y + u * r * 1.02, pz = z + s * Math.sin(t) * r * 1.02;
+        if (blobs.some(b => b !== lobe && Math.hypot(px - b[0], py - b[1], pz - b[2]) < b[3] * 0.9)) continue;
+        const tr = 0.55 + rnd() * 0.45;
+        add(new THREE.IcosahedronGeometry(tr, 0).scale(1 + rnd() * 0.4, 0.7 + rnd() * 0.3, 1 + rnd() * 0.4).rotateY(rnd() * 6.3).translate(px, py, pz), leaf, c, [4.2, 9.8], 0);
+      }
+    }
   }
+
   // Merge parts.
   const total = parts.reduce((n, g) => n + g.attributes.position.count, 0);
   const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), col = new Float32Array(total * 3);
