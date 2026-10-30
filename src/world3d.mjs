@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
-import { DEFAULT_SCENERY, coast } from './scenery.mjs';
+import { DEFAULT_SCENERY, coast, waterField } from './scenery.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -476,7 +476,7 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     return world;
   }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
-  const beach = terrainHeight.sea ?? (() => -Infinity);
+  const beach = terrainHeight.sea ?? (() => -Infinity), shore = terrainHeight.water ?? (() => Infinity);
   // Town blocks (scenery.buildings): flat-roofed boxes of the given heights
   // facing the nearest road, from `near` m (default 4) out to `far` m beyond
   // the barriers, off the beach, standing on their lowest ground.
@@ -486,7 +486,7 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     for (let tries = 0; blocks.length < count && tries < count * 30; tries++) {
       const x = cx + (rng() - 0.5) * (maxX - minX + 2 * far), y = cy + (rng() - 0.5) * (maxY - minY + 2 * far);
       const w = 12 + rng() * 18, d = 10 + rng() * 14, r = Math.hypot(w, d) / 2, o = Math.abs(track.offset(x, y));
-      if (o < wallAt + from + r || o > wallAt + far || beach(x, y) > -r - 10 || blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + r + 3)) continue;
+      if (o < wallAt + from + r || o > wallAt + far || beach(x, y) > -r - 10 || shore(x, y) < r + 6 || blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + r + 3)) continue;
       const near = track.progress(x, y), hd = track.heading(near), sp = near > track.length / 2 ? near - track.length : near;
       // Not over the grandstand and garages (the straight before the line, the pit lane).
       if ((sp > -140 && sp < 20) || (pit && sp > pit.entry - 20 && sp < pit.exit + 20)) continue;
@@ -512,7 +512,7 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     const tx = cx + (rng() - 0.5) * (maxX - minX + 300), ty = cy + (rng() - 0.5) * (maxY - minY + 300), m = 3 + Math.floor(rng() * 9);
     for (let i = 0; i < m; i++) {
       const x = tx + (rng() - 0.5) * 40, y = ty + (rng() - 0.5) * 40;
-      if (Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && !blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + 4)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
+      if (Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + 4)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
     }
   }
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
@@ -604,10 +604,11 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   };
   // Near the road: 0.25 m under the road surface and its verges (circuit.mjs
   // elevation at the nearest centreline point, found around the coarse one),
-  // blending into the far ground 4-150 m beyond the barriers.
-  const height = (x, y) => {
+  // blending into the far ground 4-150 m beyond the barriers. Also returns
+  // the distance d to the centreline (Infinity beyond 160 m past the barriers).
+  const land = (x, y) => {
     const [u, v] = cellUV(x, y);
-    if (bilinear(dist, x, y) > wallAt + 160) return far(x, y);
+    if (bilinear(dist, x, y) > wallAt + 160) return { h: far(x, y), d: Infinity };
     const i0 = near[Math.round(v) * NX + Math.round(u)];
     let best = null;
     for (let k = i0 - 40; k <= i0 + 40; k++) {
@@ -616,7 +617,25 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
       if (!best || d < best.d) best = { d, s: S[i] + (S[i + 1] - S[i]) * f, right: dx * (y - Y[i]) - dy * (x - X[i]) < 0 };
     }
     const w = smooth(wallAt + 4, wallAt + 150, best.d), road = track.elevation(best.s, best.right ? best.d : -best.d) - 0.25;
-    return w >= 1 ? far(x, y) : road + (far(x, y) - road) * w;
+    return { h: w >= 1 ? far(x, y) : road + (far(x, y) - road) * w, d: best.d };
+  };
+  // Real water (scenery.water, water.mjs): each polygon's surface 0.6 m below
+  // the lowest ground on its shore; the ground dips under it and its banks
+  // ease down to the shore over 40 m, never within 2 m of the barriers and
+  // fully from 14 m beyond them, so the road and its verges keep their heights.
+  const wf = waterField(scenery.water);
+  const levels = wf.list.map(p => { let lo = Infinity; for (const r of p.rings) for (const [x, y] of r) lo = Math.min(lo, land(x, y).h); return lo - 0.6; });
+  const height = (x, y) => {
+    let { h, d } = land(x, y);
+    for (let k = 0; k < wf.list.length; k++) {
+      const p = wf.list[k], [x0, y0, x1, y1] = p.box;
+      if (x < x0 - 40 || x > x1 + 40 || y < y0 - 40 || y > y1 + 40) continue;
+      const sd = wf.sdOf(p, x, y);
+      if (sd >= 40) continue;
+      const target = sd < 0 ? levels[k] - 0.5 - Math.min(-sd * 0.06, 4) : levels[k] + 0.6 + sd * 0.05;
+      if (target < h) h += (target - h) * smooth(wallAt + 2, wallAt + 14, d) * (sd < 0 ? 1 : smooth(40, 0, sd));
+    }
+    return h;
   };
   // Grid: 6 m spacing over the circuit and 200 m around it, each step 12%
   // longer beyond, out to 1400 m past the circuit's extent.
@@ -646,12 +665,21 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
     c.copy(grass).lerp(dry, smooth(-0.2, 0.8, Math.sin(x * 0.0041 + 1.7) * Math.cos(z * 0.0053 - 0.6) + 0.3 * Math.sin((x + z) * 0.017)));
     c.lerp(laterite, smooth(0.06, 0.2, 1 - nrm.getY(k)));
     if (water !== null) c.lerp(sand, smooth(water + 3.5, water + 1, h)).lerp(mud, smooth(water, water - 1.5, h));
+    if (wf.list.length) { const sd = wf.sd(x, -z, 8); if (sd < 8) c.lerp(sand, smooth(6, 1, sd) * 0.7).lerp(mud, smooth(0, -2, sd)); }
     col.set([c.r, c.g, c.b], 3 * k);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const detail = texture(256, (g, s) => noise(g, s, '#d4d4d4', 0.45, 14000));
   const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: detail, vertexColors: true, roughness: 1 }));
   ground.receiveShadow = true; world.add(ground);
+  // The real water's surfaces, islands cut out.
+  const pondMat = new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 });
+  wf.list.forEach((p, k) => {
+    const shape = new THREE.Shape(p.rings[0].map(([x, y]) => new THREE.Vector2(x, y)));
+    shape.holes = p.rings.slice(1).map(r => new THREE.Path(r.map(([x, y]) => new THREE.Vector2(x, y))));
+    const pond = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2), pondMat);
+    pond.position.y = levels[k]; pond.receiveShadow = true; pond.userData.kind = 'water'; world.add(pond);
+  });
   if (lake !== null) {
     // Water over the lake's extent (the ground rises above it everywhere else).
     let lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
@@ -672,6 +700,7 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   height.dist = (x, y) => bilinear(dist, x, y);
   height.lake = lake !== null ? (x, y) => lakeSdf(x, -y) : null;
   height.sea = sea ? sea.seaSide : null;
+  height.water = wf.list.length ? wf.sd : null;
   return height;
 }
 

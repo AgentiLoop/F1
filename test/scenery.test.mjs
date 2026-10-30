@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
-import { SCENERY, coast } from '../src/scenery.mjs';
+import { SCENERY, coast, waterField } from '../src/scenery.mjs';
 
 // A do-nothing 2D canvas so buildCircuitWorld's textures can be drawn in Node.
 const ctx = new Proxy({}, { get: (_, k) => k === 'measureText' ? () => ({ width: 10 }) : k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
@@ -71,4 +71,51 @@ test('town circuits get buildings clear of the road and the sea; Monaco is lined
     if (key === 'monaco') assert.ok(town.count >= 500, `monaco: ${town.count}`);
   }
   for (const key of ['spa', 'silverstone']) assert.equal(townOf(buildCircuitWorld(createCircuitTrack(CIRCUITS[key]), { scenery: SCENERY[key] })), undefined, key);
+});
+
+test('real water (OpenStreetMap) lies off the road; Montreal has the Olympic Basin beside it', () => {
+  const area = r => { let a = 0; for (let i = 0; i < r.length; i += 2) { const j = (i + 2) % r.length; a += r[i] * r[j + 1] - r[j] * r[i + 1]; } return a / 2; };
+  for (const [key, s] of Object.entries(SCENERY)) {
+    if (!s.water) continue;
+    const track = createCircuitTrack(CIRCUITS[key]), wf = waterField(s.water);
+    for (let i = 0; i < track.samples.x.length; i++) assert.ok(wf.sd(track.samples.x[i], track.samples.y[i]) > 0, `${key}: road sample ${i} in the water`);
+    // Outer rings anticlockwise, islands clockwise.
+    for (const p of s.water) p.forEach((r, k) => assert.ok(k ? area(r) < 0 : area(r) > 0, key));
+  }
+  // The rowing basin: a long strip of water (about 2.2 km × 110 m) within 150 m of the track.
+  const track = createCircuitTrack(CIRCUITS.montreal), wf = waterField(SCENERY.montreal.water);
+  const basin = wf.list.filter((p, k) => {
+    const [x0, y0, x1, y1] = p.box, wet = area(SCENERY.montreal.water[k][0]) + SCENERY.montreal.water[k].slice(1).reduce((a, r) => a + area(r), 0);
+    return Math.max(x1 - x0, y1 - y0) > 1500 && wet > 150000 && wet < 400000;
+  });
+  assert.equal(basin.length, 1);
+  let near = Infinity;
+  for (let i = 0; i < track.samples.x.length; i++) near = Math.min(near, wf.sdOf(basin[0], track.samples.x[i], track.samples.y[i]));
+  assert.ok(near < 150, `basin ${near} m from the track`);
+  assert.equal(SCENERY.hungaroring.water, null);
+});
+
+test('the water is drawn over ground that dips below it, with no tree in it', () => {
+  for (const key of ['montreal', 'interlagos', 'imola']) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), wf = waterField(SCENERY[key].water);
+    const ponds = meshes(world).filter(m => m.userData.kind === 'water');
+    assert.equal(ponds.length, wf.list.length, key);
+    const ground = meshes(world).filter(m => m.material.vertexColors && m.geometry.index).sort((a, b) => b.geometry.attributes.position.count - a.geometry.attributes.position.count)[0];
+    const P = ground.geometry.attributes.position;
+    let wet = 0;
+    for (let i = 0; i < P.count; i += 3) {
+      const x = P.getX(i), y = -P.getZ(i);
+      if (Math.abs(track.offset(x, y)) < track.wallOffset + 15) continue;
+      for (let k = 0; k < wf.list.length; k++) {
+        const [x0, y0, x1, y1] = wf.list[k].box;
+        if (x < x0 || x > x1 || y < y0 || y > y1 || wf.sdOf(wf.list[k], x, y) > -1) continue;
+        assert.ok(P.getY(i) < ponds[k].position.y, `${key}: ground above pond ${k}`); wet++;
+      }
+    }
+    assert.ok(wet > 100, `${key}: ${wet} ground points under water`);
+    const m = new (ground.matrix.constructor)();
+    for (const t of meshes(world).filter(o => o.isInstancedMesh && o.count > 0 && !o.geometry.parameters && o.userData.kind !== 'buildings')) {
+      for (let i = 0; i < t.count; i++) { t.getMatrixAt(i, m); assert.ok(wf.sd(m.elements[12], -m.elements[14]) > 0, `${key}: tree in the water`); }
+    }
+  }
 });
