@@ -326,6 +326,17 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     g.fillStyle = '#6fffc3'; g.fillRect(0, s * 0.55, s, s * 0.05);
   });
   const runoffTex = texture(256, (g, s) => noise(g, s, '#8b8170', 0.3, 20000), 4, 1);
+  // RISE Motordrome (RISE js/trackmesh.js): run-off painted in 1.3 m bands
+  // from the kerb out (olive, yellow, terracotta, green, blue) then sand, and
+  // TecPro red/white blocks (1.5 m) on the outside walls of tight corners.
+  const rise = track.lakeLevel !== null;
+  const riseRunoffTex = rise && texture(256, (g, s) => {
+    noise(g, s, '#9a8d75', 0.3, 20000);
+    ['#4d4a24', '#c79a10', '#801c14', '#0a5445', '#00529a'].forEach((c, k) => { g.fillStyle = c; g.fillRect(s * k * 1.3 / 6.8, 0, s * 1.3 / 6.8 + 1, s); });
+  }, 1, 4);
+  const tecproTex = rise && texture(64, (g, s) => { g.fillStyle = '#d9d9d9'; g.fillRect(0, 0, s, s); g.fillStyle = '#8c0a0a'; g.fillRect(0, 0, s, s / 2); });
+  // Curvature over ±8 m (+ left), so a corner's outside is the side where side × k < 0.
+  const bend = i => { let k = 0; for (let d = -4; d <= 4; d++) k += track.samples.curvature[(i + d + n) % n]; return k / 9; };
   const meshTex = texture(64, (g, s) => {
     g.clearRect(0, 0, s, s); g.strokeStyle = '#b9c0c4'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(0, 0); g.lineTo(s, s); g.moveTo(s, 0); g.lineTo(0, s); g.stroke();
@@ -337,13 +348,20 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   for (const side of [-1, 1]) {
     world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
     for (const r of runs(p => kerb[p.i])) world.add(ribbon(r, side * half, side * (half + 1.2), 0.012, std({ map: kerbTex, roughness: 0.7 }), 4));
-    world.add(ribbon(pts, side * (half + 1.2), side * (half + 8), 0.004, std({ map: runoffTex, roughness: 1 }), 20));
+    const runoff = ribbon(pts, side * (half + 1.2), side * (half + 8), 0.004, std({ map: rise ? riseRunoffTex : runoffTex, roughness: rise ? 0.8 : 1 }), 20);
+    if (rise) runoff.name = 'rise-runoff';
+    world.add(runoff);
     // Barrier where its line is still nearest this part of the circuit.
     const clear = p => Math.abs(track.offset(p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt)) > wallAt - 1;
     for (const r of runs(clear)) {
       const w = ribbon(r, side * wallAt, 0, footing, std({ map: wallTex, roughness: 0.8 }), 6, 1.1); w.castShadow = true; world.add(w);
       world.add(ribbon(r, side * wallAt, 0, 1.1, fenceMat, 0.16, 4.2));
       r.forEach((p, k) => { if (k % 4 === 0) postSpots.push([p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt, p.h(side * wallAt)]); });
+    }
+    // TecPro facing just in front of the wall (no gaps where it starts and stops).
+    if (rise) for (const r of runs(p => clear(p) && side * bend(p.i) < -1 / 70)) {
+      const t = ribbon(r, side * (wallAt - 0.06), 0, footing, std({ map: tecproTex, roughness: 0.85 }), 3, 1.05);
+      t.name = 'tecpro'; t.castShadow = true; world.add(t);
     }
   }
   const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.06, 4.2, 6), steel, postSpots.length);

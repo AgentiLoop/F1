@@ -24,6 +24,32 @@ function scenery(track) {
   }
 }
 
+test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners only', () => {
+  const dispose = w => w.traverse(m => { m.geometry?.dispose(); m.material?.dispose?.(); });
+  const monza = scenery(createCircuitTrack(CIRCUITS.monza));
+  assert.equal(monza.getObjectByName('tecpro'), undefined);
+  assert.equal(monza.getObjectByName('rise-runoff'), undefined);
+  dispose(monza);
+  const track = createCircuitTrack(CIRCUITS.rwanda), world = scenery(track);
+  try {
+    assert.equal(world.children.filter(m => m.name === 'rise-runoff').length, 2);
+    const tecpro = world.children.filter(m => m.name === 'tecpro');
+    assert.ok(tecpro.length >= 3, `${tecpro.length} TecPro runs`);
+    // Every TecPro vertex is at the wall on the outside of a bend: its offset
+    // (+ right) has the curvature's sign (+ left turn, outside on the right).
+    let checked = 0;
+    for (const m of tecpro) {
+      const p = m.geometry.attributes.position;
+      for (let i = 0; i < p.count; i += 7) {
+        const x = p.getX(i), y = -p.getZ(i), off = track.offset(x, y), k = track.curvatureAt(track.progress(x, y));
+        assert.ok(Math.abs(off) > track.wallOffset - 1.5, 'stands at the wall');
+        if (Math.abs(k) > 1 / 50) { assert.equal(Math.sign(off), Math.sign(k), 'outside of the bend'); checked++; }
+      }
+    }
+    assert.ok(checked > 0);
+  } finally { dispose(world); }
+});
+
 for (const sloped of [false, true]) test(`roadside signs follow ${sloped ? 'uphill and downhill grades' : 'flat ground'}`, () => {
   const track = createCircuitTrack(CIRCUITS.monza);
   // An analytic ground plane exercises both sign faces without generating terrain.
