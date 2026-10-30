@@ -662,16 +662,21 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) 
   const detail = texture(256, (g, s) => noise(g, s, '#d4d4d4', 0.45, 14000));
   const groundMat = new THREE.MeshStandardMaterial({ map: detail, vertexColors: true, roughness: 1 });
   // RISE's night: floodlight spill on the ground, fading from 5 to 160 m off
-  // the centreline (per vertex: emissive x ground colour x spill).
+  // the centreline (per vertex: emissive x ground colour x spill), and only
+  // the band around the circuit catches the light: the ground's colour x
+  // 0.06 + 0.9 x smoothstep(320, 50, distance) at night (uNight).
   if (lake !== null) {
-    const spill = new Float32Array(N);
-    for (let k = 0; k < N; k++) spill[k] = smooth(160, 5, bilinear(dist, pos[3 * k], -pos[3 * k + 2]));
-    geo.setAttribute('flood', new THREE.BufferAttribute(spill, 1));
+    const spill = new Float32Array(N), fade = new Float32Array(N);
+    for (let k = 0; k < N; k++) { const d = bilinear(dist, pos[3 * k], -pos[3 * k + 2]); spill[k] = smooth(160, 5, d); fade[k] = 0.06 + 0.9 * smooth(320, 50, d); }
+    geo.setAttribute('flood', new THREE.BufferAttribute(spill, 1)); geo.setAttribute('nightFade', new THREE.BufferAttribute(fade, 1));
     nightGlow(groundMat, 0xffffff, 0.17, { useMap: true });
+    groundMat.userData.uNight = { value: 0 };
     groundMat.onBeforeCompile = sh => {
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float flood;\nvarying float vFlood;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlood = flood;');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFlood;')
+      sh.uniforms.uNight = groundMat.userData.uNight;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float flood, nightFade;\nvarying float vFlood, vFade;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlood = flood; vFade = nightFade;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFlood, vFade;\nuniform float uNight;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(1.0, vFade, uNight);')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= vColor.rgb * vFlood;');
     };
   }

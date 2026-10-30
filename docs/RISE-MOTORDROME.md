@@ -185,8 +185,11 @@ Done:
   near the road are floodlit too (its `js/trees.js` per-tree term, in
   `buildSavanna` in `src/savanna.mjs`): leaf and bark colour x 0.17, each tree
   weighted by its distance to the road (smoothstep 160 m to 10 m, a per-tree
-  `aFlood` attribute). Left out: its darkening of the ground and the trees far
-  from the circuit.
+  `aFlood` attribute). Away from the floodlit band the countryside goes dark
+  as in that sim: the ground's colour x 0.06 + 0.9 x smoothstep(320 m, 50 m)
+  of its distance off the centreline (a per-vertex `nightFade`), and each
+  tree's x 0.07 + 0.9 x its `aFlood`, both blended in by the time of day's
+  night value (a `uNight` uniform that `setNightGlow` sets).
 
 - **Rubbered racing line and grid slots** (`src/trackpaint.mjs`, after that
   sim's road material in `js/trackmesh.js`; every real circuit): the asphalt

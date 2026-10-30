@@ -149,11 +149,15 @@ function merge(parts) {
 // position, and leaves flutter on top. Shadows keep the still shape.
 const swayUniforms = { uTime: { value: 0 }, uWind: { value: 1 } };
 // flood: the RISE sim's night floodlight on the trees (trees.js aVar.z), a
-// per-tree aFlood weight times the emissive and the tree's own colour.
+// per-tree aFlood weight times the emissive and the tree's own colour; at
+// night (uNight) trees away from it darken too, to 0.07 + 0.9 x aFlood.
 function addSway(mat, flood = false) {
+  if (flood) mat.userData.uNight = { value: 0 };
   mat.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, swayUniforms);
-    if (flood) shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFlood;')
+    if (flood) shader.uniforms.uNight = mat.userData.uNight;
+    if (flood) shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFlood;\nuniform float uNight;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(1.0, vFlood * 0.9 + 0.07, uNight);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= vColor.rgb * vFlood;');
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nattribute float aSway; uniform float uTime, uWind;${flood ? '\nattribute float aFlood; varying float vFlood;' : ''}`)

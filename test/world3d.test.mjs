@@ -4,6 +4,7 @@ import * as THREE from '../vendor/three.module.js';
 import { buildCircuitWorld } from '../src/world3d.mjs';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
+import { setNightGlow } from '../src/sky.mjs';
 
 // Scenery construction needs canvas/image objects, but no renderer or GPU.
 const context = new Proxy({
@@ -47,7 +48,7 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
     let footMax = 0, leafMin = Infinity;
     for (let i = 0; i < sway.count; i++) { if (uv.getX(i) >= 0.7 && pos.getY(i) < 0.5) footMax = Math.max(footMax, sway.getX(i)); if (uv.getX(i) < 0.7) leafMin = Math.min(leafMin, sway.getX(i)); }
     assert.ok(footMax < 0.01 && leafMin >= 0.3, `foot ${footMax}, leaves ${leafMin}`);
-    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <emissivemap_fragment>' };
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <color_fragment>\n#include <emissivemap_fragment>' };
     acacia.material.onBeforeCompile(shader);
     assert.match(shader.vertexShader, /transformed \+= .* aSway \* uWind/);
     // Trees floodlit at night (RISE trees.js aVar.z): near the road only, fading out by 160 m.
@@ -80,10 +81,19 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
     assert.ok(ground?.material.userData.nightGlow);
     const spill = ground.geometry.attributes.flood.array;
     assert.ok(spill.reduce((a, b) => Math.max(a, b)) === 1 && spill.reduce((a, b) => Math.min(a, b)) === 0);
-    const sh = { vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <emissivemap_fragment>' };
+    const sh = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <color_fragment>\n#include <emissivemap_fragment>' };
     ground.material.onBeforeCompile(sh);
     assert.match(sh.fragmentShader, /totalEmissiveRadiance \*= vColor\.rgb \* vFlood/);
     assert.match(sh.vertexShader, /vFlood = flood/);
+    // At night only the band round the circuit keeps its colour (RISE terrain.js
+    // nightFade): 0.96 by the road, 0.06 far out; trees likewise (trees.js).
+    const fade = ground.geometry.attributes.nightFade.array;
+    assert.ok(Math.abs(fade.reduce((a, b) => Math.max(a, b)) - 0.96) < 1e-6 && Math.abs(fade.reduce((a, b) => Math.min(a, b)) - 0.06) < 1e-6);
+    assert.match(sh.fragmentShader, /diffuseColor\.rgb \*= mix\(1\.0, vFade, uNight\)/);
+    assert.match(shader.fragmentShader, /diffuseColor\.rgb \*= mix\(1\.0, vFlood \* 0\.9 \+ 0\.07, uNight\)/);
+    assert.equal(setNightGlow(world, 1) > 0 && sh.uniforms.uNight.value + shader.uniforms.uNight.value, 2);
+    setNightGlow(world, 0);
+    assert.equal(sh.uniforms.uNight.value + shader.uniforms.uNight.value, 0);
   } finally { dispose(world); }
 });
 

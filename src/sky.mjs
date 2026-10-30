@@ -140,7 +140,8 @@ export function buildSky(radius, x, z, preset = RISE_DAY) {
 // Night glow, after the sim's emissive "* U.night" terms: the material glows
 // `color` at `night` (at `day` otherwise, 0 by default); with useMap its own
 // map is the glow's pattern. setNightGlow switches every such material under
-// root. Strengths are the sim's halved, as our night light is about half its.
+// root, and sets a material's userData.uNight uniform (0 day to 1 night) if it
+// has one. Strengths are the sim's halved, as our night light is about half its.
 export function nightGlow(mat, color, night, { day = 0, useMap = false } = {}) {
   mat.emissive = new THREE.Color(color); mat.emissiveIntensity = day;
   if (useMap) mat.emissiveMap = mat.map;
@@ -151,7 +152,7 @@ export function setNightGlow(root, night) {
   const seen = new Set();
   root.traverse(o => [o.material].flat().forEach(m => {
     const g = m?.userData?.nightGlow;
-    if (g && !seen.has(m)) { seen.add(m); m.emissiveIntensity = g[0] + (g[1] - g[0]) * night; }
+    if (g && !seen.has(m)) { seen.add(m); m.emissiveIntensity = g[0] + (g[1] - g[0]) * night; if (m.userData.uNight) m.userData.uNight.value = night; }
   }));
   return seen.size;
 }
