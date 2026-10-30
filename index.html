@@ -59,6 +59,7 @@ import { SCENERY, landcoverField } from './src/scenery.mjs';
 import { createLapTimer, formatLapTime } from './src/laptimer.mjs';
 import { createDriverInput, readGamepad } from './src/input.mjs';
 import { createSoundModel, createAudioEngine } from './src/audio.mjs';
+import { createRumbleModel, createRumblePlayer } from './src/rumble.mjs';
 const $ = id => document.getElementById(id);
 const canvas = $('track');
 let sim, paused = false, overview = false, cockpit = false, previousTime = null, snapCamera = true;
@@ -78,6 +79,9 @@ const driver = createDriverInput();
 // Sound: the AudioContext is created on the first key press or click (autoplay policy).
 const soundModel = createSoundModel(DEFAULT_CAR);
 let soundOn = true, audioCtx = null, audio = null, soundParams = null;
+// Gamepad rumble: engine, tire friction / rough ground and crashes (off while paused).
+const rumbleModel = createRumbleModel(DEFAULT_CAR), rumblePlayer = createRumblePlayer();
+let rumbleLevels = { strong: 0, weak: 0 };
 function startAudio() {
   if (!soundOn || audio || !window.AudioContext) return;
   audioCtx = new AudioContext(); audio = createAudioEngine(audioCtx);
@@ -399,7 +403,7 @@ const eyeTilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-4 * Math.PI
 // 25 cm behind the eye, 45 cm above it, 0.24 rad down, so the steering wheel is in the shot
 // just ahead of the helmet (any farther back and the helmet hides it).
 const ONBOARD = { Cockpit: { dx: 0, dy: 0, tilt: eyeTilt, fov: 72 },
-  Driver: { dx: -0.12, dy: 0.015, tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.13, -Math.PI / 2, 0, 'YXZ')), fov: 76 },
+  Driver: { dx: -0.02, dy: -0.04, tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.07, -Math.PI / 2, 0, 'YXZ')), fov: 76 },
   Halo: { dx: -0.25, dy: 0.45, tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.24, -Math.PI / 2, 0, 'YXZ')), fov: 73 },
   'T-cam': { dx: -0.38, dy: 0.49, tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.10, -Math.PI / 2, 0, 'YXZ')), fov: 70 } };
 const lean = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
@@ -627,6 +631,8 @@ function frame(now) {
     soundParams = soundModel.update(dt, sim.car.telemetry, command);
     if (soundOn && !paused) { if (audioCtx.state === 'suspended') audioCtx.resume(); audio.apply(soundParams, overview ? 0.3 : cockpit ? 0.9 : 0.7); } else audio.silence();
   }
+  rumbleLevels = paused ? { strong: 0, weak: 0 } : rumbleModel.update(dt, sim.car, command);
+  rumblePlayer.play([...(navigator.getGamepads?.() ?? [])].filter(p => p?.connected), rumbleLevels, now);
   previousTime = now; render(dt); requestAnimationFrame(frame);
 }
 // Circuit picker: reloads with ?track=<key> (stadium = no key), keeping other options.
@@ -641,6 +647,7 @@ window.f1Lab = {
   track: () => ({ key: circuitKey, name: circuitKey ? track.name : 'Stadium test track', length: track.length, surface: track.surface(sim.car.x, sim.car.y), offset: track.offset(sim.car.x, sim.car.y), progress: track.progress(sim.car.x, sim.car.y) }),
   race: () => ({ opponents, finish: sim.finish, classification: sim.classification(), standings: opponents ? sim.standings() : [], cars: sim.entries.map(e => ({ name: e.name, x: e.car.x, y: e.car.y, speed: e.car.telemetry.speed, lane: e.lane, compound: e.car.compound, pit: e.pit?.phase ?? null, pitRequest: e.pitRequest, stops: structuredClone(e.stops), compounds: [...e.compounds], penalty: e.penalty, wake: e.car.wake.strength ?? 0, contact: e.car.contact ?? null, drs: e.car.drs, drsAllowed: !!e.drsAllowed, drsGap: e.drsGap, ...(m => ({ visible: m.group.visible, drawn: [m.group.position.x, -m.group.position.z], flap: m.drsFlap.rotation.z }))(cars[skins[e.index]].model) })) }),
   start: () => (m => ({ ...sim.start, jumpStart: m.jumpStart, penalty: m.penalty, reaction: m.reaction, shown: !$('lights').hidden, litShown: $('lights').querySelectorAll('.on').length, status: $('status').textContent }))(sim.entries[0]),
+  rumble: () => ({ ...rumbleLevels }),
   sound: () => ({ on: soundOn, state: audioCtx?.state ?? null, params: soundParams && { ...soundParams } }),
   // 3D render state: draw stats, the car's on-screen position and the pixel there.
   view: () => {

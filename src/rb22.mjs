@@ -59,8 +59,15 @@ export async function loadRB22Template(source = RB22_URL) {
   });
   for (const [m, src] of rest) {
     let geometry = src;
+    // Whole connected pieces move (most of their triangles inside), so no part is torn at the cut.
     if (!Object.values(LAYERS).some(l => m.material.name.startsWith(l))) hubs.forEach(({ box, c, r }, i) => {
-      const taken = takeTriangles(geometry, p => box.containsPoint(p) && Math.hypot(p.y - c.y, p.z - c.z) < r);
+      if (geometry.index) geometry = geometry.toNonIndexed();
+      const piece = pieces(geometry), pos = geometry.attributes.position, votes = new Map(), p = new THREE.Vector3(), v = new THREE.Vector3();
+      for (let t = 0; t < pos.count / 3; t++) {
+        p.set(0, 0, 0); for (let k = 0; k < 3; k++) p.add(v.fromBufferAttribute(pos, t * 3 + k)); p.divideScalar(3);
+        const n = votes.get(piece[t]) ?? 0; votes.set(piece[t], n + (box.containsPoint(p) && Math.hypot(p.y - c.y, p.z - c.z) < r ? 1 : -1));
+      }
+      const taken = takeTriangles(geometry, (_, t) => votes.get(piece[t]) > 0);
       if (!taken) return;
       geometry = taken.kept;
       const isRound = roundParts(taken.inside, c), drum = takeTriangles(taken.inside, (_, t) => isRound(t));
@@ -108,16 +115,23 @@ function takeTriangles(geometry, test) {
   return { inside: build(inside), kept: build(kept) };
 }
 
-// Triangle indices of the round parts of a non-indexed geometry centred on the hub c (the
-// brake drum): connected pieces about as tall as long, at least 35 cm across, centred within
-// 3 cm of the axle. The off-centre brackets and arms around it are left out.
-function roundParts(geometry, c) {
+// The connected piece (a representative triangle) of each triangle of a non-indexed geometry:
+// triangles sharing a vertex position are one piece.
+function pieces(geometry) {
   const pos = geometry.attributes.position, n = pos.count / 3, parent = [...Array(n).keys()], seen = new Map();
-  const find = a => parent[a] === a ? a : (parent[a] = find(parent[a]));
+  const find = a => { while (parent[a] !== a) a = parent[a] = parent[parent[a]]; return a; };
   for (let t = 0; t < n; t++) for (let k = 0; k < 3; k++) {
     const i = t * 3 + k, key = `${pos.getX(i).toFixed(5)},${pos.getY(i).toFixed(5)},${pos.getZ(i).toFixed(5)}`;
     if (seen.has(key)) parent[find(t)] = find(seen.get(key)); else seen.set(key, t);
   }
+  return Int32Array.from(parent, (_, t) => find(t));
+}
+
+// Triangle indices of the round parts of a non-indexed geometry centred on the hub c (the
+// brake drum): connected pieces about as tall as long, at least 35 cm across, centred within
+// 3 cm of the axle. The off-centre brackets and arms around it are left out.
+function roundParts(geometry, c) {
+  const pos = geometry.attributes.position, n = pos.count / 3, piece = pieces(geometry), find = t => piece[t];
   const boxes = new Map(), v = new THREE.Vector3();
   for (let t = 0; t < n; t++) {
     const r = find(t); if (!boxes.has(r)) boxes.set(r, new THREE.Box3());

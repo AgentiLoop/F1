@@ -9,8 +9,9 @@ let rendering = false; // a mirror seen in another mirror keeps its last image
 // mesh: the (roughly flat) glass, front faces toward the viewer; width: render target pixels;
 // hide: objects left out of the mirror's image (e.g. the car's own rear wheels);
 // tilt: radians the mirror is angled up (the view moves up by twice that);
-// extend: screen pixels the glass (and its image) reaches further down.
-export function makeMirror(mesh, { width = 512, hide = [], tilt = 0.025, extend = 3 } = {}) {
+// extend: screen pixels the glass (and its image) reaches further down;
+// viewer(camera, out): the eye the mirror is seen from (default: the camera's position).
+export function makeMirror(mesh, { width = 512, hide = [], tilt = 0.025, extend = 3, viewer = (cam, out) => out.setFromMatrixPosition(cam.matrixWorld) } = {}) {
   // The glass's plane in mesh space: area-weighted normal, centroid and a rectangle around it.
   const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry, P = g.attributes.position;
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), centre = new THREE.Vector3();
@@ -66,7 +67,7 @@ export function makeMirror(mesh, { width = 512, hide = [], tilt = 0.025, extend 
     if (rendering || mesh.material !== glass) return;
     C.copy(centre).applyMatrix4(mesh.matrixWorld);
     N.copy(n).transformDirection(mesh.matrixWorld); up.copy(v).transformDirection(mesh.matrixWorld);
-    const dist = eye.setFromMatrixPosition(camera.matrixWorld).sub(C).dot(N);
+    const dist = viewer(camera, eye).sub(C).dot(N);
     if (dist <= 1e-3) return; // seen from behind
     // Screen px per metre down the glass at its bottom edge, then stretch it by `extend` px.
     p.copy(base[0]).lerp(base[1], 0.5).applyMatrix4(mesh.matrixWorld); down.copy(vUp).transformDirection(mesh.matrixWorld).negate();
