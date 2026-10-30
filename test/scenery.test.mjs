@@ -153,3 +153,30 @@ test('every real circuit stands on the real ground (terrain tiles), which meets 
     assert.ok(far > 200 && hi - lo > relief, `${key}: ${far} points, relief ${hi - lo} m`);
   }
 });
+
+test('the trees are the real woods and trees (OpenStreetMap), clear of the road, the sea, the water and the buildings; Spa and Monza in their woods', () => {
+  const real = {};
+  for (const [key, s] of Object.entries(SCENERY)) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: s });
+    const trees = meshes(world).filter(m => m.userData.kind === 'trees'), m = new (world.matrix.constructor)();
+    const sea = s.sea && waterField(s.sea), water = s.water && waterField(s.water), town = townOf(world);
+    real[key] = trees.reduce((a, t) => a + t.userData.real, 0);
+    assert.ok(trees.length && trees.reduce((a, t) => a + t.count, 0) <= 6000 + (real[key] < 200 ? s.clusters * 3 : 0), key);
+    for (const t of trees) for (let i = 0; i < t.count; i += 3) {
+      t.getMatrixAt(i, m);
+      const x = m.elements[12], y = -m.elements[14];
+      assert.ok(Math.abs(track.offset(x, y)) > track.roadWidth / 2 + 20, `${key}: tree on the road`);
+      if (sea) assert.ok(sea.sd(x, y, Infinity) > 0, `${key}: tree in the sea`);
+      if (water) assert.ok(water.sd(x, y) > 0, `${key}: tree in the water`);
+      if (town) for (const b of town.userData.blocks) if (x > b.box[0] && x < b.box[2] && y > b.box[1] && y < b.box[3]) {
+        let inside = false;
+        for (let p = 0, q = b.ring.length - 1; p < b.ring.length; q = p++) if ((b.ring[p][1] > y) !== (b.ring[q][1] > y) && x < (b.ring[q][0] - b.ring[p][0]) * (y - b.ring[p][1]) / (b.ring[q][1] - b.ring[p][1]) + b.ring[p][0]) inside = !inside;
+        assert.ok(!inside, `${key}: tree in a building`);
+      }
+    }
+  }
+  // Every circuit OSM maps trees around plants them; the forests at Spa, the
+  // Red Bull Ring and Monza's park fill the cap.
+  for (const key of Object.keys(SCENERY).filter(k => k !== 'jeddah')) assert.ok(real[key] >= 200, `${key}: ${real[key]} real trees`);
+  for (const key of ['spa', 'red-bull-ring', 'monza']) assert.equal(real[key], 6000, key);
+});

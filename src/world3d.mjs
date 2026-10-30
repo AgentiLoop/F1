@@ -467,9 +467,7 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   if (!track.hasElevation) world.add(new THREE.Mesh(hillGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
 
   // Beside the lake (the RISE Motordrome): East African vegetation
-  // (savanna.mjs); otherwise scenery.clusters tree clusters of the circuit's
-  // kinds anywhere at least 20 m clear of the road and off the beach, on the
-  // terrain when there is one.
+  // (savanna.mjs); otherwise the real buildings and trees below.
   if (track.lakeLevel !== null) {
     const terrain = { height: terrainHeight, dist: terrainHeight.dist, lake: terrainHeight.lake, lakeLevel: track.lakeLevel };
     world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, savannaPlan(track, terrain, { minX, maxX, minY, maxY }), terrain) };
@@ -553,26 +551,59 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     town.userData = { kind: 'buildings', count: blocks.length, blocks };
     world.add(town);
   }
+  // Trees stand at least 20 m clear of the road, 40 m in from the sea, 5 m
+  // from the water and 4 m from any building.
+  const clear = (x, y) => Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4);
+  // The real woods and trees (scenery.woods, woods.mjs: OpenStreetMap): each
+  // wood filled with trees on a jittered 8 m grid, kept 9 m apart on average
+  // up to 150 m from the road and thinning to 20 m apart by 600 m, and the
+  // mapped single trees and tree rows; at most MAX_TREES of them, nearest the
+  // road first. A tree's kind comes from its leaf type (needleleaved:
+  // conifer; broadleaved: broadleaf or palm by the circuit's weights; mixed
+  // or not mapped: any kind by them), among the kinds the circuit has. Where OSM maps fewer than MIN_REAL
+  // trees, scenery.clusters random clusters of the circuit's kinds are added.
+  const MAX_TREES = 6000, MIN_REAL = 200, real = [];
+  const kinds = ['conifer', 'broadleaf', 'palm'], weight = kinds.map(k => scenery.trees[k] ?? 0), sum = weight.reduce((a, b) => a + b, 0) || 1;
+  const kindOf = v => { let acc = 0; for (let k = 0; k < kinds.length; k++) if (v < (acc += weight[k] / sum)) return k; return kinds.length - 1; };
+  const leafKind = (leaf, v) => leaf === 2 && weight[0] ? 0 : leaf === 1 && weight[1] + weight[2] ? (v * (weight[1] + weight[2]) < weight[1] ? 1 : 2) : kindOf(v);
+  if (scenery.woods) {
+    const roadDist = terrainHeight.dist ?? ((x, y) => Math.abs(track.offset(x, y))), g = 8, taken = new Set();
+    for (const [leaf, ...flat] of scenery.woods.woods) {
+      const rings = flat.map(r => Array.from({ length: r.length / 2 }, (_, i) => [r[2 * i], r[2 * i + 1]]));
+      const xs = rings[0].map(p => p[0]), ys = rings[0].map(p => p[1]);
+      for (let gx = Math.floor(Math.min(...xs) / g); gx * g <= Math.max(...xs); gx++) for (let gy = Math.floor(Math.min(...ys) / g); gy * g <= Math.max(...ys); gy++) {
+        const x = (gx + rng()) * g, y = (gy + rng()) * g, keep = rng(), cellKey = gx * 65536 + gy;
+        if (taken.has(cellKey)) continue;
+        let inWood = false;
+        for (const r of rings) for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) inWood = !inWood;
+        if (!inWood) continue;
+        const d = roadDist(x, y), apart = d < 150 ? 9 : Math.min(20, 9 + (d - 150) * 11 / 450);
+        if (keep > (g / apart) ** 2 || !clear(x, y)) continue;
+        taken.add(cellKey); real.push([x, y, leaf, d]);
+      }
+    }
+    const { trees } = scenery.woods;
+    for (let k = 0; k < trees.length; k += 3) if (clear(trees[k], trees[k + 1])) real.push([trees[k], trees[k + 1], trees[k + 2], roadDist(trees[k], trees[k + 1])]);
+    real.sort((a, b) => a[3] - b[3]).splice(MAX_TREES);
+  }
   const spots = [];
-  for (let tries = 0; spots.length < scenery.clusters * 3 && tries < scenery.clusters * 2; tries++) {
+  for (const [x, y, leaf] of real) { const v = rng(); spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, v, leafKind(leaf, v), true]); }
+  if (real.length < MIN_REAL) for (let tries = 0; spots.length < scenery.clusters * 3 && tries < scenery.clusters * 2; tries++) {
     const tx = cx + (rng() - 0.5) * (maxX - minX + 300), ty = cy + (rng() - 0.5) * (maxY - minY + 300), m = 3 + Math.floor(rng() * 9);
     for (let i = 0; i < m; i++) {
       const x = tx + (rng() - 0.5) * 40, y = ty + (rng() - 0.5) * 40;
-      if (Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
+      if (clear(x, y)) { const v = rng(); spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, v, kindOf(v)]); }
     }
   }
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
-  // Each spot's kind from its random draw t[4] against the cumulative weights.
-  const kinds = ['conifer', 'broadleaf', 'palm'], weight = kinds.map(k => scenery.trees[k] ?? 0), sum = weight.reduce((a, b) => a + b, 0) || 1;
-  const kindOf = v => { let acc = 0; for (let k = 0; k < kinds.length; k++) if (v < (acc += weight[k] / sum)) return k; return kinds.length - 1; };
-  world.add(...kinds.map((kind, k) => [treeGeometry(kind), spots.filter(t => kindOf(t[4]) === k)]).filter(([, list]) => list.length).map(([geo, list]) => {
+  world.add(...kinds.map((kind, k) => [kind, treeGeometry(kind), spots.filter(t => t[5] === k)]).filter(([, , list]) => list.length).map(([kind, geo, list]) => {
     const mesh = new THREE.InstancedMesh(geo, treeMat, list.length);
     list.forEach(([x, y, sc, rot, v], i) => {
       dummy.position.set(x, terrainHeight(x, y) - 0.2, -y); dummy.rotation.set(0, rot, 0); dummy.scale.set(sc, sc * (0.85 + v * 0.3), sc);
       dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
       const tint = 0.8 + rng() * 0.35; mesh.setColorAt(i, new THREE.Color(tint * (0.95 + rng() * 0.15), tint, tint * (0.85 + rng() * 0.15)));
     });
-    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.castShadow = mesh.receiveShadow = true; mesh.userData = { kind: 'trees', species: kind, real: list.filter(t => t[6]).length };
     return mesh;
   }));
   world.userData = { center: [cx, cy], extent };

@@ -19,13 +19,17 @@ const DUNES = { grass: 0x8f9a5a, dry: 0xd2c08e, soil: 0xc8b07c };
 // grandstands, pit buildings, Monte Carlo's apartment blocks), and terrain:
 // the real ground around it (terrain.mjs, the Mapzen/AWS Terrain Tiles:
 // Spa's Ardennes valleys, the Styrian hills round the Red Bull Ring, the
-// Maritime Alps above Monaco), added to every entry below.
+// Maritime Alps above Monaco), and woods: the real woods, single trees and
+// tree rows around it (woods.mjs, OpenStreetMap: the Ardennes forest at Spa,
+// the royal park at Monza), added to every entry below. Where OSM maps few
+// trees, clusters random clusters of trees of these kinds are added.
 import { WATER } from './water.mjs';
+import { WOODS } from './woods.mjs';
 import { COAST } from './coast.mjs';
 import { BUILDINGS } from './buildings.mjs';
 import { TERRAIN } from './terrain.mjs';
 
-export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, water: null, terrain: null });
+export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, water: null, terrain: null, woods: null });
 
 export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'bahrain': { ground: DESERT, clusters: 60, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
@@ -46,7 +50,7 @@ export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'zandvoort': { ground: DUNES, clusters: 120, trees: { conifer: 0.85, broadleaf: 0.15, palm: 0 } },
   'jeddah': { ground: DESERT, clusters: 80, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
   'miami': { ground: GREEN, clusters: 160, trees: { conifer: 0, broadleaf: 0.3, palm: 0.7 } },
-}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null, terrain: TERRAIN[key] ?? null })])));
+}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null, terrain: TERRAIN[key] ?? null, woods: WOODS[key] && (WOODS[key].woods.length || WOODS[key].trees.length) ? WOODS[key] : null })])));
 
 
 // Water polygons (water.mjs form) prepared for the terrain: each as rings
