@@ -31,10 +31,28 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
   assert.equal(monza.getObjectByName('tecpro'), undefined);
   assert.equal(monza.getObjectByName('rise-runoff'), undefined);
   assert.equal(monza.getObjectByName('rise-sky'), undefined);
+  // RISE mowing stripes on every circuit, from the run-off to the wall, just over the flat field.
+  const monzaTrack = createCircuitTrack(CIRCUITS.monza), monzaMow = monza.children.filter(m => m.name === 'mowing');
+  assert.ok(monzaMow.length >= 2);
+  for (const m of monzaMow) {
+    const p = m.geometry.attributes.position;
+    for (let k = 0; k < p.count; k += 41) {
+      const d = Math.abs(monzaTrack.offset(p.getX(k), -p.getZ(k)));
+      assert.ok(d > monzaTrack.roadWidth / 2 + 7 && d < monzaTrack.wallOffset + 0.5, `verge at ${d}`);
+      assert.ok(Math.abs(p.getY(k) + 0.02) < 1e-6);
+    }
+  }
   dispose(monza);
   const track = createCircuitTrack(CIRCUITS.rwanda), world = scenery(track);
   try {
     assert.equal(world.children.filter(m => m.name === 'rise-runoff').length, 2);
+    // On terrain the stripes lie 0.15 m over the ground, which sits 0.25 m under the road's level.
+    const mow = world.children.filter(m => m.name === 'mowing');
+    assert.ok(mow.length >= 2);
+    for (const m of mow) {
+      const p = m.geometry.attributes.position;
+      for (let k = 0; k < p.count; k += 97) assert.ok(Math.abs(p.getY(k) - track.heightAt(p.getX(k), -p.getZ(k)) + 0.1) < 0.2, `mowing height at ${k}`);
+    }
     // RISE day sky: one dome (no old gradient sphere), its sun disc where the scene's light shines from.
     const sky = world.getObjectByName('rise-sky');
     assert.ok(sky?.material.isShaderMaterial);

@@ -2,7 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
-import { rubberGeometry, rubberDarkness, gridMarks, buildTrackPaint, RUBBER_HALF } from '../src/trackpaint.mjs';
+import { rubberGeometry, rubberDarkness, gridMarks, buildTrackPaint, RUBBER_HALF, mowDarkness, mowMaterial, MOW_PERIOD } from '../src/trackpaint.mjs';
+
+test('RISE mowing stripes: 6 m bands along the lap, the unrolled one 15% darker', () => {
+  assert.equal(MOW_PERIOD, 12);
+  assert.equal(mowDarkness(1), 0.15); assert.equal(mowDarkness(5.9), 0.15);
+  assert.equal(mowDarkness(6.1), 0); assert.equal(mowDarkness(11.9), 0);
+  assert.equal(mowDarkness(-1), 0); assert.equal(mowDarkness(13), 0.15);
+  assert.ok(Math.abs(0.9 / 1.06 - (1 - 0.15)) < 0.005, 'RISE grass 0.9 vs 1.06');
+  const m = mowMaterial(), a = m.alphaMap.image.data;
+  assert.equal(m.color.getHex(), 0); assert.ok(m.transparent && !m.depthWrite);
+  assert.equal(a[0], Math.round(255 * 0.15)); assert.equal(a[4 * 63], 0);
+});
 
 test('RISE rubbered line: up to 45% darker on the racing line, none 1.9 m off it', () => {
   let max = 0, min = 1;

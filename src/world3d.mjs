@@ -9,7 +9,7 @@ import { buildLake } from './water.mjs';
 import { buildSky, nightGlow } from './sky.mjs';
 import { structuresPlan, buildStructures } from './structures.mjs';
 import { lakesidePlan, buildLakeside } from './lakeside.mjs';
-import { buildTrackPaint } from './trackpaint.mjs';
+import { buildTrackPaint, mowMaterial, MOW_PERIOD } from './trackpaint.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -356,7 +356,9 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   world.add(ribbon(pts, -half, half, 0, flood(asphaltMaterial(track.roadWidth), 1.1), 30));
   // The RISE sim's rubbered racing line and painted grid slots (trackpaint.mjs).
   world.add(buildTrackPaint(track, { slots: boxColors.length, glow: m => flood(m, 1.1) }));
-  const postSpots = [];
+  // The RISE sim's mowing stripes on the verge from the run-off to the wall,
+  // just over the ground (terrain sits 0.25 m under the road's level).
+  const postSpots = [], mowMat = mowMaterial(), mowLift = track.hasElevation ? -0.1 : -0.02;
   for (const side of [-1, 1]) {
     world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, flood(std({ color: 0xf2f2ee, roughness: 0.6 }), 1.1), 10));
     for (const r of runs(p => kerb[p.i])) world.add(ribbon(r, side * half, side * (half + 1.2), 0.012, flood(std({ map: kerbTex, roughness: 0.7 })), 4));
@@ -368,6 +370,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     for (const r of runs(clear)) {
       const w = ribbon(r, side * wallAt, 0, footing, flood(std({ map: wallTex, roughness: 0.8 }), 0.8), 6, 1.1); w.castShadow = true; world.add(w);
       world.add(ribbon(r, side * wallAt, 0, 1.1, fenceMat, 0.16, 4.2));
+      const mow = ribbon(r, side * (half + 8), side * wallAt, mowLift, mowMat, MOW_PERIOD); mow.name = 'mowing'; mow.renderOrder = 1; world.add(mow);
       r.forEach((p, k) => { if (k % 4 === 0) postSpots.push([p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt, p.h(side * wallAt)]); });
     }
     // TecPro facing just in front of the wall (no gaps where it starts and stops).

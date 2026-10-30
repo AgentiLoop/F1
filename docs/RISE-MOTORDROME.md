@@ -201,6 +201,16 @@ Done:
   2.6 m either side, pole on the centre): a 3.6 m line across in front of the
   car and two 1.4 m lines back from its ends; the pole's front is the start
   line. They glow at night like the road's other lines.
+- **Mowing stripes** (`mowMaterial` in `src/trackpaint.mjs`, after that sim's
+  `grassMaterial` in `js/trackmesh.js`; every real circuit): the grass verge
+  from the run-off to the wall is mown in bands that alternate every 6 m along
+  the lap (its `fract(s / 12)`), the unrolled band 0.9 / 1.06 of the rolled one,
+  so 15% darker, as an unlit black overlay just over our own ground (0.15 m
+  over the terrain, 1 cm over the flat field) where the wall stands. Measured
+  in headless Chrome from beside the road: the dark band 7% darker on screen
+  (sRGB, about 15% in linear light) at Rwanda by day and night and at Monza,
+  the light band unchanged. Its grass colour, noise and bump are left to our
+  ground.
 Not yet: the rest of `scenery.js` (airport). Its sponsor boards along the
 wall faces are covered by our own hoardings every 36 m.
 Grade and bank forces in the physics were added in 1fc5c16.

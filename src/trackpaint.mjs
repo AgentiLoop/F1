@@ -62,6 +62,25 @@ export function gridMarks(slots, spacing = 8) {
   return out;
 }
 
+// Mowing stripes on the grass verge, after the RISE sim's grassMaterial: the
+// verge is mown in 6 m bands across it, alternating every 6 m along the lap
+// (step(0.5, fract(s / 12))), the unrolled band 0.9 / 1.06 of the rolled one,
+// so 15% darker.
+export const MOW_PERIOD = 12, MOW_DARK = 0.15;
+export function mowDarkness(s) { return ((s / MOW_PERIOD) % 1 + 1) % 1 < 0.5 ? MOW_DARK : 0; }
+
+// Unlit black overlay for a ribbon with v = s / MOW_PERIOD (only darkens).
+export function mowMaterial() {
+  const h = 64, data = new Uint8Array(4 * h);
+  for (let j = 0; j < h; j++) { const a = Math.round(255 * mowDarkness((j + 0.5) / h * MOW_PERIOD)); data.set([a, a, a, 255], 4 * j); }
+  const t = new THREE.DataTexture(data, 1, h);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.LinearFilter; t.anisotropy = 8; t.needsUpdate = true;
+  return new THREE.MeshBasicMaterial({
+    color: 0x000000, alphaMap: t, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4,
+  });
+}
+
 // glow(material): the circuit's night floodlight glow for the grid paint.
 export function buildTrackPaint(track, { slots = 0, glow = m => m } = {}) {
   const group = new THREE.Group();
