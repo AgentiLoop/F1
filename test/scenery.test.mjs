@@ -20,7 +20,7 @@ test('every real circuit has its scenery, with tree weights summing to 1', () =>
 });
 
 const meshes = world => { const out = []; world.traverse(o => o.isMesh && out.push(o)); return out; };
-const kindsOf = world => meshes(world).filter(m => m.isInstancedMesh && m.count > 0 && !m.geometry.parameters).length;
+const kindsOf = world => meshes(world).filter(m => m.isInstancedMesh && m.count > 0 && !m.geometry.parameters && !m.material.map).length; // leaf-card fringes (textured) ride on their trees
 
 test('coastal circuits get the real sea (OpenStreetMap) beside them, below the road, off it, with no tree in it', () => {
   assert.deepEqual(Object.keys(SCENERY).filter(k => SCENERY[k].sea).sort(), ['bahrain', 'jeddah', 'monaco', 'yas-marina', 'zandvoort']);

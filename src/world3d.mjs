@@ -254,19 +254,7 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
       if (clear(x, y)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
     }
   }
-  const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
-  const species = [treeGeometry('conifer'), treeGeometry('broadleaf')].map((geo, k) => {
-    const list = spots.filter(t => (t[4] < 0.45) === (k === 0));
-    const mesh = new THREE.InstancedMesh(geo, treeMat, list.length);
-    list.forEach(([x, y, sc, rot, v], i) => {
-      dummy.position.set(x, 0, -y); dummy.rotation.set(0, rot, 0); dummy.scale.set(sc, sc * (0.85 + v * 0.3), sc);
-      dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
-      const tint = 0.8 + rng() * 0.35; mesh.setColorAt(i, new THREE.Color(tint * (0.95 + rng() * 0.15), tint, tint * (0.85 + rng() * 0.15)));
-    });
-    mesh.castShadow = mesh.receiveShadow = true;
-    return mesh;
-  });
-  world.add(...species);
+  world.add(...plantTrees(spots, () => 0, rng));
   return world;
 }
 
@@ -561,20 +549,7 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
       if (Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + 4)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
     }
   }
-  const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
-  // Each spot's kind from its random draw t[4] against the cumulative weights.
-  const kinds = ['conifer', 'broadleaf', 'palm'], weight = kinds.map(k => scenery.trees[k] ?? 0), sum = weight.reduce((a, b) => a + b, 0) || 1;
-  const kindOf = v => { let acc = 0; for (let k = 0; k < kinds.length; k++) if (v < (acc += weight[k] / sum)) return k; return kinds.length - 1; };
-  world.add(...kinds.map((kind, k) => [treeGeometry(kind), spots.filter(t => kindOf(t[4]) === k)]).filter(([, list]) => list.length).map(([geo, list]) => {
-    const mesh = new THREE.InstancedMesh(geo, treeMat, list.length);
-    list.forEach(([x, y, sc, rot, v], i) => {
-      dummy.position.set(x, terrainHeight(x, y) - 0.2, -y); dummy.rotation.set(0, rot, 0); dummy.scale.set(sc, sc * (0.85 + v * 0.3), sc);
-      dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
-      const tint = 0.8 + rng() * 0.35; mesh.setColorAt(i, new THREE.Color(tint * (0.95 + rng() * 0.15), tint, tint * (0.85 + rng() * 0.15)));
-    });
-    mesh.castShadow = mesh.receiveShadow = true;
-    return mesh;
-  }));
+  world.add(...plantTrees(spots, (x, y) => terrainHeight(x, y) - 0.2, rng, scenery.trees));
   world.userData = { center: [cx, cy], extent };
   return world;
 }
@@ -799,6 +774,130 @@ export function drawLogo(g, w, h, bg = true) {
 // Deterministic per-position hash so seam vertices of a primitive stay welded after jitter.
 const hash = (x, y, z) => { const v = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return v - Math.floor(v); };
 
+// Broadleaf crown lobes [x, y, z, radius] (m, tree base at the origin).
+const BROADLEAF_LOBES = [[0, 6.8, 0, 2.6], [1.6, 6.0, 0.4, 1.9], [-1.5, 6.2, -0.5, 2.0], [0.3, 6.1, 1.6, 1.8], [-0.4, 5.9, -1.6, 1.8], [0.2, 8.4, 0.1, 1.8], [1.1, 7.7, -1.0, 1.5],
+  [-1.4, 7.6, 1.1, 1.5], [1.5, 7.4, 1.4, 1.3], [-1.2, 8.0, -1.2, 1.3]];
+
+// Instanced trees at spots [x, y, scale, rotation, species pick] on groundAt(x, y):
+// per species the solid body and its leaf-card fringe, sharing matrices and tints.
+// trees: the kinds' weights; each spot's kind from its random draw t[4] against
+// the cumulative weights. Palms have no leaf-card fringe.
+function plantTrees(spots, groundAt, rng, trees = { conifer: 0.45, broadleaf: 0.55 }) {
+  const dummy = new THREE.Object3D(), bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+  const fringeMat = new THREE.MeshStandardMaterial({ map: leafCardTexture(), vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 });
+  const kinds = ['conifer', 'broadleaf', 'palm'], weight = kinds.map(k => trees[k] ?? 0), sum = weight.reduce((a, b) => a + b, 0) || 1;
+  const kindOf = v => { let acc = 0; for (let k = 0; k < kinds.length; k++) if (v < (acc += weight[k] / sum)) return k; return kinds.length - 1; };
+  return kinds.flatMap((kind, k) => {
+    const list = spots.filter(t => kindOf(t[4]) === k);
+    if (!list.length) return [];
+    const body = new THREE.InstancedMesh(treeGeometry(kind), bodyMat, list.length), fringe = kind === 'palm' ? null : new THREE.InstancedMesh(treeFringe(kind), fringeMat, list.length);
+    list.forEach(([x, y, sc, rot, v], i) => {
+      dummy.position.set(x, groundAt(x, y), -y); dummy.rotation.set(0, rot, 0); dummy.scale.set(sc, sc * (0.85 + v * 0.3), sc);
+      dummy.updateMatrix(); body.setMatrixAt(i, dummy.matrix); fringe?.setMatrixAt(i, dummy.matrix);
+      const tint = 0.8 + rng() * 0.35, c = new THREE.Color(tint * (0.95 + rng() * 0.15), tint, tint * (0.85 + rng() * 0.15));
+      body.setColorAt(i, c); fringe?.setColorAt(i, c);
+    });
+    const meshes = fringe ? [body, fringe] : [body];
+    for (const m of meshes) m.castShadow = m.receiveShadow = true;
+    return meshes;
+  });
+}
+
+// Leaf-card atlas, two cells across on a transparent background: a ragged
+// clump of broad leaves (left) and a drooping fir spray (right), drawn pale so
+// the cards' vertex colours set the hue.
+function leafCardTexture() {
+  const t = texture(256, (g, s) => {
+    g.clearRect(0, 0, s, s);
+    let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const leafy = (l) => `hsl(${80 + rnd() * 30}, ${18 + rnd() * 22}%, ${l}%)`;
+    // Broad leaves: twigs, then leaves from the shaded inside out to the ragged, brighter rim.
+    const cx = s / 4, cy = s / 2;
+    g.strokeStyle = 'rgba(70,55,40,1)'; g.lineWidth = 2;
+    for (let i = 0; i < 7; i++) { const a = rnd() * Math.PI * 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * s * 0.2, cy + Math.sin(a) * s * 0.2); g.stroke(); }
+    for (let i = 0, n = 420; i < n; i++) {
+      const f = i / n, a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 0.6 - f * 0.2) * s * 0.22 * (0.75 + 0.25 * Math.sin(a * 5 + 1)), x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      g.fillStyle = leafy(Math.round(58 + f * 30 - (y - cy) / s * 30 + rnd() * 8));
+      g.save(); g.translate(x, y); g.rotate(a + (rnd() - 0.5) * 1.4);
+      g.beginPath(); g.ellipse(0, 0, 5 + rnd() * 6, 2.5 + rnd() * 2.5, 0, 0, Math.PI * 2); g.fill(); g.restore();
+    }
+    // Fir spray: a stem with drooping side shoots, all covered in needles.
+    const ox = s * 0.75, top = s * 0.12, bot = s * 0.88;
+    for (let i = 0; i < 18; i++) {
+      const y0 = top + (bot - top) * i / 18, len = s * 0.2 * (0.45 + 0.55 * Math.sin(Math.PI * (i + 1) / 19));
+      for (const side of [-1, 1]) {
+        const x1 = ox + side * len, y1 = y0 + len * 0.45;
+        for (let k = 0; k < 14; k++) {
+          const t = k / 14, px = ox + (x1 - ox) * t, py = y0 + (y1 - y0) * t * t;
+          g.strokeStyle = leafy(Math.round(55 + rnd() * 30)); g.lineWidth = 1.6;
+          for (const d of [-1, 1]) { g.beginPath(); g.moveTo(px, py); g.lineTo(px + side * 3 + d * 2, py + 5 + rnd() * 3); g.stroke(); }
+        }
+      }
+    }
+    g.strokeStyle = 'rgba(80,62,45,1)'; g.lineWidth = 2; g.beginPath(); g.moveTo(ox, top); g.lineTo(ox, bot); g.stroke();
+  });
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+// Alpha-cut leaf cards over a circuit tree's crown (seeded, the same for every
+// build of a species): a ragged, see-through fringe of foliage on the outside
+// of the solid crown, so its silhouette breaks up into leaves and sprays.
+function treeFringe(kind) {
+  let seed = kind === 'conifer' ? 31 : 47;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const pos = [], nor = [], uvs = [], col = [], up = new THREE.Vector3(0, 1, 0);
+  const [u0, u1] = kind === 'conifer' ? [0.51, 0.99] : [0.01, 0.49];
+  // A square card of half-size s at p facing n (spun at random in its plane);
+  // normals point out of the crown from center so it shades as one volume.
+  const card = (p, n, s, center, color, crown) => {
+    const t1 = up.clone().cross(n); if (t1.lengthSq() < 0.01) t1.set(1, 0, 0); t1.normalize();
+    const t2 = n.clone().cross(t1), rot = rnd() * Math.PI, a = t1.multiplyScalar(Math.cos(rot)).addScaledVector(t2, Math.sin(rot)), b = n.clone().cross(a).normalize();
+    const sn = p.clone().sub(center).normalize().lerp(up, 0.25).normalize();
+    const shade = (0.5 + 0.55 * Math.min(1, Math.max(0, (p.y - crown[0]) / (crown[1] - crown[0])))) * (0.95 + 0.15 * rnd());
+    for (const [cu, cv] of [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]]) {
+      const q = p.clone().addScaledVector(a, cu * s).addScaledVector(b, cv * s);
+      pos.push(q.x, q.y, q.z); nor.push(sn.x, sn.y, sn.z); uvs.push(cu < 0 ? u0 : u1, cv < 0 ? 0.01 : 0.99);
+      col.push(color.r * shade, color.g * shade, color.b * shade);
+    }
+  };
+  const jitter = (v, k) => v.add(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(k)).normalize();
+  if (kind === 'conifer') {
+    const green = new THREE.Color(0x1f4a2b).multiplyScalar(2), c = new THREE.Vector3(0, 7, 0);
+    for (let i = 0; i < 6; i++) {
+      const r = 2.8 * (1 - i * 0.15), h = 3.3 - i * 0.2, y = 2.5 + i * 1.5 + 1.6;
+      // Sprays hanging off the tier's rim, and a few more up its slope.
+      for (let j = 0, m = 13 - i; j < m; j++) {
+        const a = (j + rnd()) / m * Math.PI * 2, rr = r * (0.85 + rnd() * 0.2);
+        card(new THREE.Vector3(Math.cos(a) * rr, y - h / 2 + 0.3 + rnd() * 0.3, Math.sin(a) * rr), jitter(new THREE.Vector3(Math.cos(a), 0.6, Math.sin(a)), 0.5), 0.55 + r * 0.22, c, green, [2.2, 12.5]);
+      }
+      for (let j = 0, m = 7 - i; j < m; j++) {
+        const a = rnd() * Math.PI * 2, f = 0.35 + rnd() * 0.3;
+        card(new THREE.Vector3(Math.cos(a) * r * f * 1.05, y + h / 2 - h * f, Math.sin(a) * r * f * 1.05), jitter(new THREE.Vector3(Math.cos(a), 0.8, Math.sin(a)), 0.5), 0.45 + r * 0.15, c, green, [2.2, 12.5]);
+      }
+    }
+  } else {
+    const leaf = new THREE.Color(0x3d6a2c).multiplyScalar(1.5), c = new THREE.Vector3(0, 6.6, 0);
+    for (const lobe of BROADLEAF_LOBES) {
+      const [x, y, z, r] = lobe;
+      for (let k = 0; k < 20; k++) {
+        const d = new THREE.Vector3(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1);
+        if (d.lengthSq() < 0.01) continue;
+        d.normalize();
+        const p = new THREE.Vector3(x, y, z).addScaledVector(d, r * (0.95 + rnd() * 0.2));
+        if (BROADLEAF_LOBES.some(b => b !== lobe && Math.hypot(p.x - b[0], p.y - b[1], p.z - b[2]) < b[3] * 0.85)) continue;
+        card(p, jitter(d.clone(), 0.9), 0.8 + rnd() * 0.6, c, leaf, [4.2, 9.8]);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
+}
+
 // One tree as a non-indexed geometry with baked vertex colors (darker toward the crown base).
 function treeGeometry(kind) {
   const parts = [];
@@ -825,12 +924,23 @@ function treeGeometry(kind) {
     parts.push(g);
   };
   const bark = new THREE.Color(0x4a3527);
+  // Seeded so every build of a species is identical.
+  let seed = kind === 'conifer' ? 11 : 23;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   if (kind === 'conifer') {
     add(new THREE.CylinderGeometry(0.16, 0.3, 4, 7).translate(0, 2, 0), bark);
-    const green = new THREE.Color(0x1f4a2b), top = 12.5;
-    for (let i = 0; i < 5; i++) {
-      const r = 2.7 * (1 - i * 0.17), y = 2.6 + i * 1.75;
-      add(new THREE.ConeGeometry(r, 3.4 - i * 0.2, 11, 2).translate(0, y + 1.6, 0), green, new THREE.Vector3(0, 7, 0), [2.2, top], 0.35);
+    const green = new THREE.Color(0x1f4a2b), top = 12.5, c = new THREE.Vector3(0, 7, 0);
+    for (let i = 0; i < 6; i++) {
+      const r = 2.8 * (1 - i * 0.15), h = 3.3 - i * 0.2, y = 2.5 + i * 1.5 + 1.6;
+      add(new THREE.ConeGeometry(r, h, 13, 2).translate(0, y, 0), green, c, [2.2, top], 0.35);
+      // Drooping branch tips around each tier's rim break up the smooth cone edge.
+      const tips = 11 - i;
+      for (let j = 0; j < tips; j++) {
+        const a = (j + rnd() * 0.6) / tips * Math.PI * 2, rr = r * (0.82 + rnd() * 0.18), len = 0.9 + r * 0.25;
+        const tip = new THREE.ConeGeometry(0.32 + r * 0.06, len, 4).rotateZ(-Math.PI / 2 - 0.4 - rnd() * 0.25).rotateY(-a)
+          .translate(Math.cos(a) * rr, y - h / 2 + 0.35 + rnd() * 0.25, Math.sin(a) * rr);
+        add(tip, green, c, [2.2, top], 0);
+      }
     }
   } else if (kind === 'palm') {
     // Slender, slightly leaning trunk with a crown of drooping fronds.
@@ -846,10 +956,22 @@ function treeGeometry(kind) {
     add(new THREE.CylinderGeometry(0.22, 0.38, 4.2, 7).translate(0, 2.1, 0), bark);
     add(new THREE.CylinderGeometry(0.08, 0.16, 2.4, 5).rotateZ(0.7).translate(0.7, 4.2, 0), bark);
     add(new THREE.CylinderGeometry(0.08, 0.16, 2.2, 5).rotateZ(-0.6).rotateY(2).translate(-0.4, 4.0, 0.5), bark);
-    const leaf = new THREE.Color(0x3d6a2c), c = new THREE.Vector3(0, 6.6, 0);
-    const blobs = [[0, 6.8, 0, 2.6], [1.6, 6.0, 0.4, 1.9], [-1.5, 6.2, -0.5, 2.0], [0.3, 6.1, 1.6, 1.8], [-0.4, 5.9, -1.6, 1.8], [0.2, 8.4, 0.1, 1.8], [1.1, 7.7, -1.0, 1.5]];
+    add(new THREE.CylinderGeometry(0.06, 0.12, 2.0, 5).rotateX(0.75).rotateY(-0.8).translate(0.3, 4.4, -0.7), bark);
+    const leaf = new THREE.Color(0x3d6a2c), c = new THREE.Vector3(0, 6.6, 0), blobs = BROADLEAF_LOBES;
     for (const [x, y, z, r] of blobs) add(new THREE.IcosahedronGeometry(r, 1).translate(x, y, z), leaf, c, [4.2, 9.8], 0.45);
+    // Leaf clusters on the exposed surface of the lobes: a ragged, clumpy outline instead of smooth balls.
+    for (const lobe of blobs) {
+      const [x, y, z, r] = lobe;
+      for (let k = 0; k < 7; k++) {
+        const u = rnd() * 2 - 1, t = rnd() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+        const px = x + s * Math.cos(t) * r * 1.02, py = y + u * r * 1.02, pz = z + s * Math.sin(t) * r * 1.02;
+        if (blobs.some(b => b !== lobe && Math.hypot(px - b[0], py - b[1], pz - b[2]) < b[3] * 0.9)) continue;
+        const tr = 0.55 + rnd() * 0.45;
+        add(new THREE.IcosahedronGeometry(tr, 0).scale(1 + rnd() * 0.4, 0.7 + rnd() * 0.3, 1 + rnd() * 0.4).rotateY(rnd() * 6.3).translate(px, py, pz), leaf, c, [4.2, 9.8], 0);
+      }
+    }
   }
+
   // Merge parts.
   const total = parts.reduce((n, g) => n + g.attributes.position.count, 0);
   const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), col = new Float32Array(total * 3);
