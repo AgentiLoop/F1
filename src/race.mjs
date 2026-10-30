@@ -207,7 +207,10 @@ export const inDrsZone = (track, z, p) => { const L = track.length, a = d => ((d
 // when their tread wear passes pitWear (or the player requests a stop).
 // fuel: in a race with a distance every car carries the fuel for it (unless
 // its car spec sets fuelLoad); the burn-off makes the cars lighter lap by lap.
-export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false, laps = 0, compoundRule = false, fuel = true, drs = true } = {}) {
+// runUp (circuit, solo running): the player starts runUp m before the line on
+// the racing line, so lap 1 begins with a flying start. freeDrs: DRS opens in
+// any zone from the start, as in practice and qualifying.
+export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = {}, start = false, laps = 0, compoundRule = false, fuel = true, drs = true, runUp = 0, freeDrs = false } = {}) {
   const o = { ...RACE_DEFAULTS, ...options };
   const rand = random(start?.seed ?? (Math.random() * 2 ** 32));
   // Separate stream for AI form, mistakes and wear (fixed when unseeded, so
@@ -233,7 +236,8 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
     const slot = i === 0 ? grid.length : i - 1;
     const lane = slot === 0 ? 0 : (slot % 2 ? -1 : 1) * 2.6;
     // Grid slots gridSpacing m apart behind the line, alternating sides.
-    if (circuit) { const s = length - 0.8 - o.gridSpacing * slot; [car.x, car.y] = track.point(s, lane); car.heading = track.heading(s); }
+    if (circuit && i === 0 && runUp) { const s = length - runUp; [car.x, car.y] = track.point(s, track.lineOffset(s)); car.heading = track.heading(s); }
+    else if (circuit) { const s = length - 0.8 - o.gridSpacing * slot; [car.x, car.y] = track.point(s, lane); car.heading = track.heading(s); }
     else { car.x = slot ? -o.gridSpacing * slot : 0; car.y = -(radius + lane); } // pole at x = 0 (not -0)
     const p = track.progress(car.x, car.y);
     // Circuit AI pace: the plan's grip margins scale with the spec's corner
@@ -276,7 +280,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
   const crossing = (before, after, point) => Math.floor((after - point) / length) > Math.floor((before - point) / length)
     ? (after - (Math.floor((after - point) / length) * length + point)) / (after - before) : null;
   const drsEnabled = () => flagTime === null && time >= lightsOut && Math.max(...entries.map(e => e.covered)) >= o.drsEnableLaps * length;
-  const drsAllowed = e => !e.finish && !e.pit && !e.retired && drsEnabled() && [...e.drsArmed].some(z => inDrsZone(track, z, track.progress(e.car.x, e.car.y)));
+  const drsAllowed = e => !e.finish && !e.pit && !e.retired && (freeDrs ? drsZones : drsEnabled() ? [...e.drsArmed] : []).some(z => inDrsZone(track, z, track.progress(e.car.x, e.car.y)));
   function corners(car) {
     const s = track.progress(car.x, car.y);
     if (bends) { const i = Math.floor(s / bends.step) % bends.n; return { toCorner: bends.to[i], fromCorner: bends.since[i] }; }
@@ -816,7 +820,7 @@ export function createRace(track, { grid = DEFAULT_GRID, options = {}, player = 
 
   return {
     entries, options: o, aiCommand, pit, compoundRule: rule, drsZones,
-    get drsEnabled() { return drsEnabled(); }, inPitLane: car => inPitLane(car),
+    get drsEnabled() { return freeDrs || drsEnabled(); }, inPitLane: car => inPitLane(car),
     // Player's pit request: the compound to fit at the next stop (null cancels).
     // On autopilot the car boxes at the next pit entry; driving, stop in the box.
     requestPit(compound) { if (pit) entries[0].pitRequest = compound === null || TIRE_COMPOUNDS[compound] ? compound : entries[0].pitRequest; },
