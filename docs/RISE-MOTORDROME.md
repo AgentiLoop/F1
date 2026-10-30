@@ -42,8 +42,8 @@ Done:
   to the left), carried onto our 2 m samples by lap fraction and lightly
   smoothed (`src/circuit.mjs`: `elevation(s, offset)`, `heightAt(x, y)`). Like
   that sim, the ground beyond the road edges falls 2%. The road, kerbs, runoff,
-  walls, fence posts, hoardings, start line, gantry, grandstand (pitched to the
-  straight's grade), pit apron, box marks and garages sit on it, and every car
+  walls, fence posts, hoardings, start line, gantry, grandstands, pit building,
+  pit apron and box marks sit on it, and every car
   is drawn at the ground height under it, pitched and rolled to the slope, with
   the chase camera and sun following.
 - **Terrain and lake** (`buildTerrain` in `src/world3d.mjs`, our own WebGL
@@ -63,12 +63,26 @@ Done:
   on the shore and in the shallows, nothing within 10 m of the barriers or
   beside the start straight's stand and garages. About 4,400 trees; those
   within 160 m of the road cast shadows. No wind sway yet.
+- **Grandstands and pit building** (`src/stands.mjs`, our own WebGL code after
+  that sim's `js/scenery.js`): its four 112 m, 30-row grandstands at -185, -62,
+  62 and 186 m from the line, across the straight from the pits, each under a
+  white membrane roof with rounded ends, scalloped edges and soft pillows (its
+  `puffyRoof` shape) on three columns, pitched to the ground's fall along the
+  front edge. Spectators in its shirt colours are painted on the risers from a
+  canvas texture (four seat bands, about one seat in eight empty) instead of
+  its node shader. Its pit building replaces our per-box garages: 20 m deep and
+  15 m tall, from 60 m before the first box to 60 m past the last, bent along
+  the straight and stepped down to the ground; garage doors with a faint glow
+  below a glazed band split by a floor slab, a roof terrace over the pit lane
+  and our AgentiLoop Racing sign on its edge (theirs carries their brand).
+  Other circuits keep the old stand and garages.
 
 Not yet (in order):
 
 1. Grade and bank forces in the physics: the cars are only drawn on the hills.
    The physics is still 2D, so climbs, descents and banked corners do not yet
    change speed or grip.
-2. Scenery: stands with membrane roofs, pit building, villages, wildlife and a
-   reflective lake (`scenery.js`, `animals.js`, `water.js`). These use TSL node
-   materials and would have to be rewritten for our WebGL renderer.
+2. Scenery: paddock pavilions, footbridges, floodlights, villages, wildlife
+   and a reflective lake (the rest of `scenery.js`, `animals.js`, `water.js`).
+   These use TSL node materials and would have to be rewritten for our WebGL
+   renderer.

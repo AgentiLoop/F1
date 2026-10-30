@@ -3,6 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
+import { buildRiseStands } from './stands.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -381,7 +382,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const room = side => [-120, -60, 0].every(d => { const [x, y] = track.point(d, side * (wallAt + 20)); return Math.abs(track.offset(x, y)) > wallAt + 10; });
   // Across the straight from the pit lane where there is room for it.
   const pit = track.pit, standSide = [pit ? pit.side : -1, pit ? -pit.side : 1].find(room) ?? 0;
-  if (standSide) {
+  if (standSide && !track.hasElevation) {
     const z0 = wallAt + 6, stand = new THREE.Group(); world.add(stand);
     // Pitched to the straight's grade over its length (s = -120 to 0).
     stand.position.set(X[0], ground(0, -standSide * (z0 + 8)) - 0.3, -Y[0]);
@@ -416,7 +417,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
       const s = pit.boxStart + pit.boxSpacing * i;
       flat(s, pit.boxOffset, 7, 3, 0xf2f2ee); flat(s, pit.boxOffset, 6.6, 2.6, boxColors[i] ?? 0x3a4450, 0.012);
       const [x, y] = track.point(s, pit.side * garageAt);
-      if (standSide === -pit.side || Math.abs(track.offset(x, y)) < wallAt + 3) continue;
+      if (track.hasElevation || standSide === -pit.side || Math.abs(track.offset(x, y)) < wallAt + 3) continue;
       const g = new THREE.Mesh(new THREE.BoxGeometry(pit.boxSpacing - 0.5, 6, 7), concreteGarage);
       g.position.set(x, track.elevation(s, pit.side * garageAt) + 2.8, -y); g.rotation.y = track.heading(s); g.castShadow = g.receiveShadow = true; world.add(g);
     }
@@ -426,6 +427,9 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const logo = (w, h) => { const t = texture(1, () => {}); const cv = t.image; cv.width = w; cv.height = h; drawLogo(cv.getContext('2d'), w, h, true); t.needsUpdate = true; return t; };
   const logoMat = new THREE.MeshStandardMaterial({ map: logo(1024, 128), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.08 });
   logoMat.emissiveMap = logoMat.map;
+  // With terrain: the RISE sim's membrane-roofed grandstands across from the
+  // pits and its pit building (with our branding) instead of the garages.
+  if (track.hasElevation) buildRiseStands(world, track, { ground: terrainHeight, standSide, pitBoxes: pit && standSide !== -pit.side ? Math.max(boxColors.length, 5) : 0, logoMat });
   // AgentiLoop Racing panels on both faces of the start-light gantry, as on the stadium track.
   for (const side of [-1, 1]) {
     const panel = new THREE.Mesh(new THREE.PlaneGeometry(track.roadWidth + 4.5, (track.roadWidth + 4.5) / 8), logoMat);
