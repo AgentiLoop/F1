@@ -170,7 +170,7 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null }
   // Floodlight masts, the lamp head facing the road.
   const mastGeo = new THREE.CylinderGeometry(0.16, 0.32, MAST + 1, 6); mastGeo.translate(0, (MAST + 1) / 2 - 1, 0);
   const headGeo = new THREE.BoxGeometry(3.2, 1.2, 0.5); headGeo.translate(0, MAST + 0.4, 0.4);
-  const lampFace = std({ color: 0xe8ecef, roughness: 0.3, emissive: 0xfff6e0, emissiveIntensity: 0.15 }), headMat = std({ color: 0x30343a, roughness: 0.4, metalness: 0.5 });
+  const lampFace = std({ color: 0xe8ecef, roughness: 0.3, emissive: 0xfff6e0, emissiveIntensity: 0.15, name: 'floodlight-lamp' }), headMat = std({ color: 0x30343a, roughness: 0.4, metalness: 0.5 });
   const atMast = o => { v.set(o.x, ground(o.x, o.y) - 0.3, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(1, 1, 1); };
   const masts = instanced(mastGeo, std({ color: 0x8a9096, roughness: 0.5, metalness: 0.7 }), plan.masts, atMast);
   instanced(headGeo, [headMat, headMat, headMat, headMat, lampFace, headMat], plan.masts, atMast);

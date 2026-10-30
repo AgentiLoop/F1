@@ -125,8 +125,9 @@ Done:
   390 small houses in clusters 650-1700 m out (its rules, in the same world
   frame: 220 m or more from the road, 60 m from the lake; the random draws
   are ordered differently, so the exact spots differ), plastered, brick or blue walls
-  under tin or tile roofs. Trees are kept out of all of them. Their night
-  lighting is left out (we have no night).
+  under tin or tile roofs. Trees are kept out of all of them. At night only
+  the floodlights' lamp faces glow (see times of day); the rest of its night
+  lighting is left out.
 - **Braking boards, corner numbers and marshal posts** (`src/structures.mjs`,
   after that sim's `buildBoards` and `buildMarshalPosts`): 3, 2 and 1 boards
   (white, 1.1 x 1.45 m on two legs) 370, 270 and 170 m before its seven
@@ -146,6 +147,17 @@ Done:
   the water and its back set into the bank (at most 4 m higher), not 14 m back
   from the shore; 16 pods, every jetty clear of the lake bed. Trees are kept
   out of them; no night glow.
+- **Times of day** (`TIMES` in `src/sky.mjs`, after that sim's `PRESETS` in
+  `js/sky.js`): Dawn 06:30 (low orange sun in the east), Day 10:30, Sunset
+  17:45 (low sun over the lake in the west) and Night race 21:00 (dark sky with
+  twinkling stars and a faint band of glow, no sun disc, a cool overhead light
+  standing in for the floodlights, whose lamp faces glow). Each sets the sun's
+  direction, colour and strength, the hemisphere light, reflections, fog and
+  exposure and the sky dome's colours and clouds; its light levels are scaled
+  to ours and its exponential fog turned into our linear fog's distance. Day
+  keeps this game's own lighting. T (or the Time button) cycles them on this
+  circuit; `?time=dawn|day|sunset|night` starts there. Switches instantly (it
+  blends over 2.2 s); no floodlight pools on the road and no night sounds.
 
 Not yet: the rest of `scenery.js` (airport).
 Grade and bank forces in the physics were added in 1fc5c16.
