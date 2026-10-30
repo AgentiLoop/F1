@@ -137,6 +137,12 @@ Done:
   barrier on the outside of the bend (switched across at the pit lane, none on
   the start straight). All face the approaching cars, at that sim's corner
   positions (its `track-data.js`, shifted by our 80.1 m start).
+- **Raised billboards** (`src/structures.mjs`, after that sim's
+  `buildBillboards`): a 22 x 6.9 m board (its 3.2 : 1) 3.5 m up on two steel
+  posts, 5 m behind the outside wall 5 m past Turns 3, 8, 12 and 17, turned to
+  face the braking zone 150 m back up the track; none in the lake. Both faces
+  carry our AgentiLoop Racing logo (theirs carries their sponsor) and glow at
+  night like its sign material (0.55, halved to 0.28). Trees are kept out.
 - **Lakeside hospitality pods and jetties** (`src/lakeside.mjs`, after that
   sim's `buildLakeside`): round pods with plastered walls and thatched cone
   roofs on wooden decks, each with a 34 m plank jetty out over the water, on
@@ -178,5 +184,6 @@ Done:
   its per-tree floodlight term and its darkening of the ground far from the
   circuit.
 
-Not yet: the rest of `scenery.js` (airport).
+Not yet: the rest of `scenery.js` (airport). Its sponsor boards along the
+wall faces are covered by our own hoardings every 36 m.
 Grade and bank forces in the physics were added in 1fc5c16.

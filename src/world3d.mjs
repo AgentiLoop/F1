@@ -512,7 +512,15 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     if (herds) for (const k in plan) plan[k] = plan[k].filter(([x, y]) => !herds.glade(x, y));
     // With the lake: the RISE sim's footbridges, floodlights, paddock and villages, trees kept out of them.
     const builds = track.lakeLevel !== null ? structuresPlan(track, terrain) : null;
-    if (builds) { for (const k in plan) plan[k] = plan[k].filter(([x, y]) => builds.clear(x, y)); buildStructures(world, track, builds, { ground: terrainHeight, bannerMat: logoMat }); }
+    // Its raised billboards carry our logo across a 3.2 : 1 face, lit at night like its sign material (0.55, halved).
+    if (builds) {
+      const board = texture(1, () => {}), cv = board.image; cv.width = 1024; cv.height = 320;
+      const g = cv.getContext('2d'); g.fillStyle = '#0d1a28'; g.fillRect(0, 0, 1024, 320);
+      g.save(); g.translate(0, 70); drawLogo(g, 1024, 160, true); g.restore();
+      g.fillStyle = '#6fffc3'; g.fillRect(0, 290, 1024, 14); board.needsUpdate = true;
+      const billboardMat = nightGlow(new THREE.MeshStandardMaterial({ map: board, roughness: 0.55 }), 0xffffff, 0.28, { day: 0.08, useMap: true });
+      for (const k in plan) plan[k] = plan[k].filter(([x, y]) => builds.clear(x, y)); buildStructures(world, track, builds, { ground: terrainHeight, bannerMat: logoMat, billboardMat });
+    }
     // With the lake: the RISE sim's hospitality pods and jetties on the shore (lakeside.mjs).
     const shore = track.lakeLevel !== null ? lakesidePlan(terrain) : null;
     if (shore) { for (const k in plan) plan[k] = plan[k].filter(([x, y]) => shore.clear(x, y)); buildLakeside(world, shore, terrain); }
