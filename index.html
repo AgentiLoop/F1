@@ -324,10 +324,12 @@ const head = { x: 0, z: 0, yaw: 0 };
 const eyeTilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-4 * Math.PI / 180, -Math.PI / 2, 0, 'YXZ'));
 // Onboards relative to the cockpit eye (body frame: forward, up), pitch down (rad) and field of
 // view, after Rise Motordrome: its driver eye is 12 cm behind and 1.5 cm above ours, pitched
-// 0.13 rad down at 76°; its T-cam sits 24 cm above and 50 cm behind the eye, 0.07 rad down at 70°.
+// 0.13 rad down at 76°. Its T-cam (24 cm above, 50 cm behind the eye) would sit inside our
+// taller engine cover, so ours is on top of the airbox (37 cm above the eye on the RB22),
+// 12 cm clear of it, looking over the helmet and nose 0.10 rad down at 70°.
 const ONBOARD = { Cockpit: { dx: 0, dy: 0, tilt: eyeTilt, fov: 72 },
   Driver: { dx: -0.12, dy: 0.015, tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.13, -Math.PI / 2, 0, 'YXZ')), fov: 76 },
-  'T-cam': { dx: -0.50, dy: 0.24, tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.07, -Math.PI / 2, 0, 'YXZ')), fov: 70 } };
+  'T-cam': { dx: -0.38, dy: 0.49, tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.10, -Math.PI / 2, 0, 'YXZ')), fov: 70 } };
 const lean = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
 function placeScene(dt) {
   const c = sim.car, g = model.group, mode = CAMERAS[camIndex];
