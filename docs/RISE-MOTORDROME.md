@@ -53,14 +53,22 @@ Done:
   lake. The lake outline is that sim's `LAKE_BLOBS` (discs joined by a smooth
   union) at its 1,356 m level, with a ragged shore of our own; the banks ease
   down to the water over about 140 m as in that sim. Grass, dry grass, red
-  laterite on steep ground, sand on the shore; trees are kept out of the water.
+  laterite on steep ground, sand on the shore.
+- **Vegetation** (`src/savanna.mjs`, our own WebGL code after that sim's
+  `js/trees.js`): its five species, flat-topped acacia, broadleaf, tall
+  eucalyptus, shrub and papyrus, as leaf cards cut out of one canvas leaf atlas
+  (broad leaves, fine acacia foliage, bark) with instanced meshes per species.
+  Placement follows its rules: forest patches and clumps from noise, gallery
+  forest along the lake shore, open acacia savanna far from the road, papyrus
+  on the shore and in the shallows, nothing within 10 m of the barriers or
+  beside the start straight's stand and garages. About 4,400 trees; those
+  within 160 m of the road cast shadows. No wind sway yet.
 
 Not yet (in order):
 
 1. Grade and bank forces in the physics: the cars are only drawn on the hills.
    The physics is still 2D, so climbs, descents and banked corners do not yet
    change speed or grip.
-2. Scenery: stands with membrane roofs, pit building, its tree species,
-   villages, wildlife and a reflective lake (`scenery.js`, `trees.js`,
-   `animals.js`, `water.js`). These use TSL node materials and would have to be
-   rewritten for our WebGL renderer.
+2. Scenery: stands with membrane roofs, pit building, villages, wildlife and a
+   reflective lake (`scenery.js`, `animals.js`, `water.js`). These use TSL node
+   materials and would have to be rewritten for our WebGL renderer.

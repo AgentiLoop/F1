@@ -2,6 +2,7 @@
 // surface function. Physics (x, y) maps to world (x, 0, -y); y is up.
 import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
+import { buildSavanna, savannaPlan } from './savanna.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -463,7 +464,13 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   hillGeo.setIndex(hi); hillGeo.computeVertexNormals();
   if (!track.hasElevation) world.add(new THREE.Mesh(hillGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
 
-  // Tree clusters anywhere at least 20 m clear of the road (and out of the water).
+  // With terrain: East African vegetation (savanna.mjs); otherwise tree
+  // clusters anywhere at least 20 m clear of the road.
+  if (track.hasElevation) {
+    const terrain = { height: terrainHeight, dist: terrainHeight.dist, lake: terrainHeight.lake, lakeLevel: track.lakeLevel };
+    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, savannaPlan(track, terrain, { minX, maxX, minY, maxY }), terrain) };
+    return world;
+  }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
   const spots = [];
   for (let tries = 0; spots.length < 900 && tries < 600; tries++) {
@@ -500,7 +507,7 @@ const LAKE_BLOBS = [
   [-900, 520, 230], [-1500, 100, 500], [-650, -300, 150], [-1700, -600, 520], [-1450, 700, 380],
 ];
 // Signed distance (m) from the lake shore at world (x, z), negative on the water.
-function lakeSdf(x, z) {
+export function lakeSdf(x, z) {
   let res = 1e9;
   for (const [bx, bz, r] of LAKE_BLOBS) {
     const d = Math.hypot(x - bx, z - bz) - r, h = Math.max(0, Math.min(1, 0.5 + 0.5 * (d - res) / 90));
@@ -603,6 +610,9 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) 
       new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 }));
     water.rotation.x = -Math.PI / 2; water.position.set((lx0 + lx1) / 2, lake, (lz0 + lz1) / 2); world.add(water);
   }
+  // For the vegetation: coarse distance to the centreline, and the shore.
+  height.dist = (x, y) => bilinear(dist, x, y);
+  height.lake = lake !== null ? (x, y) => lakeSdf(x, -y) : null;
   return height;
 }
 
