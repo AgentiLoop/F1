@@ -95,6 +95,18 @@ Done:
   m out from the shore). Its TSL nodes are re-done as a GLSL ShaderMaterial
   with our fog and tone mapping. The rear-view mirror shows the last frame's
   reflection rather than drawing its own.
+- **Racing-line chevrons** (`src/chevrons.mjs`, after that sim's
+  `js/chevrons.js`; every real circuit, not only this one): an arrow painted
+  every 5 m along the racing line, pointing along it and lying on the road's
+  grade and bank. Near the car (700 m) the colour follows the speed it carries:
+  green, amber in the 60 m before braking must start, red from there to the
+  slowest point of the corner, where the start comes from your speed, the
+  speed plan of the autopilot that drives your car and its braking curve.
+  Further on they show the line's usual braking zones. L (or the Line button)
+  cycles off / whole line / braking zones only; `?line=1` or `?line=2` starts
+  with them on. Off by default. Their TSL material is re-done as a GLSL
+  ShaderMaterial, not tone mapped (its 1.8× colour boost washes out to pastel
+  through our ACES curve).
 
 Not yet (in order):
 
