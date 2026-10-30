@@ -222,10 +222,11 @@ export function aeroMap(car) {
     bottoming: rawFront <= 0 || rawRear <= 0 };
 }
 
-export function wheelLoads(car, downforce, frontShare = car.config.frontAero) {
+// gravity: the weight's share pressing into the road (m/s², 9.81 on the flat).
+export function wheelLoads(car, downforce, frontShare = car.config.frontAero, gravity = 9.81) {
   const c = car.config, m = carMass(car);
-  const total = m * 9.81 + downforce;
-  const front = clamp(m * 9.81 * c.frontWeight + downforce * frontShare
+  const total = m * gravity + downforce;
+  const front = clamp(m * gravity * c.frontWeight + downforce * frontShare
     - m * car.ax * c.cgHeight / c.wheelbase, 0, total);
   const rear = total - front;
   // Quasi-static transfer split by roll stiffness (front-biased for stability).
@@ -332,7 +333,14 @@ export function resolveBarrier(car, barrierAt) {
 
 // surfaceAt receives each contact's world position and returns a grip multiplier;
 // optional barrierAt (see resolveBarrier) stops the car at walls.
-export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrierAt = null) {
+// Optional groundAt(x, y) (circuit.mjs) gives the ground under the car:
+// { gx, gy } its gradient and zss the road profile's second derivative along
+// the lap. The weight's share along the slope pulls the car downhill (and
+// down a banking's cross-slope); the share into the road, plus the push of
+// a compression (less over a crest) and of cornering against a banking
+// (N = m cos θ (g + zss u² − a·∇z), a the cornering acceleration across the
+// slope), sets the wheel loads.
+export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrierAt = null, groundAt = null) {
   if (!(Number.isFinite(dt) && dt > 0 && dt <= 1 / 60)) throw new RangeError('Use a positive timestep <= 1/60 s');
   const c = car.config, m = carMass(car);
   // An empty tank starves the engine: no drive, whatever the pedal.
@@ -362,7 +370,15 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   const drag = q * dragArea;
   // The open flap only unloads the rear: the front's share of what is left grows.
   const frontShare = aero.frontShare / drsDownforce;
-  const loads = wheelLoads(car, downforce, frontShare);
+  let gravity = 9.81, slopeX = 0, slopeY = 0;
+  const ground = groundAt?.(car.x, car.y);
+  if (ground) {
+    const cos2 = 1 / (1 + ground.gx * ground.gx + ground.gy * ground.gy), across = -ground.gx * sin + ground.gy * cos;
+    slopeX = -9.81 * ground.gx * cos2; slopeY = -9.81 * ground.gy * cos2;
+    const lateral = car.ay + (-slopeX * sin + slopeY * cos);
+    gravity = Math.sqrt(cos2) * clamp(9.81 + ground.zss * u * u - lateral * across, 2, 40);
+  }
+  const loads = wheelLoads(car, downforce, frontShare, gravity);
   const frontX = c.wheelbase * (1 - c.frontWeight);
   const rearX = -c.wheelbase * c.frontWeight;
   const positions = [[frontX, c.track / 2], [frontX, -c.track / 2], [rearX, c.track / 2], [rearX, -c.track / 2]];
@@ -497,6 +513,8 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   car.ay += (fy / m - car.ay) * response;
   car.vx += (fx * cos - fy * sin) / m * dt;
   car.vy += (fx * sin + fy * cos) / m * dt;
+  car.vx += slopeX * dt;
+  car.vy += slopeY * dt;
   car.yawRate += moment / c.yawInertia * dt;
   const finalU = car.vx * cos + car.vy * sin;
   const finalV = -car.vx * sin + car.vy * cos;
@@ -527,14 +545,14 @@ export class Simulation {
     this.accumulator = 0;
     this.droppedTime = 0;
   }
-  advance(elapsed, input, surfaceAt, barrierAt) {
+  advance(elapsed, input, surfaceAt, barrierAt, groundAt) {
     if (!Number.isFinite(elapsed) || elapsed < 0) throw new RangeError('Elapsed time must be finite and nonnegative');
     const accepted = Math.min(elapsed, 0.25);
     this.droppedTime += elapsed - accepted;
     this.accumulator += accepted;
     let steps = 0;
     while (this.accumulator + 1e-12 >= FIXED_DT) {
-      step(this.car, input, FIXED_DT, surfaceAt, barrierAt);
+      step(this.car, input, FIXED_DT, surfaceAt, barrierAt, groundAt);
       this.accumulator = Math.max(0, this.accumulator - FIXED_DT);
       steps++;
     }

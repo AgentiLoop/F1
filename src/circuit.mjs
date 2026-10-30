@@ -277,6 +277,17 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     // is the height of the water beside it.
     hasElevation: !!heights, lakeLevel, elevation,
     heightAt: (x, y) => { const q = nearest(x, y); return elevation(ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, q.offset); },
+    // For the physics (null without heights): the ground's world gradient
+    // (gx, gy) = (dz/dx, dz/dy) under (x, y) and the road profile's second
+    // derivative along the lap (zss, 1/m: + in compressions, - over crests),
+    // all from the nearest part of the circuit, so a crossover's other level
+    // never leaks in.
+    groundAt: heights ? (x, y) => {
+      const q = nearest(x, y), s = ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, off = q.offset, h = headings[q.i];
+      const along = (elevation(s + 2, off) - elevation(s - 2, off)) / 4, across = elevation(s, off + 0.5) - elevation(s, off - 0.5);
+      const zss = (elevation(s + 10, off) - 2 * elevation(s, off) + elevation(s - 10, off)) / 100;
+      return { gx: along * Math.cos(h) + across * Math.sin(h), gy: along * Math.sin(h) - across * Math.cos(h), zss };
+    } : null,
     // Walls wallOffset either side of the centreline; where two parts of the
     // circuit run closer than that, the boundary is the midline between them.
     barrierAt: (x, y) => {

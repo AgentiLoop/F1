@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
+import { createCar, step, FIXED_DT } from '../src/physics.mjs';
 
 const rwanda = createCircuitTrack(CIRCUITS.rwanda);
 
@@ -61,5 +62,55 @@ test('the real circuits carry the climbs the cars measured (OpenF1 heights)', ()
   // Spa: down from La Source to Eau Rouge, then up the Kemmel straight.
   const spa = createCircuitTrack({ ...CIRCUITS.spa, pitLane: false }), at = d => spa.elevation(CIRCUITS.spa.timingLine * spa.length / CIRCUITS.spa.length + d);
   assert.ok(at(1000) < at(400) - 20 && at(2400) > at(1000) + 50, `${at(400)} ${at(1000)} ${at(2400)}`);
+});
+
+// A car on the centreline at lap progress s, heading down the road at v m/s.
+const carAt = (t, s, v) => {
+  const car = createCar(); [car.x, car.y] = t.point(s); car.heading = t.heading(s);
+  car.vx = v * Math.cos(car.heading); car.vy = v * Math.sin(car.heading);
+  car.wheelOmega.fill(v / car.config.wheelRadius); car.gear = 8;
+  return car;
+};
+
+test('the hills act on the car: the climb out of Eau Rouge slows a coasting car, the drop to it speeds one up', () => {
+  const spa = createCircuitTrack({ ...CIRCUITS.spa, pitLane: false }), s0 = CIRCUITS.spa.timingLine * spa.length / CIRCUITS.spa.length;
+  assert.equal(createCircuitTrack({ ...CIRCUITS.spa, heights: null, pitLane: false }).groundAt, null);
+  // Steepest climb and drop (over 40 m) in the first 2.4 km: Raidillon and the run down to Eau Rouge.
+  let up = null, down = null;
+  for (let d = 400; d < 2400; d += 5) {
+    const g = (spa.elevation(s0 + d + 20) - spa.elevation(s0 + d - 20)) / 40;
+    if (!up || g > up.g) up = { s: s0 + d, g };
+    if (!down || g < down.g) down = { s: s0 + d, g };
+  }
+  assert.ok(up.g > 0.1 && down.g < -0.05, `${up.g} ${down.g}`);
+  for (const { s, g } of [up, down]) {
+    // Coast for 0.5 s at 40 m/s with and without the ground: the difference is the slope's pull.
+    const coast = ground => { const car = carAt(spa, s, 40); for (let i = 0; i < 120; i++) step(car, {}, FIXED_DT, spa.surfaceAt, null, ground); return car.telemetry.speed; };
+    const pull = (coast(spa.groundAt) - coast(null)) / 0.5, expected = -9.81 * g / (1 + g * g);
+    assert.ok(Math.abs(pull - expected) < 0.2 * Math.abs(expected), `${s}: ${pull} vs ${expected}`);
+  }
+});
+
+test("Zandvoort's banked Turn 3 presses the car into the road; crests unload it", () => {
+  const c = CIRCUITS.zandvoort, z = createCircuitTrack({ ...c, pitLane: false }), s3 = (c.timingLine + 810) * z.length / c.length;
+  const load = (s, v, ground) => {
+    const car = carAt(z, s, v), k = z.curvatureAt(s), gr = z.groundAt(car.x, car.y);
+    // Steady cornering: the tyres supply what the slope's pull does not.
+    const cos2 = 1 / (1 + gr.gx ** 2 + gr.gy ** 2), across = -gr.gx * Math.sin(car.heading) + gr.gy * Math.cos(car.heading);
+    car.ay = v * v * k + 9.81 * across * cos2;
+    step(car, {}, FIXED_DT, z.surfaceAt, null, ground);
+    return { total: car.telemetry.wheels.reduce((a, w) => a + w.load, 0), a: v * v * Math.abs(k), across, zss: gr.zss };
+  };
+  // N = m (g cos θ + a sin θ + zss v² cos θ): the banking's share of the cornering, less the tilt's.
+  const v = 45, flat = load(s3, v, null), banked = load(s3, v, z.groundAt);
+  const theta = Math.atan(Math.abs(banked.across)), m = 800;
+  const expected = m * banked.a * Math.sin(theta) - m * 9.81 * (1 - Math.cos(theta)) + m * banked.zss * v * v * Math.cos(theta);
+  assert.ok(theta > 15 * Math.PI / 180, `${theta}`);
+  assert.ok(Math.abs(banked.total - flat.total - expected) < 0.15 * expected, `${banked.total - flat.total} vs ${expected}`);
+  // Over the sharpest crest on a straight the car is lighter than on the flat.
+  let crest = null;
+  for (let s = 0; s < z.length; s += 5) { const g = z.groundAt(...z.point(s)); if (Math.abs(z.curvatureAt(s)) < 0.002 && (!crest || g.zss < crest.zss)) crest = { s, zss: g.zss }; }
+  const top = load(crest.s, 60, z.groundAt).total, level = load(crest.s, 60, null).total;
+  assert.ok(crest.zss < 0 && top < level - 0.5 * m * 3600 * -crest.zss, `${crest.zss}: ${top} vs ${level}`);
 });
 
