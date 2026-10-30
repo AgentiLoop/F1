@@ -6,7 +6,9 @@
 
 Race an open-wheel car against an AI field in 3D, on a stadium test track or on
 18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts built
-from real car positions). It has a standing start, pit stops and tyre
+from real car positions), plus the planned RISE Motordrome in Rwanda
+([?track=rwanda](https://f1.gokart.games/?track=rwanda), layout from the RISE
+Motordrome sim; see [docs/RISE-MOTORDROME.md](docs/RISE-MOTORDROME.md)). It has a standing start, pit stops and tyre
 compounds, fuel, ERS and DRS, an automatic or paddle-shift gearbox, plus engine
 and tyre sound made from the physics. Drive from the chase or cockpit camera,
 where the car's mirrors show the cars behind you. It needs a WebGL browser and
