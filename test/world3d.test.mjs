@@ -9,6 +9,7 @@ import { CIRCUITS } from '../src/circuits.mjs';
 const context = new Proxy({
   measureText: () => ({ width: 100 }),
   createLinearGradient: () => ({ addColorStop() {} }),
+  createRadialGradient: () => ({ addColorStop() {} }),
 }, { get: (target, key) => target[key] ?? (() => {}) });
 
 function scenery(track) {

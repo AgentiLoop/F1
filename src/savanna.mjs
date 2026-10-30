@@ -56,23 +56,32 @@ export function savannaPlan(track, terrain, { minX, maxX, minY, maxY }, { cell =
 }
 
 // Leaf atlas, three cells across: broad leaves, fine acacia foliage, bark.
+// Each leaf cell is a dense clump: a shaded core disc (opaque, sampled by the
+// crown's inner shell) under several layers of leaves, ragged toward the rim.
+const CORE_R = 64; // px radius of the opaque core disc in a 256 px cell
 function atlas() {
   const W = 768, H = 256, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const g = cv.getContext('2d'), rnd = mulberry(99);
   const spray = (ox, fine) => {
     const cx = ox + 128, cy = 128;
+    g.save(); g.beginPath(); g.rect(ox + 2, 2, 252, 252); g.clip();
+    const disc = g.createRadialGradient(cx, cy - 20, 8, cx, cy, CORE_R + 6);
+    disc.addColorStop(0, fine ? 'hsl(88,38%,30%)' : 'hsl(98,36%,27%)'); disc.addColorStop(1, fine ? 'hsl(92,40%,19%)' : 'hsl(104,38%,16%)');
+    g.fillStyle = disc; g.beginPath(); g.arc(cx, cy, CORE_R + 6, 0, Math.PI * 2); g.fill();
     g.strokeStyle = 'rgba(78,58,38,0.95)';
-    for (let i = 0; i < 8; i++) {
-      const a = rnd() * Math.PI * 2, rr = 60 + rnd() * 50; g.lineWidth = fine ? 1.2 : 2;
+    for (let i = 0; i < 10; i++) {
+      const a = rnd() * Math.PI * 2, rr = 70 + rnd() * 48; g.lineWidth = fine ? 1.2 : 2;
       g.beginPath(); g.moveTo(cx, cy); g.quadraticCurveTo(cx + Math.cos(a + 0.5) * rr * 0.5, cy + Math.sin(a + 0.5) * rr * 0.5, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); g.stroke();
     }
-    for (let i = 0, n = fine ? 900 : 260; i < n; i++) {
-      const a = rnd() * Math.PI * 2, rr = Math.pow(rnd(), 0.6) * 112, x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
-      const light = 0.55 + rnd() * 0.45 - rr / 112 * 0.15 + (cy - y) / 450;
-      g.fillStyle = `hsl(${85 + rnd() * 28}, ${35 + rnd() * 25}%, ${Math.round(16 + light * 26)}%)`;
+    // Inner leaves first (darker, in shade), outer and upper ones brighter on top.
+    for (let i = 0, n = fine ? 2600 : 900; i < n; i++) {
+      const t = i / n, a = rnd() * Math.PI * 2, rr = Math.pow(rnd(), 0.5 + t * 0.3) * 118, x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+      const light = 0.3 + t * 0.45 + rnd() * 0.3 - rr / 118 * 0.1 + (cy - y) / 420;
+      g.fillStyle = `hsl(${85 + rnd() * 28}, ${35 + rnd() * 25}%, ${Math.round(14 + light * 28)}%)`;
       g.save(); g.translate(x, y); g.rotate(a + (rnd() - 0.5) * 1.6);
-      g.beginPath(); g.ellipse(0, 0, fine ? 3.5 + rnd() * 3.5 : 10 + rnd() * 9, fine ? 1.5 + rnd() : 4 + rnd() * 3.5, 0, 0, Math.PI * 2); g.fill(); g.restore();
+      g.beginPath(); g.ellipse(0, 0, fine ? 3.5 + rnd() * 3.5 : 9 + rnd() * 9, fine ? 1.5 + rnd() : 4 + rnd() * 3.5, 0, 0, Math.PI * 2); g.fill(); g.restore();
     }
+    g.restore();
   };
   spray(0, false); spray(256, true);
   g.fillStyle = '#8a8178'; g.fillRect(512, 0, 256, 256);
@@ -104,11 +113,16 @@ function limb(from, to, r, bark) {
 }
 // Leaf cards scattered through an ellipsoid, normals pointing out of it so
 // the crown shades as one soft volume. cell 0 = broad leaves, 1 = fine.
-function crown([cx, cy, cz], [rx, ry, rz], cards, size, cell, leaf, seed) {
-  const rnd = mulberry(seed), pos = [], nor = [], uvs = [], c = new THREE.Vector3(cx, cy, cz), up = new THREE.Vector3(0, 1, 0);
+// core > 0 also fills the crown with a lumpy closed shell at that fraction of
+// the radii, textured from the atlas's opaque core disc, so the canopy reads
+// as a solid mass of foliage instead of a see-through cloud of cards. Leaves
+// darken toward the inside and underside of the crown (self-shadowing).
+function crown([cx, cy, cz], [rx, ry, rz], cards, size, cell, leaf, seed, core = 0) {
+  const rnd = mulberry(seed), pos = [], nor = [], uvs = [], col = [], c = new THREE.Vector3(cx, cy, cz), up = new THREE.Vector3(0, 1, 0);
   const u0 = cell / 3 + 0.004, u1 = (cell + 1) / 3 - 0.004, corners = [[-1, -1, u0, 0], [1, -1, u1, 0], [1, 1, u1, 1], [-1, 1, u0, 1]];
+  const shade = (q, k) => { const h = (q.y - cy) / ry, out = Math.min(1, Math.hypot((q.x - cx) / rx, h, (q.z - cz) / rz)); return k * (0.6 + 0.25 * out + 0.2 * Math.max(-1, Math.min(1, h))); };
   for (let i = 0; i < cards; i++) {
-    const dir = new THREE.Vector3(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize(), f = 0.45 + 0.55 * Math.sqrt(rnd());
+    const dir = new THREE.Vector3(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize(), f = 0.6 + 0.45 * Math.sqrt(rnd());
     const p = new THREE.Vector3(cx + dir.x * rx * f, cy + dir.y * ry * f, cz + dir.z * rz * f);
     const n = dir.clone().add(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.9)).normalize();
     const t1 = up.clone().cross(n); if (t1.lengthSq() < 0.01) t1.set(1, 0, 0); t1.normalize();
@@ -116,15 +130,27 @@ function crown([cx, cy, cz], [rx, ry, rz], cards, size, cell, leaf, seed) {
     const s = size * (0.75 + rnd() * 0.5);
     for (const k of [0, 1, 2, 0, 2, 3]) {
       const [cu, cv, tu, tv] = corners[k], q = p.clone().addScaledVector(a, cu * s).addScaledVector(b, cv * s);
-      const sn = q.clone().sub(c).normalize().lerp(up, 0.25).normalize();
-      pos.push(q.x, q.y, q.z); nor.push(sn.x, sn.y, sn.z); uvs.push(tu, tv);
+      const sn = q.clone().sub(c).normalize().lerp(up, 0.25).normalize(), v = shade(p, 1);
+      pos.push(q.x, q.y, q.z); nor.push(sn.x, sn.y, sn.z); uvs.push(tu, tv); col.push(leaf[0] * v, leaf[1] * v, leaf[2] * v);
+    }
+  }
+  if (core > 0) {
+    const shell = new THREE.IcosahedronGeometry(1, 1), sp = shell.attributes.position, d = new THREE.Vector3();
+    const uc = (cell + 0.5) / 3, du = CORE_R * 0.6 / 768, dv = CORE_R * 0.6 / 256, lump = seed * 13.1;
+    for (let i = 0; i < sp.count; i++) {
+      d.set(sp.getX(i), sp.getY(i), sp.getZ(i));
+      const k = core * (0.88 + 0.24 * hash2(d.x * 3.1 + d.z * 1.7, d.y * 2.9 + d.z, lump));
+      const q = new THREE.Vector3(cx + d.x * rx * k, cy + d.y * ry * k, cz + d.z * rz * k), sn = d.clone().lerp(up, 0.25).normalize(), v = shade(q, 0.8);
+      pos.push(q.x, q.y, q.z); nor.push(sn.x, sn.y, sn.z);
+      uvs.push(uc + (d.x * 0.7 + d.z * 0.7) * du, 0.5 + d.y * dv); col.push(leaf[0] * v, leaf[1] * v, leaf[2] * v);
     }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  return piece(g, leaf);
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
 }
 function merge(parts) {
   const total = parts.reduce((n, g) => n + g.attributes.position.count, 0), geo = new THREE.BufferGeometry();
@@ -142,22 +168,27 @@ function speciesGeometry(kind) {
     case 'acacia': { // flat umbrella crown on a leaning, forked trunk
       const leaf = [0.95, 0.98, 0.78];
       return merge([trunk(4.4, 0.28, 0.14, 0.45, bark),
-        limb([0.4, 4.0, 0], [2.4, 5.5, 1.1], 0.11, bark), limb([0.4, 4.0, 0], [-1.9, 5.4, -1.3], 0.11, bark), limb([0.4, 4.2, 0], [1.2, 5.7, -2.1], 0.09, bark),
-        crown([0.5, 5.9, 0], [4.6, 0.85, 4.2], 24, 1.5, 1, leaf, 1), crown([-2.0, 5.5, 1.2], [2.7, 0.65, 2.5], 11, 1.2, 1, leaf, 2), crown([2.5, 5.4, -1.4], [2.7, 0.6, 2.7], 11, 1.2, 1, leaf, 3)]);
+        limb([0.4, 4.0, 0], [2.4, 5.5, 1.1], 0.11, bark), limb([0.4, 4.0, 0], [-1.9, 5.4, -1.3], 0.11, bark), limb([0.4, 4.2, 0], [1.2, 5.7, -2.1], 0.09, bark), limb([0.4, 4.1, 0], [-0.8, 5.6, 2.2], 0.09, bark),
+        crown([0.5, 5.9, 0], [4.6, 0.85, 4.2], 46, 1.6, 1, leaf, 1, 0.7), crown([-2.0, 5.5, 1.2], [2.7, 0.65, 2.5], 20, 1.3, 1, leaf, 2, 0.7), crown([2.5, 5.4, -1.4], [2.7, 0.6, 2.7], 20, 1.3, 1, leaf, 3, 0.7),
+        crown([-0.6, 6.25, -1.6], [2.4, 0.5, 2.2], 14, 1.2, 1, leaf, 12, 0.65)]);
     }
     case 'broadleaf': { // rounded crown of several lobes
       const leaf = [0.66, 0.8, 0.58];
-      return merge([trunk(4.2, 0.4, 0.22, 0.2, bark), limb([0, 3.6, 0], [1.7, 5.4, 0.9], 0.15, bark), limb([0, 3.6, 0], [-1.6, 5.5, -0.9], 0.15, bark),
-        crown([0, 6.6, 0], [3.5, 2.9, 3.5], 30, 1.5, 0, leaf, 4), crown([1.8, 5.4, 1.0], [2.5, 2.2, 2.5], 15, 1.3, 0, leaf, 5),
-        crown([-1.7, 5.6, -1.0], [2.4, 2.1, 2.4], 15, 1.3, 0, leaf, 6), crown([0.2, 8.5, -0.3], [2.0, 1.7, 2.0], 10, 1.2, 0, leaf, 7)]);
+      return merge([trunk(4.2, 0.4, 0.22, 0.2, bark), limb([0, 3.6, 0], [1.7, 5.4, 0.9], 0.15, bark), limb([0, 3.6, 0], [-1.6, 5.5, -0.9], 0.15, bark), limb([0, 3.8, 0], [0.4, 5.6, -1.8], 0.13, bark),
+        crown([0, 6.6, 0], [3.5, 2.9, 3.5], 54, 1.6, 0, leaf, 4, 0.72), crown([1.8, 5.4, 1.0], [2.5, 2.2, 2.5], 26, 1.4, 0, leaf, 5, 0.7),
+        crown([-1.7, 5.6, -1.0], [2.4, 2.1, 2.4], 26, 1.4, 0, leaf, 6, 0.7), crown([0.2, 8.5, -0.3], [2.0, 1.7, 2.0], 18, 1.3, 0, leaf, 7, 0.7),
+        crown([0.5, 5.7, -2.0], [2.1, 1.9, 2.0], 18, 1.3, 0, leaf, 13, 0.7), crown([-0.9, 7.7, 1.5], [1.9, 1.6, 1.9], 14, 1.2, 0, leaf, 14, 0.7)]);
     }
     case 'eucalyptus': { // tall pale trunk with a narrow crown
       const leaf = [0.72, 0.8, 0.66];
-      return merge([trunk(15, 0.34, 0.12, 0.4, [0.62, 0.6, 0.55]), crown([0.3, 16.5, 0], [2.3, 4.8, 2.3], 22, 1.3, 1, leaf, 8), crown([-0.6, 11.8, 0.5], [1.6, 2.8, 1.6], 10, 1.1, 1, leaf, 9)]);
+      return merge([trunk(15, 0.34, 0.12, 0.4, [0.62, 0.6, 0.55]), limb([0.15, 10.5, 0], [-0.6, 12.2, 0.5], 0.1, [0.62, 0.6, 0.55]),
+        crown([0.3, 16.5, 0], [2.3, 4.8, 2.3], 40, 1.4, 1, leaf, 8, 0.68), crown([-0.6, 11.8, 0.5], [1.6, 2.8, 1.6], 18, 1.2, 1, leaf, 9, 0.65),
+        crown([0.9, 14.0, -0.6], [1.5, 2.4, 1.5], 14, 1.2, 1, leaf, 15, 0.65)]);
     }
     case 'shrub': {
       const leaf = [0.62, 0.72, 0.5];
-      return merge([crown([0, 1.0, 0], [1.8, 1.05, 1.8], 12, 0.95, 0, leaf, 10), crown([1.0, 0.8, 0.5], [1.15, 0.75, 1.15], 6, 0.8, 0, leaf, 11)]);
+      return merge([crown([0, 1.0, 0], [1.8, 1.05, 1.8], 22, 1.0, 0, leaf, 10, 0.75), crown([1.0, 0.8, 0.5], [1.15, 0.75, 1.15], 11, 0.85, 0, leaf, 11, 0.72),
+        crown([-0.9, 0.75, -0.6], [1.1, 0.7, 1.1], 10, 0.8, 0, leaf, 16, 0.72)]);
     }
     default: { // papyrus: a clump of thin stems, each topped by a tuft
       const parts = [];
