@@ -267,7 +267,9 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     // fractions of the lap from the real timing line, which lies timingLine m
     // along the trace (the lap here still starts at its first point).
     drsZones: drs && drs.map(z => z.map(f => ((f * length + timingLine) % length + length) % length)),
-    samples: { x: xs, y: ys, s: ss, heading: headings, curvature, kerb, line, lineStep, lineCurvature },
+    // z, bank: the centreline height (m) and cross-slope (height gained per
+    // metre to the left) at each sample, all zero without heights.
+    samples: { x: xs, y: ys, s: ss, heading: headings, curvature, kerb, line, lineStep, lineCurvature, z: zs, bank: banking },
     heading: s => headings[index(s)], curvatureAt: s => curvature[index(s)],
     // Racing-line offset (m, + right) at arc length s, interpolated.
     lineOffset: s => { const i = index(s), f = (wrap(s) - ss[i]) / (ss[i + 1] - ss[i]); return line[i] + (line[(i + 1) % n] - line[i]) * f; },

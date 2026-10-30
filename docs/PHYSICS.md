@@ -95,8 +95,13 @@ coordinates are right-handed, with body x forward, y left, and positive yaw left
   m cos θ (g + zss u² − a·∇z), so a compression presses the car down, a crest
   lightens it, and cornering against a banking (Zandvoort's 19° Turn 3) adds
   load and grip. The slope is read from the nearest part of the lap, so a
-  crossover's other level never leaks in. The autopilot's speed plan does not
-  yet use the extra grip of a banking.
+  crossover's other level never leaks in. The autopilot's (and rivals')
+  speed plan uses the banking, v² = g(μ' + b) / (|κ|(1 − μ'b) − μ'q) with
+  b = tan θ into the turn, and brakes later uphill and earlier downhill
+  (± g·grade): with the ground the autopilot laps Zandvoort ~3.4 s, Jeddah
+  ~1.6 s and RISE Motordrome ~4.9 s faster, other circuits within 0.05 s.
+  Crests and compressions stay out of the plan: the telemetry heights carry
+  ±0.001/m of profile curvature even at Monza, and planning on it only cost time.
 - Live speed, acceleration, steering, distance, normal loads, downforce,
   per-wheel combined-force utilization, signed slip, RPM, and lockup indicators.
 

@@ -47,3 +47,30 @@ test('the circuit ERS plan spreads the lap allowance over the lap at Monza and l
   assert.ok(planned.lap < greedy.lap - 0.3, `lap ${planned.lap.toFixed(2)} s vs ${greedy.lap.toFixed(2)} s`);
   assert.ok(planned.charge > 0.5 * createCar().config.ersCapacity, `store ${(planned.charge / 1e6).toFixed(2)} MJ`);
 });
+
+test('the circuit plan takes banked corners faster and laps Zandvoort and Jeddah quicker without touching a wall', () => {
+  const lap = (track, planTrack) => {
+    const car = createCar(), sim = new Simulation(car), drive = createCircuitAutopilot(planTrack);
+    const s0 = track.length - 150;
+    [car.x, car.y] = track.point(s0, track.lineOffset(s0)); car.heading = track.heading(s0);
+    let last = track.progress(car.x, car.y), start = 0, laps = 0, time = 0, walls = 0;
+    while (laps < 2) {
+      sim.advance(1 / 240, drive(car), track.surfaceAt, track.barrierAt, track.groundAt);
+      if (track.barrierAt(car.x, car.y)) walls++;
+      const p = track.progress(car.x, car.y);
+      if (last - p > track.length / 2) { newErsLap(car); laps++; time = car.time - start; start = car.time; }
+      last = p;
+    }
+    return { time, walls, plan: drive.plan(car) };
+  };
+  for (const [key, gain] of [['zandvoort', 2], ['jeddah', 1]]) {
+    const track = createCircuitTrack(CIRCUITS[key]), flat = { ...track, samples: { ...track.samples, z: undefined, bank: undefined } };
+    const a = lap(track, flat), b = lap(track, track);
+    // Sharpest point of a corner banked into the turn (b > 0.1, ~6°).
+    const { bank, lineCurvature: k } = track.samples, banked = j => -Math.sign(k[j]) * bank[j] > 0.1 ? Math.abs(k[j]) : 0;
+    let i = 0; for (let j = 0; j < k.length; j++) if (banked(j) > banked(i)) i = j;
+    assert.ok(b.plan[i] > a.plan[i] * 1.05, `${key} plan at ${track.samples.s[i].toFixed(0)} m: ${b.plan[i].toFixed(1)} vs flat ${a.plan[i].toFixed(1)} m/s`);
+    assert.equal(b.walls, 0, `${key} wall contacts`);
+    assert.ok(b.time < a.time - gain, `${key} lap ${b.time.toFixed(2)} s vs ${a.time.toFixed(2)} s on the flat plan`);
+  }
+});
