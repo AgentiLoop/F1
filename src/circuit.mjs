@@ -123,7 +123,8 @@ function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, 
 }
 
 export function createCircuitTrack({ name = 'Circuit', points, length: officialLength, roadWidth = 13, wallOffset = roadWidth / 2 + 12,
-  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, drs = null }) {
+  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, drs = null,
+  heights = null, banks = null, lakeLevel = null }) {
   const pairs = points.length && typeof points[0] === 'number' ? Array.from({ length: points.length / 2 }, (_, i) => [points[2 * i], points[2 * i + 1]]) : points;
   let poly = spline(pairs, step);
   const polyLength = () => poly.reduce((L, a, i) => { const b = poly[(i + 1) % poly.length]; return L + Math.hypot(b[0] - a[0], b[1] - a[1]); }, 0);
@@ -171,6 +172,25 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
   poly.forEach(([x, y], i) => { xs[i] = x; ys[i] = y; });
   for (let i = 0; i < n; i++) ss[i + 1] = ss[i] + Math.hypot(xs[(i + 1) % n] - xs[i], ys[(i + 1) % n] - ys[i]);
   const length = ss[n], half = roadWidth / 2;
+  // Elevation: heights (m) and banks (cross-slope, height gained per metre to
+  // the left) given at the traced points are carried to each sample by its
+  // fraction of the lap, then lightly smoothed (the points are 10 m apart).
+  const zs = new Float64Array(n), banking = new Float64Array(n);
+  if (heights) {
+    const m = pairs.length, cum = [0];
+    for (let k = 0; k < m; k++) { const a = pairs[k], b = pairs[(k + 1) % m]; cum.push(cum[k] + Math.hypot(b[0] - a[0], b[1] - a[1])); }
+    for (let i = 0, k = 0; i < n; i++) {
+      const u = ss[i] / length * cum[m];
+      while (cum[k + 1] < u) k++;
+      const f = (u - cum[k]) / (cum[k + 1] - cum[k]), k1 = (k + 1) % m;
+      zs[i] = heights[k] + (heights[k1] - heights[k]) * f;
+      if (banks) banking[i] = banks[k] + (banks[k1] - banks[k]) * f;
+    }
+    for (const a of [zs, banking]) for (let pass = 0; pass < 8; pass++) {
+      const v = a.slice();
+      for (let i = 0; i < n; i++) a[i] = 0.5 * v[i] + 0.25 * (v[(i - 1 + n) % n] + v[(i + 1) % n]);
+    }
+  }
   const headings = new Float64Array(n), curvature = new Float64Array(n);
   for (let i = 0; i < n; i++) { const j = (i + 1) % n; headings[i] = Math.atan2(ys[j] - ys[i], xs[j] - xs[i]); }
   for (let i = 0; i < n; i++) {
@@ -225,6 +245,15 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
   const progress = (x, y) => { const q = nearest(x, y); return ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f; };
   const offset = (x, y) => nearest(x, y).offset;
   const signed = s => (s = wrap(s)) > length / 2 ? s - length : s;
+  // Ground height at lap progress s, `off` metres to the right of the
+  // centreline: the road's cross-slope out to its edges, then (with
+  // elevation) falling 2% beyond them, as the RISE sim's verges do.
+  const verge = heights ? 0.02 : 0;
+  const elevation = (s, off = 0) => {
+    const i = index(s), j = (i + 1) % n, f = (wrap(s) - ss[i]) / (ss[i + 1] - ss[i]), e = Math.min(Math.abs(off), half);
+    const z = zs[i] + (zs[j] - zs[i]) * f, b = banking[i] + (banking[j] - banking[i]) * f;
+    return z - Math.sign(off) * e * b - (Math.abs(off) - e) * verge;
+  };
   const pit = pitLane ? circuitPitLane({ length, half, wallOffset, point, offset, progress, signed, curvatureAt: s => curvature[index(s)] }) : null;
   const surface = (x, y) => {
     const q = nearest(x, y), d = q.d;
@@ -243,6 +272,11 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     // Racing-line offset (m, + right) at arc length s, interpolated.
     lineOffset: s => { const i = index(s), f = (wrap(s) - ss[i]) / (ss[i + 1] - ss[i]); return line[i] + (line[(i + 1) % n] - line[i]) * f; },
     surfaceAt: (x, y) => SURFACE_GRIP[surface(x, y)],
+    // Elevation (all zero without heights): elevation(s, off) along the lap,
+    // heightAt(x, y) from the nearest part of the circuit; lakeLevel, if any,
+    // is the height of the water beside it.
+    hasElevation: !!heights, lakeLevel, elevation,
+    heightAt: (x, y) => { const q = nearest(x, y); return elevation(ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, q.offset); },
     // Walls wallOffset either side of the centreline; where two parts of the
     // circuit run closer than that, the boundary is the midline between them.
     barrierAt: (x, y) => {

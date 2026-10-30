@@ -14,11 +14,17 @@ const source = process.argv[2];
 if (!source) { console.error('usage: node tools/import_rise.mjs <rise-motordrome>/js/track-data.js'); process.exit(1); }
 const { TRACK } = await import(pathToFileURL(source).href);
 const n = TRACK.x.length, k0 = Math.round(TRACK.startLine / TRACK.step), every = Math.round(10 / TRACK.step);
-const r = v => Math.round(v * 10) / 10, points = [];
-for (let j = 0; j < n / every; j++) { const i = (k0 + j * every) % n; points.push(r(TRACK.x[i]), r(-TRACK.z[i])); }
-const entry = `  'rwanda': { name: "RISE Motordrome (planned African GP)", location: "Bugesera", length: ${TRACK.length}, timingLine: 0, roadWidth: 15, drs: [[0.961,0.0757],[0.33,0.48]],\n    points: [${points.join(',')}] },\n`;
+// Heights are metres above that sim's base altitude (1390 m above sea level;
+// its lake lies at 1356 m), banks its cross-slope (height gained per metre to
+// the left of the race direction), both at the same points.
+const BASE_ALT = 1390, r = v => Math.round(v * 10) / 10, points = [], heights = [], banks = [];
+for (let j = 0; j < n / every; j++) {
+  const i = (k0 + j * every) % n;
+  points.push(r(TRACK.x[i]), r(-TRACK.z[i])); heights.push(r(TRACK.y[i] - BASE_ALT)); banks.push(Math.round(TRACK.bank[i] * 1000) / 1000);
+}
+const entry = `  'rwanda': { name: "RISE Motordrome (planned African GP)", location: "Bugesera", length: ${TRACK.length}, timingLine: 0, roadWidth: 15, drs: [[0.961,0.0757],[0.33,0.48]], lakeLevel: ${1356 - BASE_ALT},\n    heights: [${heights.join(',')}],\n    banks: [${banks.join(',')}],\n    points: [${points.join(',')}] },\n`;
 const file = new URL('../src/circuits.mjs', import.meta.url);
-let text = readFileSync(file, 'utf8').replace(/  'rwanda': \{[^\n]*\n[^\n]*\n/, '');
+let text = readFileSync(file, 'utf8').replace(/  'rwanda': \{[^\n]*\n(?:    [^\n]*\n)*/, '');
 text = text.replace(/\n\}\);\s*$/, `\n${entry}});\n`);
 writeFileSync(file, text);
 console.log(`rwanda: ${points.length / 2} points, start line at ${TRACK.startLine} m`);

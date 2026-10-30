@@ -280,10 +280,16 @@ const skinColor = (e, mine = '#39e0ae') => skins[e.index] ? hex(DEFAULT_GRID[ski
 const drsNote = e => !sim.drsZones?.length || sim.finish.flag ? '' : e.car.drs > 0.5 ? ' · <strong style="color:#6fffc3">DRS OPEN</strong>'
   : e.drsAllowed ? ` · <strong style="color:#6fffc3">DRS${autopilot ? '' : ' · hold F'}</strong>` : !sim.drsEnabled ? ` · DRS from lap ${sim.options.drsEnableLaps + 1}`
   : e.drsGap !== null && Number.isFinite(e.drsGap) ? ` · DRS gap ${e.drsGap.toFixed(2)} s` : ' · DRS';
-// Pose a car model from its physics state: ground-plane position and heading,
-// sprung-body roll/pitch/heave, wheel spin and front-wheel steer.
+// Ground height under physics (x, y): the circuit's elevation (0 when flat).
+const groundAt = track.hasElevation ? (x, y) => track.heightAt(x, y) : () => 0;
+// Pose a car model from its physics state: position and heading on the ground
+// (pitched and rolled to its slope: heights 1.8 m ahead and behind, 0.8 m
+// either side), sprung-body roll/pitch/heave, wheel spin and front-wheel steer.
 function poseCar(m, c, angles, dt) {
-  m.group.position.set(c.x, 0, -c.y); m.group.rotation.y = c.heading;
+  const ch = Math.cos(c.heading), sh = Math.sin(c.heading), at = (f, l) => groundAt(c.x + ch * f - sh * l, c.y + sh * f + ch * l);
+  m.group.position.set(c.x, groundAt(c.x, c.y), -c.y);
+  m.group.rotation.set(track.hasElevation ? Math.atan((at(0, 0.8) - at(0, -0.8)) / 1.6) : 0, c.heading,
+    track.hasElevation ? Math.atan((at(1.8, 0) - at(-1.8, 0)) / 3.6) : 0, 'YXZ');
   // Physics roll is left side up (left = -z), pitch is nose down, heave is downward.
   m.body.rotation.set(c.body.roll, 0, -c.body.pitch); m.body.position.y = -c.body.heave;
   m.wheels.forEach((w, i) => {
@@ -313,7 +319,7 @@ const eyeTilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-4 * Math.PI
 function placeScene(dt) {
   const c = sim.car, g = model.group;
   sim.entries.forEach((e, i) => poseCar(cars[skins[i]].model, e.car, cars[skins[i]].wheelAngle, dt));
-  sun.position.set(c.x + 35, 70, -c.y + 25); sun.target.position.copy(g.position);
+  sun.position.set(c.x + 35, g.position.y + 70, -c.y + 25); sun.target.position.copy(g.position);
   forward.set(Math.cos(c.heading), 0, -Math.sin(c.heading));
   model.driver.forEach(m => { m.visible = !(cockpit && !overview); });
   if (overview) {
@@ -333,10 +339,11 @@ function placeScene(dt) {
   } else {
     camera.near = 0.1;
     camera.fov = 58;
-    const target = look.copy(g.position).addScaledVector(forward, -7).setY(2.2);
+    const target = look.copy(g.position).addScaledVector(forward, -7);
+    target.y = Math.max(g.position.y, groundAt(target.x, -target.z)) + 2.2;
     if (snapCamera) chase.copy(target); else chase.lerp(target, 1 - Math.exp(-dt * 7));
     camera.position.copy(chase);
-    camera.lookAt(look.copy(g.position).addScaledVector(forward, 4).setY(0.8));
+    camera.lookAt(look.copy(g.position).addScaledVector(forward, 4).setY(g.position.y + 0.8));
   }
   snapCamera = false;
   camera.updateProjectionMatrix();
@@ -537,7 +544,7 @@ window.f1Lab = {
   sound: () => ({ on: soundOn, state: audioCtx?.state ?? null, params: soundParams && { ...soundParams } }),
   // 3D render state: draw stats, the car's on-screen position and the pixel there.
   view: () => {
-    const gl = renderer.getContext(), p = model.group.position.clone().setY(0.5).project(camera);
+    const gl = renderer.getContext(), p = model.group.position.clone().setY(model.group.position.y + 0.5).project(camera);
     const px = Math.round((p.x + 1) / 2 * gl.drawingBufferWidth), py = Math.round((p.y + 1) / 2 * gl.drawingBufferHeight);
     const rgba = new Uint8Array(4); gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
     return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, carNdc: [p.x, p.y, p.z], carPixel: [...rgba],

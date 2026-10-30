@@ -48,11 +48,12 @@ export function centerline(halfStraight, radius, step = 2) {
 }
 
 // Strip between left offsets a and b; vertical when y1 is given (walls).
+// Heights are above the ground at each point (p.h(left offset), else 0).
 function ribbon(pts, a, b, y0, material, vScale, y1) {
-  const pos = [], uv = [], idx = [];
+  const pos = [], uv = [], idx = [], H = (p, o) => p.h ? p.h(o) : 0;
   pts.forEach((p, i) => {
-    if (y1 === undefined) pos.push(p.x + p.nx * a, y0, -(p.y + p.ny * a), p.x + p.nx * b, y0, -(p.y + p.ny * b));
-    else pos.push(p.x + p.nx * a, y0, -(p.y + p.ny * a), p.x + p.nx * a, y1, -(p.y + p.ny * a));
+    if (y1 === undefined) pos.push(p.x + p.nx * a, y0 + H(p, a), -(p.y + p.ny * a), p.x + p.nx * b, y0 + H(p, b), -(p.y + p.ny * b));
+    else { const g = H(p, a); pos.push(p.x + p.nx * a, y0 + g, -(p.y + p.ny * a), p.x + p.nx * a, y1 + g, -(p.y + p.ny * a)); }
     uv.push(0, p.s / vScale, 1, p.s / vScale);
     if (i) { const k = 2 * i; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
   });
@@ -265,11 +266,15 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
 // kerbs only where the track flags them, runoff, walls and catch fence at
 // wallOffset (left out where another part of the circuit runs closer), a
 // start/finish line and light gantry at s = 0, a grandstand beside it,
-// hoardings, trees off the circuit and a hill ring sized to the layout.
+// hoardings, trees off the circuit and a hill ring sized to the layout (with
+// elevation: everything on the ground's height, and terrain with the lake
+// instead of the hill ring and flat field, buildTerrain).
 export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const world = new THREE.Group(), half = track.roadWidth / 2, wallAt = track.wallOffset;
   const { x: X, y: Y, s: S, heading: H, kerb } = track.samples, n = X.length;
-  const pts = Array.from({ length: n + 1 }, (_, k) => { const i = k % n; return { x: X[i], y: Y[i], nx: -Math.sin(H[i]), ny: Math.cos(H[i]), s: k < n ? S[i] : track.length, i }; });
+  // Ground height (circuit.mjs elevation; offsets there are + right, here + left).
+  const ground = (s, left = 0) => track.elevation(s, -left);
+  const pts = Array.from({ length: n + 1 }, (_, k) => { const i = k % n; return { x: X[i], y: Y[i], nx: -Math.sin(H[i]), ny: Math.cos(H[i]), s: k < n ? S[i] : track.length, i, h: o => ground(S[i], o) }; });
   // Consecutive runs of samples meeting a predicate (each run shares its end point).
   const runs = keep => { const out = []; let cur = null; for (const p of pts) { if (keep(p)) (cur ??= (out.push([]), out.at(-1))).push(p); else cur = null; } return out.filter(r => r.length > 1); };
   const std = (o) => new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, ...o });
@@ -290,8 +295,26 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     noise(g, s, '#3f6b2e', 0.25, 9000);
     for (let i = 0; i < s; i += 64) { g.fillStyle = 'rgba(255,255,255,0.035)'; g.fillRect(0, i, s, 32); }
   }, size / 8, size / 8);
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
-  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -0.03, -cy); ground.receiveShadow = true; world.add(ground);
+  // With elevation: terrain shaped around the road and the lake beside it
+  // (terrainHeight); otherwise a flat field.
+  const terrainHeight = track.hasElevation ? buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) : () => 0;
+  if (!track.hasElevation) {
+    const field = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
+    field.rotation.x = -Math.PI / 2; field.position.set(cx, -0.03, -cy); field.receiveShadow = true; world.add(field);
+  }
+  // A flat mark lying on the road surface at lap progress s, `off` m to the
+  // right, `lift` m above it (+x along the track, +z to the right).
+  const basis = new THREE.Matrix4(), ax = new THREE.Vector3(), ay = new THREE.Vector3(), az = new THREE.Vector3();
+  const onRoad = (mesh, s, off, lift) => {
+    const h = track.heading(s), [x, y] = track.point(s, off), e = track.elevation(s, off), g = new THREE.Group();
+    ax.set(Math.cos(h), (track.elevation(s + 1, off) - track.elevation(s - 1, off)) / 2, -Math.sin(h)).normalize();
+    az.set(Math.sin(h), track.elevation(s, off + 0.5) - track.elevation(s, off - 0.5), Math.cos(h)).normalize();
+    ay.crossVectors(az, ax).normalize(); az.crossVectors(ax, ay);
+    g.quaternion.setFromRotationMatrix(basis.makeBasis(ax, ay, az)); g.position.set(x, e, -y).addScaledVector(ay, lift);
+    mesh.rotation.x = -Math.PI / 2; mesh.receiveShadow = true; g.add(mesh); world.add(g);
+  };
+  // Barriers reach below ground on hills so the terrain never shows under them.
+  const footing = track.hasElevation ? -0.6 : 0;
 
   const kerbTex = texture(64, (g, s) => { g.fillStyle = '#d8dad6'; g.fillRect(0, 0, s, s); g.fillStyle = '#c3302b'; g.fillRect(0, 0, s, s / 2); });
   const wallTex = texture(128, (g, s) => {
@@ -315,20 +338,20 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     // Barrier where its line is still nearest this part of the circuit.
     const clear = p => Math.abs(track.offset(p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt)) > wallAt - 1;
     for (const r of runs(clear)) {
-      const w = ribbon(r, side * wallAt, 0, 0, std({ map: wallTex, roughness: 0.8 }), 6, 1.1); w.castShadow = true; world.add(w);
+      const w = ribbon(r, side * wallAt, 0, footing, std({ map: wallTex, roughness: 0.8 }), 6, 1.1); w.castShadow = true; world.add(w);
       world.add(ribbon(r, side * wallAt, 0, 1.1, fenceMat, 0.16, 4.2));
-      r.forEach((p, k) => { if (k % 4 === 0) postSpots.push([p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt]); });
+      r.forEach((p, k) => { if (k % 4 === 0) postSpots.push([p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt, p.h(side * wallAt)]); });
     }
   }
   const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.06, 4.2, 6), steel, postSpots.length);
-  postSpots.forEach(([x, y], i) => posts.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, 2.1, -y)));
+  postSpots.forEach(([x, y, h], i) => posts.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, h + 2.1, -y)));
   world.add(posts);
 
-  // Start/finish at s = 0 in a local frame: +x along the track, +z to the right.
-  const start = new THREE.Group(); start.position.set(X[0], 0, -Y[0]); start.rotation.y = H[0]; world.add(start);
+  // Start/finish at s = 0 in a local frame: +x along the track, +z to the right
+  // (standing on the lower of the gantry's two feet).
+  const start = new THREE.Group(); start.position.set(X[0], Math.min(ground(0, half + 2), ground(0, -half - 2)), -Y[0]); start.rotation.y = H[0]; world.add(start);
   const chequer = texture(128, (g, s) => { for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) { g.fillStyle = (i + j) % 2 ? '#111' : '#eee'; g.fillRect(i * s / 8, j * s / 8, s / 8, s / 8); } }, 1, track.roadWidth / 2);
-  const line = new THREE.Mesh(new THREE.PlaneGeometry(1.6, track.roadWidth), new THREE.MeshStandardMaterial({ map: chequer, roughness: 0.6 }));
-  line.rotation.x = -Math.PI / 2; line.position.set(0, 0.014, 0); line.receiveShadow = true; start.add(line);
+  onRoad(new THREE.Mesh(new THREE.PlaneGeometry(1.6, track.roadWidth), new THREE.MeshStandardMaterial({ map: chequer, roughness: 0.6 })), 0, 0, 0.014);
   for (const z of [-half - 2, half + 2]) {
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7, 0.5), steel); post.position.set(-6, 3.5, z); post.castShadow = true; start.add(post);
   }
@@ -358,8 +381,10 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   // Across the straight from the pit lane where there is room for it.
   const pit = track.pit, standSide = [pit ? pit.side : -1, pit ? -pit.side : 1].find(room) ?? 0;
   if (standSide) {
-    const stand = new THREE.Group(); stand.position.copy(start.position); stand.rotation.y = H[0]; world.add(stand);
-    const z0 = wallAt + 6;
+    const z0 = wallAt + 6, stand = new THREE.Group(); world.add(stand);
+    // Pitched to the straight's grade over its length (s = -120 to 0).
+    stand.position.set(X[0], ground(0, -standSide * (z0 + 8)) - 0.3, -Y[0]);
+    stand.rotation.set(0, H[0], Math.atan((ground(0, -standSide * (z0 + 8)) - ground(-120, -standSide * (z0 + 8))) / 120));
     for (let r = 0; r < 8; r++) {
       const step = new THREE.Mesh(new THREE.BoxGeometry(110, 1.2, 2), stepMats); step.castShadow = step.receiveShadow = true;
       step.position.set(-60, 0.6 + r * 1.2, standSide * (z0 + r * 2)); stand.add(step);
@@ -377,16 +402,13 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   if (pit) {
     const strip = (a, b) => Array.from({ length: Math.round((b - a) / 2) + 1 }, (_, k) => {
       const s = a + (b - a) * k / Math.round((b - a) / 2), [x, y] = track.point(s), h = track.heading(s);
-      return { x, y, nx: -Math.sin(h), ny: Math.cos(h), s: s - a };
+      return { x, y, nx: -Math.sin(h), ny: Math.cos(h), s: s - a, h: o => ground(s, o) };
     });
     // Ribbon offsets are positive to the left: centreline offset −(side × f).
     const r = f => -pit.side * f;
     world.add(ribbon(strip(pit.entry, pit.exit), r(-half), r(-pit.outer), 0.006, asphaltMaterial(Math.abs(pit.outer - half)), 30));
     world.add(ribbon(strip(pit.limitStart, pit.limitEnd), r(-pit.inner), r(-pit.inner - 0.25), 0.009, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
-    const flat = (s, f, length, width, color, y = 0.01) => {
-      const [x, z] = track.point(s, pit.side * f), m = new THREE.Mesh(new THREE.PlaneGeometry(length, width), std({ color, roughness: 0.6 }));
-      m.rotation.set(-Math.PI / 2, 0, track.heading(s)); m.position.set(x, y, -z); m.receiveShadow = true; world.add(m);
-    };
+    const flat = (s, f, length, width, color, y = 0.01) => onRoad(new THREE.Mesh(new THREE.PlaneGeometry(length, width), std({ color, roughness: 0.6 })), s, pit.side * f, y);
     for (const s of [pit.limitStart, pit.limitEnd]) flat(s, -(pit.inner + pit.outer) / 2, 0.4, pit.outer - pit.inner, 0xf2f2ee);
     const garageAt = -(wallAt + 4.5), concreteGarage = std({ color: 0xd9dcd6, roughness: 0.7 });
     for (let i = 0; i < Math.max(boxColors.length, 5); i++) {
@@ -395,7 +417,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
       const [x, y] = track.point(s, pit.side * garageAt);
       if (standSide === -pit.side || Math.abs(track.offset(x, y)) < wallAt + 3) continue;
       const g = new THREE.Mesh(new THREE.BoxGeometry(pit.boxSpacing - 0.5, 6, 7), concreteGarage);
-      g.position.set(x, 3, -y); g.rotation.y = track.heading(s); g.castShadow = g.receiveShadow = true; world.add(g);
+      g.position.set(x, track.elevation(s, pit.side * garageAt) + 2.8, -y); g.rotation.y = track.heading(s); g.castShadow = g.receiveShadow = true; world.add(g);
     }
   }
 
@@ -420,12 +442,13 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const boards = new THREE.InstancedMesh(new THREE.BoxGeometry(8, 1, 0.12), [boardBack, boardBack, boardBack, boardBack, logoMat, boardBack], boardSpots.length);
   const dummy = new THREE.Object3D();
   boardSpots.forEach(([p, off], i) => {
-    dummy.position.set(p.x + p.nx * off, 0.75, -(p.y + p.ny * off));
-    dummy.lookAt(p.x, 0.75, -p.y); dummy.updateMatrix(); boards.setMatrixAt(i, dummy.matrix);
+    const y = p.h(off) + 0.75;
+    dummy.position.set(p.x + p.nx * off, y, -(p.y + p.ny * off));
+    dummy.lookAt(p.x, y, -p.y); dummy.updateMatrix(); boards.setMatrixAt(i, dummy.matrix);
   });
   boards.castShadow = true; world.add(boards);
 
-  // Hill ring beyond the circuit.
+  // Hill ring beyond the circuit (the terrain has its own hills).
   const hillGeo = new THREE.BufferGeometry(), hp = [], hc = [], hi = [], A = 160, R = 7, r0 = extent + 450;
   const forest = new THREE.Color(0x2c4a2a), meadow = new THREE.Color(0x5d7a3e);
   for (let a = 0; a <= A; a++) for (let r = 0; r < R; r++) {
@@ -438,16 +461,16 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   hillGeo.setAttribute('position', new THREE.Float32BufferAttribute(hp, 3));
   hillGeo.setAttribute('color', new THREE.Float32BufferAttribute(hc, 3));
   hillGeo.setIndex(hi); hillGeo.computeVertexNormals();
-  world.add(new THREE.Mesh(hillGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
+  if (!track.hasElevation) world.add(new THREE.Mesh(hillGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
 
-  // Tree clusters anywhere at least 20 m clear of the road.
+  // Tree clusters anywhere at least 20 m clear of the road (and out of the water).
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
   const spots = [];
   for (let tries = 0; spots.length < 900 && tries < 600; tries++) {
     const tx = cx + (rng() - 0.5) * (maxX - minX + 300), ty = cy + (rng() - 0.5) * (maxY - minY + 300), m = 3 + Math.floor(rng() * 9);
     for (let i = 0; i < m; i++) {
       const x = tx + (rng() - 0.5) * 40, y = ty + (rng() - 0.5) * 40;
-      if (Math.abs(track.offset(x, y)) > half + 20) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
+      if (Math.abs(track.offset(x, y)) > half + 20 && !(track.lakeLevel !== null && terrainHeight(x, y) < track.lakeLevel + 1)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
     }
   }
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
@@ -455,7 +478,7 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
     const list = spots.filter(t => (t[4] < 0.45) === (k === 0));
     const mesh = new THREE.InstancedMesh(geo, treeMat, list.length);
     list.forEach(([x, y, sc, rot, v], i) => {
-      dummy.position.set(x, 0, -y); dummy.rotation.set(0, rot, 0); dummy.scale.set(sc, sc * (0.85 + v * 0.3), sc);
+      dummy.position.set(x, terrainHeight(x, y) - 0.2, -y); dummy.rotation.set(0, rot, 0); dummy.scale.set(sc, sc * (0.85 + v * 0.3), sc);
       dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
       const tint = 0.8 + rng() * 0.35; mesh.setColorAt(i, new THREE.Color(tint * (0.95 + rng() * 0.15), tint, tint * (0.85 + rng() * 0.15)));
     });
@@ -464,6 +487,123 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   }));
   world.userData = { center: [cx, cy], extent };
   return world;
+}
+
+// Terrain for a circuit with elevation, after the RISE Motordrome sim's: the
+// ground follows the road out past the barriers, eases into rolling country
+// that rises to hills towards the horizon, and dips into the lake. The lake
+// outline is that sim's (js/terrain.js LAKE_BLOBS: discs [x, z, radius] in
+// world metres, x east, z south, joined by a smooth union) with a ragged
+// shore of our own; its banks ease down to the water over about 140 m.
+const LAKE_BLOBS = [
+  [-470, -60, 125], [-560, -40, 150], [-780, -100, 300], [-1100, 200, 420], [-1250, -350, 380],
+  [-900, 520, 230], [-1500, 100, 500], [-650, -300, 150], [-1700, -600, 520], [-1450, 700, 380],
+];
+// Signed distance (m) from the lake shore at world (x, z), negative on the water.
+function lakeSdf(x, z) {
+  let res = 1e9;
+  for (const [bx, bz, r] of LAKE_BLOBS) {
+    const d = Math.hypot(x - bx, z - bz) - r, h = Math.max(0, Math.min(1, 0.5 + 0.5 * (d - res) / 90));
+    res = d + (res - d) * h - 90 * h * (1 - h);
+  }
+  return res + 30 * Math.sin(x * 0.013 + 1.3) * Math.cos(z * 0.011 - 0.4) + 15 * Math.sin((x - z) * 0.027);
+}
+const smooth = (a, b, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+// Adds the terrain (and the lake, when the track has one) to world and
+// returns the ground height at physics (x, y).
+function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }) {
+  const wallAt = track.wallOffset, lake = track.lakeLevel, { x: X, y: Y, s: S } = track.samples, n = X.length;
+  // Coarse fields every 25 m out to 900 m beyond the circuit: the nearest
+  // centreline sample (of every 5th), the distance to it and the road height
+  // there (blurred, so there is no seam where the nearest part changes).
+  const C = 25, x0 = minX - 900, y0 = minY - 900, NX = Math.ceil((maxX - minX + 1800) / C) + 1, NY = Math.ceil((maxY - minY + 1800) / C) + 1;
+  const near = new Int32Array(NX * NY), dist = new Float32Array(NX * NY), base = new Float32Array(NX * NY);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    const x = x0 + i * C, y = y0 + j * C; let bd = Infinity, bk = 0;
+    for (let k = 0; k < n; k += 5) { const d = (X[k] - x) ** 2 + (Y[k] - y) ** 2; if (d < bd) { bd = d; bk = k; } }
+    near[j * NX + i] = bk; dist[j * NX + i] = Math.sqrt(bd); base[j * NX + i] = track.elevation(S[bk]);
+  }
+  for (let pass = 0; pass < 6; pass++) {
+    const b = base.slice(), at = (i, j) => b[Math.min(NY - 1, Math.max(0, j)) * NX + Math.min(NX - 1, Math.max(0, i))];
+    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) base[j * NX + i] = 0.5 * at(i, j) + 0.125 * (at(i - 1, j) + at(i + 1, j) + at(i, j - 1) + at(i, j + 1));
+  }
+  const cellUV = (x, y) => [Math.min(NX - 1.001, Math.max(0, (x - x0) / C)), Math.min(NY - 1.001, Math.max(0, (y - y0) / C))];
+  const bilinear = (f, x, y) => {
+    const [u, v] = cellUV(x, y), i = Math.floor(u), j = Math.floor(v), a = u - i, b = v - j, k = j * NX + i;
+    return (f[k] * (1 - a) + f[k + 1] * a) * (1 - b) + (f[k + NX] * (1 - a) + f[k + NX + 1] * a) * b;
+  };
+  // Away from the road: the road's height fading out over 150-700 m, rolling
+  // ground, hills rising towards the horizon, and the lake.
+  const far = (x, y) => {
+    const d = bilinear(dist, x, y), r = Math.hypot(x - cx, y - cy), th = Math.atan2(y - cy, x - cx);
+    let h = bilinear(base, x, y) * (1 - smooth(150, 700, d))
+      + (3 * Math.sin(x * 0.011 + 0.7) * Math.cos(y * 0.013) + 1.5 * Math.sin(x * 0.029 + y * 0.021)) * smooth(40, 200, d)
+      + Math.max(0, 45 + 30 * Math.sin(th * 3 + 1) + 20 * Math.sin(th * 7 + 2) + 10 * Math.sin(th * 17)) * smooth(extent * 0.9, extent + 1100, r);
+    if (lake !== null) {
+      const sdf = lakeSdf(x, -y);
+      h += (lake + 1.4 + Math.max(0, sdf) * 0.06 - h) * smooth(140, 0, sdf) * 0.85;
+      if (sdf < 0) h = Math.min(h, lake - 0.6 + Math.max(sdf * 0.05, -8));
+    }
+    return h;
+  };
+  // Near the road: 0.25 m under the road surface and its verges (circuit.mjs
+  // elevation at the nearest centreline point, found around the coarse one),
+  // blending into the far ground 4-150 m beyond the barriers.
+  const height = (x, y) => {
+    const [u, v] = cellUV(x, y);
+    if (bilinear(dist, x, y) > wallAt + 160) return far(x, y);
+    const i0 = near[Math.round(v) * NX + Math.round(u)];
+    let best = null;
+    for (let k = i0 - 40; k <= i0 + 40; k++) {
+      const i = (k + n) % n, j = (i + 1) % n, dx = X[j] - X[i], dy = Y[j] - Y[i];
+      const f = Math.max(0, Math.min(1, ((x - X[i]) * dx + (y - Y[i]) * dy) / (dx * dx + dy * dy))), d = Math.hypot(x - X[i] - dx * f, y - Y[i] - dy * f);
+      if (!best || d < best.d) best = { d, s: S[i] + (S[i + 1] - S[i]) * f, right: dx * (y - Y[i]) - dy * (x - X[i]) < 0 };
+    }
+    const w = smooth(wallAt + 4, wallAt + 150, best.d), road = track.elevation(best.s, best.right ? best.d : -best.d) - 0.25;
+    return w >= 1 ? far(x, y) : road + (far(x, y) - road) * w;
+  };
+  // Grid: 6 m spacing over the circuit and 200 m around it, each step 12%
+  // longer beyond, out to 1400 m past the circuit's extent.
+  const axis = (lo, hi, from, to) => {
+    const v = []; for (let a = lo; a <= hi; a += 6) v.push(a);
+    for (let a = lo, st = 6; a > from;) { st *= 1.12; a = Math.max(a - st, from); v.unshift(a); }
+    for (let a = v.at(-1), st = 6; a < to;) { st *= 1.12; a = Math.min(a + st, to); v.push(a); }
+    return v;
+  };
+  const R = extent + 1400, ax = axis(minX - 200, maxX + 200, cx - R, cx + R), ay = axis(minY - 200, maxY + 200, cy - R, cy + R);
+  const W = ax.length, N = W * ay.length, pos = new Float32Array(N * 3), uv = new Float32Array(N * 2), idx = [];
+  ay.forEach((y, j) => ax.forEach((x, i) => {
+    const k = j * W + i; pos.set([x, height(x, y), -y], k * 3); uv.set([x / 6, y / 6], k * 2);
+    if (i && j) idx.push(k - W - 1, k - W, k - 1, k - W, k, k - 1);
+  }));
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  // Colours: green grass patched with dry grass, red laterite soil where the
+  // ground is steep, sand along the shore and mud under the water.
+  const grass = new THREE.Color(0x4f7d33), dry = new THREE.Color(0x8c8a4a), laterite = new THREE.Color(0xa4532e), sand = new THREE.Color(0xb9a57a), mud = new THREE.Color(0x5b5040);
+  const col = new Float32Array(N * 3), c = new THREE.Color(), nrm = geo.attributes.normal;
+  for (let k = 0; k < N; k++) {
+    const x = pos[3 * k], h = pos[3 * k + 1], z = pos[3 * k + 2];
+    c.copy(grass).lerp(dry, smooth(-0.2, 0.8, Math.sin(x * 0.0041 + 1.7) * Math.cos(z * 0.0053 - 0.6) + 0.3 * Math.sin((x + z) * 0.017)));
+    c.lerp(laterite, smooth(0.06, 0.2, 1 - nrm.getY(k)));
+    if (lake !== null) c.lerp(sand, smooth(lake + 3.5, lake + 1, h)).lerp(mud, smooth(lake, lake - 1.5, h));
+    col.set([c.r, c.g, c.b], 3 * k);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const detail = texture(256, (g, s) => noise(g, s, '#d4d4d4', 0.45, 14000));
+  const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: detail, vertexColors: true, roughness: 1 }));
+  ground.receiveShadow = true; world.add(ground);
+  if (lake !== null) {
+    // Water over the lake's extent (the ground rises above it everywhere else).
+    let lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
+    for (const [bx, bz, r] of LAKE_BLOBS) { lx0 = Math.min(lx0, bx - r - 100); lx1 = Math.max(lx1, bx + r + 100); lz0 = Math.min(lz0, bz - r - 100); lz1 = Math.max(lz1, bz + r + 100); }
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(lx1 - lx0, lz1 - lz0),
+      new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 }));
+    water.rotation.x = -Math.PI / 2; water.position.set((lx0 + lx1) / 2, lake, (lz0 + lz1) / 2); world.add(water);
+  }
+  return height;
 }
 
 // "AgentiLoop Racing" wordmark with a two-ring loop mark; transparent background when bg is false.
