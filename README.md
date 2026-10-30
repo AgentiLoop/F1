@@ -184,6 +184,83 @@ For example [a race at Monza](https://f1.gokart.games/?track=monza&race) or
 
 ## Credits
 
-Three.js is MIT licensed (`vendor/LICENSE-three`). 3D models and textures keep their own licences; see `models/CREDITS.md`.
-The water, sea, buildings, woods, land cover, roads, walls, fences, hedges, railways, bridges and viaducts around the real circuits and the circuits' own tunnels (`src/water.mjs`, `src/coast.mjs`, `src/buildings.mjs`, `src/woods.mjs`, `src/landcover.mjs`, `src/roads.mjs`, `src/barriers.mjs`, `src/bridges.mjs`, `src/tunnels.mjs`) are from OpenStreetMap, © OpenStreetMap contributors, under the ODbL (openstreetmap.org/copyright).
-The ground around them (`src/terrain.mjs`) is from the Mapzen/AWS Terrain Tiles (open data from SRTM, NED, EU-DEM, ETOPO1 and others; see github.com/tilezen/joerd/blob/master/docs/attribution.md).
+Thanks to everyone whose work this game builds on. Each item below keeps its own
+licence; this project's licence does not cover it.
+
+### The African track: RISE Motordrome (Rwanda)
+
+The `?track=rwanda` circuit and its world are adapted from Simon Smyth's
+**"African Grand Prix" RISE Motordrome browser sim**
+([github.com/mrsmickers/rise-motordrome](https://github.com/mrsmickers/rise-motordrome),
+write-up at [simonsmyth.me](https://simonsmyth.me)), a sim of the planned
+circuit at Bugesera, Rwanda.
+
+* **Data taken from it:** the 6.0 km, 17-turn layout, its altitude and banking,
+  the lake level and the lake outline (its `js/track-data.js` and `LAKE_BLOBS`),
+  imported by `tools/import_rise.mjs` into the `'rwanda'` entry of
+  `src/circuits.mjs`; its corner positions in `src/structures.mjs`; and its
+  sky, time-of-day and night-light values in `src/sky.mjs`.
+* **Our own WebGL code, written after its WebGPU/TSL code:** the terrain and lake
+  (`buildTerrain` in `src/world3d.mjs`, `src/lake.mjs`, after `js/terrain.js` and
+  `js/water.js`), the trees (`src/savanna.mjs`, after `js/trees.js`), the
+  wildlife (`src/wildlife.mjs`, after `js/animals.js`), the grandstands, pit
+  building, footbridges, floodlights, paddock, villages, boards, marshal posts,
+  billboards and lakeside pods (`src/stands.mjs`, `src/structures.mjs`,
+  `src/lakeside.mjs`, after `js/scenery.js`), the sky and times of day
+  (`src/sky.mjs`, after `js/sky.js`), the racing-line chevrons
+  (`src/chevrons.mjs`, after `js/chevrons.js`), and the rubbered line, grid
+  slots and mowing stripes (`src/trackpaint.mjs`, after `js/trackmesh.js`).
+* Its sponsor branding is replaced by ours throughout.
+* That repository does not state a licence. See
+  [docs/RISE-MOTORDROME.md](docs/RISE-MOTORDROME.md) for exactly what was
+  borrowed and how.
+
+### Real circuits
+
+* **Layouts, heights and DRS zones** (`src/circuits.mjs`, `tools/import_elevation.mjs`):
+  car positions and telemetry from the [OpenF1 API](https://openf1.org)
+  (api.openf1.org), 2024 races (2023 at Silverstone and Interlagos).
+* **Traced circuit layouts** (how each circuit is tied to the globe,
+  `tools/osm_frame.mjs`): [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits)
+  GeoJSON, MIT License, Copyright (c) 2019-2025 Tomislav Bacinger.
+* **Banking** at Zandvoort (Turns 3 and 14) and Jeddah (Turn 13)
+  (`tools/import_banking.mjs`): the published design angles.
+* **Water, sea, buildings, woods, land cover, roads, walls, fences, hedges,
+  railways, bridges, viaducts, tunnels and pit lanes** (`src/water.mjs`,
+  `src/coast.mjs`, `src/buildings.mjs`, `src/woods.mjs`, `src/landcover.mjs`,
+  `src/roads.mjs`, `src/barriers.mjs`, `src/bridges.mjs`, `src/tunnels.mjs`,
+  `src/pits.mjs`): [OpenStreetMap](https://www.openstreetmap.org/copyright),
+  © OpenStreetMap contributors, under the ODbL, fetched through the Overpass API.
+* **The ground around them** (`src/terrain.mjs`): the Mapzen/AWS Terrain Tiles
+  (open data from SRTM, NED, EU-DEM, ETOPO1 and others; see
+  [tilezen/joerd attribution](https://github.com/tilezen/joerd/blob/master/docs/attribution.md)).
+
+### 3D models and textures
+
+Full details in [`models/CREDITS.md`](models/CREDITS.md).
+
+* **Car:** "2026 Redbull RB22" by **Tyler_Dave** (Sketchfab),
+  [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Modified: the Red Bull
+  livery is replaced at load time with each car's colours and our sponsor names,
+  the wheels and steering wheel are split out and animated, the model is fitted
+  to the physics car, and the gold fastener discs in its detail texture are
+  painted over (`src/rb22.mjs`).
+* **Asphalt:** ["Asphalt Track"](https://polyhaven.com/a/asphalt_track) by
+  **Dimitrios Savva** (Poly Haven), [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+  Modified: scaled to 1024×1024.
+
+### Code libraries (vendored in `vendor/`)
+
+* **[Three.js](https://threejs.org)** r170 (`three.module.js`), MIT licence
+  (`vendor/LICENSE-three`).
+* **Three.js addons** `GLTFLoader.js`, `BufferGeometryUtils.js` and
+  `RoomEnvironment.js` (three.js r170, MIT). Modified: the loader and geometry
+  utilities import `./three.module.js`. `RoomEnvironment.js` is three.js's port
+  of the environment scene from Google's
+  [model-viewer](https://github.com/google/model-viewer).
+* **[meshoptimizer](https://github.com/zeux/meshoptimizer)** decoder
+  (`meshopt_decoder.module.js`), MIT, © Arseny Kapoulkine.
+* The small seeded random-number generator in `src/savanna.mjs`,
+  `src/structures.mjs` and `src/wildlife.mjs` is the public-domain **mulberry32**
+  by Tommy Ettinger.
+
