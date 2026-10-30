@@ -10,7 +10,7 @@
 //   node tools/import_roads.mjs
 import { writeFileSync } from 'node:fs';
 import { CIRCUITS } from '../src/circuits.mjs';
-import { overpass, simplify, frame } from './osm_frame.mjs';
+import { overpass, simplify, frame, clipPath } from './osm_frame.mjs';
 
 const MARGIN = 600, TOL = 1.5;
 const WIDTH = { motorway: 11, trunk: 10, primary: 9, secondary: 8, tertiary: 7, unclassified: 6, residential: 6, living_street: 5, pedestrian: 5, service: 4.5 };
@@ -19,26 +19,6 @@ const widthOf = t => {
   if (w >= 2.5 && w <= 40) return w;
   if (lanes >= 1 && lanes <= 10) return lanes * 3.3 + (cls === 'motorway' || cls === 'trunk' ? 2 : 0.6);
   return one ? Math.min(WIDTH[cls], 7.5) : WIDTH[cls];
-};
-
-// The parts of an open path inside the box (Liang–Barsky on each segment).
-const clipPath = (pts, [x0, y0, x1, y1]) => {
-  const out = []; let cur = null;
-  for (let i = 0; i + 1 < pts.length; i++) {
-    const [ax, ay] = pts[i], [bx, by] = pts[i + 1], dx = bx - ax, dy = by - ay;
-    let t0 = 0, t1 = 1, ok = true;
-    for (const [p, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dy, ay - y0], [dy, y1 - ay]]) {
-      if (p === 0) { if (q < 0) ok = false; continue; }
-      const r = q / p;
-      if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
-    }
-    if (!ok || t0 > t1) { cur = null; continue; }
-    const a = [ax + dx * t0, ay + dy * t0], b = [ax + dx * t1, ay + dy * t1];
-    if (!cur || t0 > 0) { cur = [a]; out.push(cur); }
-    cur.push(b);
-    if (t1 < 1) cur = null;
-  }
-  return out;
 };
 
 const out = {}, report = [];

@@ -254,3 +254,30 @@ test('every real circuit gets its real roads and streets (OpenStreetMap), on the
   for (const key of Object.keys(SCENERY)) assert.ok(km[key] > 3, `${key}: ${km[key]} km`);
   assert.ok(km.monaco > 20, `monaco: ${km.monaco} km`);
 });
+
+test('every real circuit gets its real walls, fences, hedges, guard rails and railway lines (OpenStreetMap), clear of the circuit, the sea and the water', () => {
+  const km = {};
+  for (const [key, s] of Object.entries(SCENERY)) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: s });
+    let group = null; world.traverse(o => { if (o.userData.kind === 'barriers') group = o; });
+    assert.ok(s.barriers && group, key);
+    km[key] = group.userData.km;
+    const sea = s.sea && waterField(s.sea), water = s.water && waterField(s.water);
+    for (const m of meshes(group)) {
+      const P = m.geometry.attributes.position;
+      for (let i = 0; i < P.count; i++) {
+        const x = P.getX(i), y = -P.getZ(i);
+        assert.ok(Math.abs(track.offset(x, y)) > track.wallOffset + 2.5, `${key}: ${m.userData.kind} on the circuit`);
+        if (sea) assert.ok(sea.sd(x, y, Infinity) > 0, `${key}: ${m.userData.kind} in the sea`);
+        if (water) assert.ok(water.sd(x, y) > 0, `${key}: ${m.userData.kind} in the water`);
+      }
+    }
+  }
+  // Silverstone's hedgerows, the railway past Shanghai, Monte Carlo's walls,
+  // COTA's guard rails, the railway along Monza's park.
+  assert.ok(km.silverstone.hedges > 10, JSON.stringify(km.silverstone));
+  assert.ok(km.shanghai.railway > 5, JSON.stringify(km.shanghai));
+  assert.ok(km.monaco.walls > 2, JSON.stringify(km.monaco));
+  assert.ok(km.cota.guardRails > 3, JSON.stringify(km.cota));
+  assert.ok(km.monza.railway > 1, JSON.stringify(km.monza));
+});

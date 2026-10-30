@@ -607,6 +607,92 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) for (const [px, py, hw] of laneGrid.get(`${u + du},${v + dv}`) ?? []) if ((x - px) ** 2 + (y - py) ** 2 < (hw + pad + 1.5) ** 2) return true;
     return false;
   };
+  // The real walls, fences, hedges, guard rails and railway lines
+  // (scenery.barriers, barriers.mjs: OpenStreetMap), on the ground mesh in
+  // steps of at most 3 m: walls (2 m tall unless mapped) 0.3 m thick, hedges
+  // (1.6 m) 1 m thick, guard rails (0.8 m) 0.25 m thick, fences (1.8 m) of
+  // see-through mesh, and railway track as a ballast bed with two rails.
+  // Left out where the roads are (within 3 m of the barriers, in the sea or
+  // water, our grandstand and pits), on the streets and inside buildings.
+  const LINE = [{ h: 2, w: 0.3, color: 0xb3ab9c }, { h: 1.8 }, { h: 1.6, w: 1, color: 0x2e5524 }, { h: 0.8, w: 0.25, color: 0xb4babe }, { w: 3 }];
+  const sp = [], sc = [], si = [], fp = [], fuv = [], fi = [], bp = [], bi = [], tp = [], ti = [], lineKm = [0, 0, 0, 0, 0];
+  // Unit left normal of a run at point k.
+  const across = (run, k) => {
+    const [px, py] = run[Math.max(0, k - 1)], [qx, qy] = run[Math.min(run.length - 1, k + 1)], l = Math.hypot(qx - px, qy - py) || 1;
+    return [-(qy - py) / l, (qx - px) / l];
+  };
+  // A flat band from a to b m left of a run, `lift` m over the ground mesh.
+  const band = (run, a, b, lift, P, I) => run.forEach(([x, y], k) => {
+    const [nx, ny] = across(run, k);
+    for (const o of [a, b]) P.push(x + nx * o, onGround(x + nx * o, y + ny * o) + lift, -(y + ny * o));
+    if (k) { const q = P.length / 3 - 2; I.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+  });
+  for (const [kind, dm, ...flat] of scenery.barriers ?? []) {
+    const { h: h0, w = 0, color } = LINE[kind], h = dm ? dm / 10 : h0, path = [];
+    for (let i = 0; i + 3 < flat.length; i += 2) {
+      const [ax, ay, bx, by] = flat.slice(i, i + 4), m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
+      for (let k = i ? 1 : 0; k <= m; k++) path.push([ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
+    }
+    const keep = path.map(([x, y]) => !ours(x, y, Math.max(w, 1)) && beach(x, y) < -1 - w / 2 && shore(x, y) > w / 2 && !paved(x, y, -2) && !built(x, y, 0));
+    for (let a = 0; a < path.length;) {
+      if (!keep[a]) { a++; continue; }
+      let b = a; while (b + 1 < path.length && keep[b + 1]) b++;
+      const run = path.slice(a, b + 1);
+      a = b + 1;
+      if (run.length < 2) continue;
+      for (let k = 1; k < run.length; k++) lineKm[kind] += Math.hypot(run[k][0] - run[k - 1][0], run[k][1] - run[k - 1][1]) / 1000;
+      if (kind === 4) {
+        band(run, -1.5, 1.5, 0.1, bp, bi);
+        for (const o of [-0.72, 0.72]) band(run, o - 0.04, o + 0.04, 0.28, tp, ti);
+      } else if (kind === 1) {
+        let u = 0;
+        run.forEach(([x, y], k) => {
+          if (k) u += Math.hypot(x - run[k - 1][0], y - run[k - 1][1]) / 0.5;
+          const g = onGround(x, y); fp.push(x, g - 0.1, -y, x, g + h, -y); fuv.push(u, 0, u, (h + 0.1) / 0.5);
+          if (k) { const q = fp.length / 3 - 2; fi.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+        });
+      } else {
+        // Four corners a point (left foot, left top, right top, right foot);
+        // the sides and top between points, closed at both ends.
+        const c = new THREE.Color(color), at = sp.length / 3;
+        run.forEach(([x, y], k) => {
+          const [nx, ny] = across(run, k), d = w / 2;
+          for (const [s, up] of [[1, false], [1, true], [-1, true], [-1, false]]) {
+            const vx = x + nx * d * s, vy = y + ny * d * s, g = onGround(vx, vy);
+            sp.push(vx, up ? g + h : g - 0.4, -vy); sc.push(c.r, c.g, c.b);
+          }
+          if (k) { const q = at + 4 * k, p = q - 4; for (let f = 0; f < 3; f++) si.push(p + f, q + f, q + f + 1, p + f, q + f + 1, p + f + 1); }
+        });
+        const end = at + 4 * (run.length - 1);
+        si.push(at, at + 1, at + 2, at, at + 2, at + 3, end, end + 2, end + 1, end, end + 3, end + 2);
+      }
+    }
+  }
+  const lines = new THREE.Group();
+  const lineMesh = (P, I, mat, kindName, U, C) => {
+    if (!I.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    if (U) geo.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+    if (C) geo.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+    geo.setIndex(I); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat); m.castShadow = kindName !== 'ballast'; m.receiveShadow = true; m.userData.kind = kindName; lines.add(m);
+  };
+  lineMesh(sp, si, std({ vertexColors: true, roughness: 0.9, flatShading: true }), 'walls', null, sc);
+  const chain = texture(64, (g, s) => {
+    g.clearRect(0, 0, s, s); g.strokeStyle = '#a9b0b3'; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(s, s); g.moveTo(s, 0); g.lineTo(0, s); g.stroke();
+    g.fillStyle = '#6e7478'; g.fillRect(0, 0, 6, s);
+  });
+  lineMesh(fp, fi, new THREE.MeshStandardMaterial({ map: chain, alphaTest: 0.4, side: THREE.DoubleSide, metalness: 0.5, roughness: 0.6 }), 'fences', fuv);
+  const ballast = std({ map: texture(128, (g, s) => noise(g, s, '#7d7468', 0.35, 6000), 1, 1), roughness: 1 });
+  ballast.polygonOffset = true; ballast.polygonOffsetFactor = -3; ballast.polygonOffsetUnits = -3;
+  lineMesh(bp, bi, ballast, 'ballast');
+  lineMesh(tp, ti, std({ color: 0x8a8d90, metalness: 0.8, roughness: 0.35 }), 'rails');
+  if (lines.children.length) {
+    lines.userData = { kind: 'barriers', km: Object.fromEntries(['walls', 'fences', 'hedges', 'guardRails', 'railway'].map((k, i) => [k, Math.round(lineKm[i] * 10) / 10])) };
+    world.add(lines);
+  }
   // Trees stand at least 20 m clear of the road, 40 m in from the sea, 5 m
   // from the water, 4 m from any building and 2 m from any street, and not
   // on sand, gravel or paved ground (landcover.mjs).

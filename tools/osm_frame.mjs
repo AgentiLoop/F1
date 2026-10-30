@@ -25,7 +25,7 @@ export const overpass = (name, q) => cached(name, async () => {
   for (let attempt = 0; ; attempt++) {
     await new Promise(r => setTimeout(r, 3000 + attempt * 15000));
     const host = ['https://maps.mail.ru/osm/tools/overpass', 'https://overpass-api.de', 'https://overpass.kumi.systems'][attempt % 3];
-    const res = await fetch(`${host}/api/interpreter`, { method: 'POST', headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
+    const res = await fetch(`${host}/api/interpreter`, { method: 'POST', headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) }).catch(e => ({ ok: false, status: e.message }));
     if (res.ok) return res.text();
     if (attempt >= 5) throw new Error(`${name}: Overpass ${res.status}`);
   }
@@ -97,6 +97,26 @@ export const clip = (ring, [x0, y0, x1, y1]) => {
   return out;
 };
 // Douglas–Peucker on an open path.
+// The parts of an open path inside the box (Liang–Barsky on each segment).
+export const clipPath = (pts, [x0, y0, x1, y1]) => {
+  const out = []; let cur = null;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[i + 1], dx = bx - ax, dy = by - ay;
+    let t0 = 0, t1 = 1, ok = true;
+    for (const [p, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dy, ay - y0], [dy, y1 - ay]]) {
+      if (p === 0) { if (q < 0) ok = false; continue; }
+      const r = q / p;
+      if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+    }
+    if (!ok || t0 > t1) { cur = null; continue; }
+    const a = [ax + dx * t0, ay + dy * t0], b = [ax + dx * t1, ay + dy * t1];
+    if (!cur || t0 > 0) { cur = [a]; out.push(cur); }
+    cur.push(b);
+    if (t1 < 1) cur = null;
+  }
+  return out;
+};
+
 export const simplify = (pts, tol) => {
   if (pts.length < 3) return pts;
   let best = 0, at = 0;
