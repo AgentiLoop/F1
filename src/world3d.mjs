@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
-import { buildRiseStands } from './stands.mjs';
+import { buildRiseStands, riseStandPlan, pitBuildingSpan, STAND_LEN, DEPTH } from './stands.mjs';
 import { DEFAULT_SCENERY, waterField, terrainField, landcoverField } from './scenery.mjs';
 import { buildWildlife, wildlifePlan } from './wildlife.mjs';
 import { buildLake } from './lake.mjs';
@@ -450,12 +450,38 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // Whether (x, y) is on the plot of our own grandstand (its roof and a 3 m
   // margin: s = -125 to 5, out to wallAt + 26 on its side) or of our pit lane
   // and garages (entry to exit, out to the garages' back + 3 m), widened by
-  // `pad` m all round.
+  // `pad` m all round. With terrain, the RISE stands (roof and 3 m) and pit
+  // building (its roof slab out to wallAt + 22 m, and 3 m) take their place:
+  // their footprints laid out with track.point as stands.mjs builds them
+  // (offset and progress are ambiguous that far from the line).
+  const riseStands = track.hasElevation && standSide ? riseStandPlan(track, standSide) : [];
+  const risePits = track.hasElevation && pit && standSide !== -pit.side ? pitBuildingSpan(pit, Math.max(boxColors.length, 5)) : null;
+  const footprint = (s0, s1, f0, f1, side) => {
+    const r = [];
+    for (let s = s0; s < s1; s += 2) r.push(track.point(s, side * f0));
+    r.push(track.point(s1, side * f0), track.point(s1, side * f1));
+    for (let s = s1; s > s0; s -= 2) r.push(track.point(s, side * f1));
+    r.push(track.point(s0, side * f1));
+    const xs = r.map(p => p[0]), ys = r.map(p => p[1]);
+    return { r, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  };
+  const riseFeet = [
+    ...riseStands.map(({ s, front }) => footprint(s - STAND_LEN / 2 - 6, s + STAND_LEN / 2 + 6, front - 3, front + DEPTH + 6.5, standSide)),
+    ...(risePits ? [footprint(risePits[0] - 6, risePits[1] + 6, wallAt - 2, wallAt + 25, -pit.side)] : [])];
+  const nearRing = (r, x, y, d) => {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [ax, ay] = r[j], [bx, by] = r[i], l2 = (bx - ax) ** 2 + (by - ay) ** 2 || 1;
+      const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / l2));
+      if (Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay)) < d) return true;
+    }
+    return false;
+  };
   const ourPlot = (x, y, pad = 0) => {
+    if (riseFeet.some(f => x > f.x0 - pad && x < f.x1 + pad && y > f.y0 - pad && y < f.y1 + pad && (inside(f.r, x, y) || nearRing(f.r, x, y, pad)))) return true;
     const o = track.offset(x, y), a = Math.abs(o);
     if (a > wallAt + 26 + pad) return false;
     const near = track.progress(x, y), sp = near > track.length / 2 ? near - track.length : near;
-    if (standSide && Math.sign(o) === standSide && sp > -125 - pad && sp < 5 + pad) return true;
+    if (standSide && !track.hasElevation && Math.sign(o) === standSide && sp > -125 - pad && sp < 5 + pad) return true;
     return !!pit && Math.sign(o) === -pit.side && sp > pit.entry - 10 - pad && sp < pit.exit + 10 + pad && a < Math.max(pit.outer, wallAt + 8) + 3 + pad;
   };
   const inside = (ring, x, y) => {
@@ -465,7 +491,9 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   };
   // Points inside our grandstand and garages: no building may enclose them.
   const ourProbes = [];
-  if (standSide) for (let s = -110; s <= -10; s += 20) ourProbes.push(track.point(s, standSide * (wallAt + 14)));
+  if (standSide && !track.hasElevation) for (let s = -110; s <= -10; s += 20) ourProbes.push(track.point(s, standSide * (wallAt + 14)));
+  for (const { s, front } of riseStands) for (let d = -50; d <= 50; d += 20) ourProbes.push(track.point(s + d, standSide * (front + DEPTH / 2)));
+  if (risePits) for (let s = risePits[0]; s <= risePits[1]; s += 20) ourProbes.push(track.point(s, -pit.side * (wallAt + 11)));
   if (pit) for (let s = pit.entry; s <= pit.exit; s += 20) ourProbes.push(track.point(s, -pit.side * (wallAt + 4.5)));
 
   // Hoardings every ~36 m both sides, facing the track (none along the pit lane).

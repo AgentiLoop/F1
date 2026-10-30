@@ -98,6 +98,24 @@ test('the real grandstands (OpenStreetMap building=grandstand) are raked: seats 
   }
   assert.ok(placed.monza >= 10 && placed.silverstone >= 10 && placed.catalunya >= 8, JSON.stringify(placed));
 });
+// Our own grandstand and garages: the flat circuits' boxes, or (with terrain)
+// the RISE stands' bodies, whose boxes from above are checked in their frames.
+const ourStructures = world => meshes(world).filter(m => (m.geometry.type === 'BoxGeometry' && (m.geometry.parameters.width >= 110 || (m.geometry.parameters.height === 6 && m.geometry.parameters.depth === 7)))
+  || (m.parent?.parent?.name === 'rise-stands' && m.parent.children[0] === m));
+// Whether (x, y) is under the RISE pit building, if any: its footprint (front
+// and back edges along the lap), from its own vertices at ground level.
+const onPitBuilding = (world) => {
+  const b = meshes(world).find(m => m.name === 'pit-building');
+  if (!b) return () => false;
+  const P = b.geometry.attributes.position, pts = [];
+  for (let i = 0; i < P.count; i++) pts.push([P.getX(i), -P.getZ(i)]);
+  // The box's ground-level corners run along both long edges; hull them.
+  const hull = (() => { const p = pts.slice().sort((a, c) => a[0] - c[0] || a[1] - c[1]), cr = (o, a, c) => (a[0] - o[0]) * (c[1] - o[1]) - (a[1] - o[1]) * (c[0] - o[0]), lo = [], up = [];
+    for (const q of p) { while (lo.length > 1 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+    for (const q of p.reverse()) { while (up.length > 1 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+    return lo.slice(0, -1).concat(up.slice(0, -1)); })();
+  return (x, y) => { let c = false; for (let i = 0, j = hull.length - 1; i < hull.length; j = i++) if ((hull[i][1] > y) !== (hull[j][1] > y) && x < (hull[j][0] - hull[i][0]) * (y - hull[i][1]) / (hull[j][1] - hull[i][1]) + hull[i][0]) c = !c; return c; };
+};
 test('real grandstands nearer the circuit than our barriers are moved back behind them, onto nobody else\'s plot', () => {
   const moved = {};
   for (const key of ['monza', 'silverstone', 'catalunya']) {
@@ -115,7 +133,7 @@ test('real grandstands nearer the circuit than our barriers are moved back behin
       }
     }
     // No building corner on our own grandstand or garages (their boxes, seen from above).
-    const ours = meshes(world).filter(m => m.geometry.type === 'BoxGeometry' && (m.geometry.parameters.width >= 110 || (m.geometry.parameters.height === 6 && m.geometry.parameters.depth === 7)));
+    const ours = ourStructures(world), onPits = onPitBuilding(world);
     assert.ok(ours.length > 0, key);
     for (const m of ours) {
       m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox, inv = m.matrixWorld.clone().invert(), y0 = m.getWorldPosition(new THREE.Vector3()).y;
@@ -124,6 +142,7 @@ test('real grandstands nearer the circuit than our barriers are moved back behin
         assert.ok(!(v.x > bb.min.x && v.x < bb.max.x && v.z > bb.min.z && v.z < bb.max.z), `${key}: building on our stand or garages`);
       }
     }
+    for (const b of blocks) for (const [x, y] of b.ring) assert.ok(!onPits(x, y), `${key}: building on our pit building`);
     moved[key] = back.length;
   }
   assert.ok(moved.monza >= 10, JSON.stringify(moved));
@@ -132,7 +151,7 @@ test('real roads, walls and fences are kept off only the plot of our own grandst
   for (const key of ['monza', 'silverstone', 'spa', 'interlagos']) {
     const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] });
     world.updateMatrixWorld(true);
-    const ours = meshes(world).filter(m => m.geometry.type === 'BoxGeometry' && (m.geometry.parameters.width >= 110 || (m.geometry.parameters.height === 6 && m.geometry.parameters.depth === 7)));
+    const ours = ourStructures(world), onPits = onPitBuilding(world);
     assert.ok(ours.length > 0, key);
     const lines = meshes(world).filter(m => m.userData.kind === 'roads' || ['walls', 'fences', 'hedges', 'guardRails', 'railway'].includes(m.userData.kind) || m.parent?.userData.kind === 'barriers');
     assert.ok(lines.length > 1, key);
@@ -146,6 +165,7 @@ test('real roads, walls and fences are kept off only the plot of our own grandst
         }
       }
     }
+    for (const l of lines) { const P = l.geometry.attributes.position; for (let i = 0; i < P.count; i++) assert.ok(!onPits(P.getX(i), -P.getZ(i)), `${key}: ${l.userData.kind} on our pit building`); }
   }
 });
 
