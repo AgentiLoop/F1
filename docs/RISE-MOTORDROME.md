@@ -137,6 +137,15 @@ Done:
   barrier on the outside of the bend (switched across at the pit lane, none on
   the start straight). All face the approaching cars, at that sim's corner
   positions (its `track-data.js`, shifted by our 80.1 m start).
+- **Lakeside hospitality pods and jetties** (`src/lakeside.mjs`, after that
+  sim's `buildLakeside`): round pods with plastered walls and thatched cone
+  roofs on wooden decks, each with a 34 m plank jetty out over the water, on
+  its rays from the lakeside lobe's centre (at least 25 m from the road, 26 m
+  apart, its radii from mulberry seed 7). Our banks near the road are steeper
+  than its, so each pod stands on the waterline itself, its deck 1.2 m over
+  the water and its back set into the bank (at most 4 m higher), not 14 m back
+  from the shore; 16 pods, every jetty clear of the lake bed. Trees are kept
+  out of them; no night glow.
 
-Not yet: the rest of `scenery.js` (airport, lakeside pods and jetties).
+Not yet: the rest of `scenery.js` (airport).
 Grade and bank forces in the physics were added in 1fc5c16.
