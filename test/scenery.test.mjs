@@ -51,3 +51,24 @@ test('inland circuits have no sea; desert circuits only palms, Spa conifers and 
   const bahrain = buildCircuitWorld(createCircuitTrack(CIRCUITS.bahrain), { scenery: SCENERY.bahrain });
   assert.equal(kindsOf(bahrain), 1);
 });
+const townOf = world => meshes(world).find(m => m.userData.kind === 'buildings');
+test('town circuits get buildings clear of the road and the sea; Monaco is lined with them', () => {
+  for (const key of ['monaco', 'interlagos', 'mexico', 'jeddah', 'yas-marina']) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), town = townOf(world);
+    assert.ok(town && town.count > 0, key);
+    const m = new (town.matrix.constructor)(), c = SCENERY[key].sea == null ? null : coast(Array.from(track.samples.x, (x, i) => [x, track.samples.y[i]]), SCENERY[key].sea);
+    for (let i = 0; i < town.count; i++) {
+      town.getMatrixAt(i, m);
+      const e = m.elements, x = e[12], y = -e[14], hw = Math.hypot(e[0], e[2]) / 2, hd = Math.hypot(e[8], e[10]) / 2;
+      // Every corner of the footprint is behind the barriers, and on land.
+      for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const px = x + u * e[0] / 2 + v * e[8] / 2, py = y - (u * e[2] / 2 + v * e[10] / 2);
+        assert.ok(Math.abs(track.offset(px, py)) > track.wallOffset + 3, `${key} block ${i}`);
+        if (c) assert.ok(c.seaSide(px, py) < 0, `${key} block ${i} in the sea`);
+      }
+      assert.ok(hw > 5 && hd > 4, key);
+    }
+    if (key === 'monaco') assert.ok(town.count >= 500, `monaco: ${town.count}`);
+  }
+  for (const key of ['spa', 'silverstone']) assert.equal(townOf(buildCircuitWorld(createCircuitTrack(CIRCUITS[key]), { scenery: SCENERY[key] })), undefined, key);
+});

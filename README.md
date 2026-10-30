@@ -8,7 +8,8 @@ Race an open-wheel car against an AI field in 3D, on a stadium test track or on
 18 real circuits (Monza, Silverstone, Spa, Monaco and more, with layouts and
 hills built from real car positions: Spa climbs 100 m, the Red Bull Ring 63 m; Zandvoort's 19° and 18° banked corners and Jeddah's 12° Turn 13, and each venue's own setting: Spa's conifer forest,
 Monza's park, palms and sand at Bahrain, Jeddah and Yas Marina, the dunes and
-North Sea at Zandvoort, the sea at Jeddah and Monaco), plus the planned RISE Motordrome in Rwanda
+North Sea at Zandvoort, the sea at Jeddah and Monaco, Monte Carlo's apartment blocks and the
+towns around Interlagos, Mexico City, Jeddah and Yas Marina), plus the planned RISE Motordrome in Rwanda
 ([?track=rwanda](https://f1.gokart.games/?track=rwanda), layout, hills, banking
 and lake from the RISE Motordrome sim, with its East African trees; see [docs/RISE-MOTORDROME.md](docs/RISE-MOTORDROME.md)). It has a standing start, pit stops and tyre
 compounds, fuel, ERS and DRS, an automatic or paddle-shift gearbox, plus engine

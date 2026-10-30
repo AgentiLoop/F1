@@ -476,13 +476,43 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     return world;
   }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
-  const spots = [];
   const beach = terrainHeight.sea ?? (() => -Infinity);
+  // Town blocks (scenery.buildings): flat-roofed boxes of the given heights
+  // facing the nearest road, from `near` m (default 4) out to `far` m beyond
+  // the barriers, off the beach, standing on their lowest ground.
+  const blocks = [];
+  if (scenery.buildings) {
+    const { count, near: from = 4, far, low, high } = scenery.buildings;
+    for (let tries = 0; blocks.length < count && tries < count * 30; tries++) {
+      const x = cx + (rng() - 0.5) * (maxX - minX + 2 * far), y = cy + (rng() - 0.5) * (maxY - minY + 2 * far);
+      const w = 12 + rng() * 18, d = 10 + rng() * 14, r = Math.hypot(w, d) / 2, o = Math.abs(track.offset(x, y));
+      if (o < wallAt + from + r || o > wallAt + far || beach(x, y) > -r - 10 || blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + r + 3)) continue;
+      const near = track.progress(x, y), hd = track.heading(near), sp = near > track.length / 2 ? near - track.length : near;
+      // Not over the grandstand and garages (the straight before the line, the pit lane).
+      if ((sp > -140 && sp < 20) || (pit && sp > pit.entry - 20 && sp < pit.exit + 20)) continue;
+      let base = Infinity;
+      for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]]) base = Math.min(base, terrainHeight(x + u * r * 0.7, y + v * r * 0.7));
+      blocks.push({ x, y, r, w, d, hd, base, h: low + Math.pow(rng(), 1.6) * (high - low), tone: rng() });
+    }
+    const facade = texture(128, (g, s) => {
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, s, s);
+      g.fillStyle = '#5b6670';
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) g.fillRect(i * s / 4 + s / 16, j * s / 4 + s / 12, s / 8, s / 7);
+    });
+    const town = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ map: facade, roughness: 0.85 }), Math.max(1, blocks.length));
+    const shades = [0xe9dcc3, 0xf1e6d2, 0xd9b48f, 0xe6c9a8, 0xf4f1ea, 0xc9a98a, 0xe8d6b0];
+    blocks.forEach((b, i) => {
+      dummy.position.set(b.x, b.base - 3, -b.y); dummy.rotation.set(0, b.hd, 0); dummy.scale.set(b.w, b.h + 3, b.d);
+      dummy.updateMatrix(); town.setMatrixAt(i, dummy.matrix); town.setColorAt(i, new THREE.Color(shades[Math.floor(b.tone * shades.length)]));
+    });
+    town.count = blocks.length; town.castShadow = town.receiveShadow = true; town.userData.kind = 'buildings'; world.add(town);
+  }
+  const spots = [];
   for (let tries = 0; spots.length < scenery.clusters * 3 && tries < scenery.clusters * 2; tries++) {
     const tx = cx + (rng() - 0.5) * (maxX - minX + 300), ty = cy + (rng() - 0.5) * (maxY - minY + 300), m = 3 + Math.floor(rng() * 9);
     for (let i = 0; i < m; i++) {
       const x = tx + (rng() - 0.5) * 40, y = ty + (rng() - 0.5) * 40;
-      if (Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
+      if (Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && !blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + 4)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
     }
   }
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
