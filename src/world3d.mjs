@@ -4,6 +4,7 @@ import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
 import { buildRiseStands } from './stands.mjs';
+import { buildWildlife, wildlifePlan } from './wildlife.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -478,7 +479,12 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   // clusters anywhere at least 20 m clear of the road.
   if (track.hasElevation) {
     const terrain = { height: terrainHeight, dist: terrainHeight.dist, lake: terrainHeight.lake, lakeLevel: track.lakeLevel };
-    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, savannaPlan(track, terrain, { minX, maxX, minY, maxY }), terrain) };
+    const box = { minX, maxX, minY, maxY }, plan = savannaPlan(track, terrain, box);
+    // With the lake: the RISE sim's wildlife in glades kept clear of trees.
+    const herds = track.lakeLevel !== null ? wildlifePlan(track, terrain, box) : null;
+    if (herds) for (const k in plan) plan[k] = plan[k].filter(([x, y]) => !herds.glade(x, y));
+    const wildlife = herds ? buildWildlife(world, herds, terrain) : null;
+    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, plan, terrain), wildlife: wildlife?.counts, update: wildlife?.update };
     return world;
   }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();

@@ -385,7 +385,7 @@ function drawMinimap() {
 }
 function render(dt = 0) {
   const c = sim.car;
-  placeScene(dt); drawMinimap();
+  placeScene(dt); drawMinimap(); world.userData.update?.(dt);
   $('speed').textContent = $('speed-hud').textContent = Math.round(c.telemetry.speed * (mph ? 2.23694 : 3.6));
   $('gear').textContent = (c.gear < 0 ? 'R' : String(c.gear)) + (c.config.autoShift ? '' : ' M');
   $('long').textContent = `${(c.ax / 9.81).toFixed(2)} g`;
