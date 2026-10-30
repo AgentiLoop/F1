@@ -447,9 +447,15 @@ export function buildCircuitWorld(track, { boxColors = [] } = {}) {
   const boards = new THREE.InstancedMesh(new THREE.BoxGeometry(8, 1, 0.12), [boardBack, boardBack, boardBack, boardBack, logoMat, boardBack], boardSpots.length);
   const dummy = new THREE.Object3D();
   boardSpots.forEach(([p, off], i) => {
-    const y = p.h(off) + 0.75;
-    dummy.position.set(p.x + p.nx * off, y, -(p.y + p.ny * off));
-    dummy.lookAt(p.x, y, -p.y); dummy.updateMatrix(); boards.setMatrixAt(i, dummy.matrix);
+    const x = p.x + p.nx * off, y = p.y + p.ny * off;
+    // Keep the face toward the road, but pitch its eight-metre span to the ground.
+    az.set(-p.nx * Math.sign(off), 0, p.ny * Math.sign(off));
+    ax.set(az.z, 0, -az.x);
+    ax.y = (track.heightAt(x + ax.x * 4, y - ax.z * 4) - track.heightAt(x - ax.x * 4, y + ax.z * 4)) / 8;
+    ax.normalize(); ay.crossVectors(az, ax).normalize();
+    dummy.position.set(x, track.heightAt(x, y) + 0.75, -y);
+    dummy.quaternion.setFromRotationMatrix(basis.makeBasis(ax, ay, az));
+    dummy.updateMatrix(); boards.setMatrixAt(i, dummy.matrix);
   });
   boards.castShadow = true; world.add(boards);
 
