@@ -306,3 +306,24 @@ test('real bridges and viaducts (OpenStreetMap) stand over the circuits they cro
   assert.ok(km.shanghai.road > 2, JSON.stringify(km.shanghai));
   assert.ok(km.silverstone.foot > 0.2, JSON.stringify(km.silverstone));
 });
+
+test('the circuits\' own tunnels (OpenStreetMap): Monaco\'s tunnel, the pass under Monza\'s banking and Yas Marina\'s hotel roof the road 6.5 m up, walled outside the barriers', () => {
+  const m = {};
+  for (const [key, s] of Object.entries(SCENERY)) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: s });
+    let group = null; world.traverse(o => { if (o.userData.kind === 'tunnels') group = o; });
+    if (!s.tunnels) { assert.equal(group, null, key); continue; }
+    m[key] = group.userData.m;
+    assert.ok(group.userData.lamps > 0, key);
+    const P = meshes(group).find(o => o.userData.kind === 'tunnelShell').geometry.attributes.position;
+    for (let i = 0; i < P.count; i++) {
+      const x = P.getX(i), y = -P.getZ(i), o = track.offset(x, y), at = track.progress(x, y);
+      // Every point of the shell is either outside the barriers or over the road.
+      if (Math.abs(o) > track.wallOffset) continue;
+      const e = Math.max(track.elevation(at, -track.roadWidth / 2), track.elevation(at, 0), track.elevation(at, track.roadWidth / 2));
+      assert.ok(P.getY(i) - e > 6.4, `${key}: ${(P.getY(i) - e).toFixed(2)} m over the road at ${at.toFixed(0)} m, ${o.toFixed(1)} m across`);
+    }
+  }
+  assert.deepEqual(Object.keys(m).sort(), ['monaco', 'monza', 'yas-marina']);
+  assert.ok(m.monaco > 450 && m.monza >= 20 && m['yas-marina'] >= 20, JSON.stringify(m));
+});

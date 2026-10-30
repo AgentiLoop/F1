@@ -708,6 +708,12 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   const dp = [], di = [], ap = [], auv = [], ai = [], gp = [], gi = [], rp2 = [], ri2 = [], bridgeKm = [0, 0, 0], deckGrid = [];
   let piers = 0;
   const floorAt = (x, y) => Math.max(onGround(x, y), terrainHeight.seaLevel ?? -Infinity);
+  const tunnelRanges = scenery.tunnels ?? [];
+  const underRoof = (x, y) => {
+    if (!tunnelRanges.length || Math.abs(track.offset(x, y)) > wallAt + 3) return false;
+    const s = track.progress(x, y);
+    return tunnelRanges.some(([a, b]) => (s >= a && s <= b) || (s - track.length >= a && s - track.length <= b));
+  };
   // A closed box section from left offset a to b along run, between heights lo[k] and hi[k].
   const slab = (run, lo, hi, a, b) => {
     const at = dp.length / 3;
@@ -731,6 +737,8 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
       const [ax, ay, bx, by] = flat.slice(i, i + 4), m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
       for (let k = i ? 1 : 0; k <= m; k++) path.push([ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
     }
+    // None over the circuit's own tunnels (their roof is drawn instead, below).
+    if (path.some(([x, y]) => underRoof(x, y))) continue;
     // Inside the barriers, kept only where it crosses the circuit at 30° or more.
     const keep = path.map(([x, y], k) => {
       if (Math.abs(track.offset(x, y)) > wallAt + w / 2 + 3) return true;
@@ -790,6 +798,47 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     // Trees keep off them as off the streets.
     for (const [x, y, hw] of deckGrid) { const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`; (laneGrid.get(key) ?? laneGrid.set(key, []).get(key)).push([x, y, hw]); }
   }
+  // The circuit's own tunnels and covered stretches (scenery.tunnels,
+  // tunnels.mjs: OpenStreetMap; Monaco's tunnel, the pass under Monza's old
+  // banking) in steps of at most 2 m: a 1.5 m concrete roof whose underside
+  // stands 6.5 m over the highest point across the road, reaching 3 m past
+  // the barriers, walls from below the ground up to it just behind them,
+  // and a row of lamps either side of the middle every 8 m.
+  if (tunnelRanges.length) {
+    const tp = [], ti = [], lamps = [], out = wallAt + 3, inn = wallAt + 0.3;
+    let tunnelM = 0;
+    // A quad strip through the points corner(k, j) (j = 0, 1) along stations k.
+    const strip = (m, corner) => {
+      const at = tp.length / 3;
+      for (let k = 0; k < m; k++) for (let j = 0; j < 2; j++) tp.push(...corner(k, j));
+      for (let k = 1; k < m; k++) { const q = at + 2 * k; ti.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+    };
+    for (const [s0, s1] of tunnelRanges) {
+      const m = Math.max(2, Math.ceil((s1 - s0) / 2) + 1), st = Array.from({ length: m }, (_, k) => {
+        const s = s0 + (s1 - s0) * k / (m - 1), [x, y] = track.point(s), h = track.heading(s);
+        return { s, x, y, nx: -Math.sin(h), ny: Math.cos(h), z: Math.max(ground(s, -half), ground(s, 0), ground(s, half)) + 6.5 };
+      });
+      tunnelM += s1 - s0;
+      const at = (p, o, z) => [p.x + p.nx * o, z, -(p.y + p.ny * o)];
+      strip(m, (k, j) => at(st[k], j ? out : -out, st[k].z));
+      strip(m, (k, j) => at(st[k], j ? -out : out, st[k].z + 1.5));
+      for (const o of [-out, out, -inn, inn]) strip(m, (k, j) => at(st[k], o, Math.abs(o) === out ? st[k].z + 1.5 * j : j ? st[k].z : ground(st[k].s, o) + footing - 0.5));
+      for (const p of [st[0], st[m - 1]]) strip(2, (k, j) => at(p, k ? out : -out, p.z + 1.5 * j));
+      for (let k = 0; k < m; k += 4) for (const o of [-half * 0.4, half * 0.4]) lamps.push(at(st[k], o, st[k].z - 0.08).concat(st[k].s));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3));
+    geo.setIndex(ti); geo.computeVertexNormals();
+    const shell = new THREE.Mesh(geo, std({ color: 0x8f8d88, roughness: 0.95 }));
+    shell.castShadow = shell.receiveShadow = true; shell.userData.kind = 'tunnelShell';
+    const lampMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1.2, 0.12, 0.35), new THREE.MeshStandardMaterial({ color: 0xfff1c8, emissive: 0xffd98a, emissiveIntensity: 1.4 }), lamps.length);
+    lamps.forEach(([x, y, z, s], i) => { dummy.position.set(x, y, z); dummy.rotation.set(0, track.heading(s), 0); dummy.updateMatrix(); lampMesh.setMatrixAt(i, dummy.matrix); });
+    lampMesh.userData.kind = 'tunnelLamps';
+    const tunnels = new THREE.Group(); tunnels.add(shell, lampMesh);
+    tunnels.userData = { kind: 'tunnels', ranges: tunnelRanges, m: Math.round(tunnelM), lamps: lamps.length };
+    world.add(tunnels);
+  }
+
   // Trees stand at least 20 m clear of the road, 40 m in from the sea, 5 m
   // from the water, 4 m from any building and 2 m from any street, and not
   // on sand, gravel or paved ground (landcover.mjs).
