@@ -32,7 +32,7 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
   assert.equal(monza.getObjectByName('tecpro'), undefined);
   assert.equal(monza.getObjectByName('rise-runoff'), undefined);
   assert.equal(monza.getObjectByName('rise-sky'), undefined);
-  // RISE mowing stripes on every circuit, from the run-off to the wall, just over the flat field.
+  // RISE mowing stripes on every circuit, from the run-off to the wall, just over the ground.
   const monzaTrack = createCircuitTrack(CIRCUITS.monza), monzaMow = monza.children.filter(m => m.name === 'mowing');
   assert.ok(monzaMow.length >= 2);
   for (const m of monzaMow) {
@@ -40,7 +40,7 @@ test('RISE Motordrome: banded run-off and TecPro on the outside of tight corners
     for (let k = 0; k < p.count; k += 41) {
       const d = Math.abs(monzaTrack.offset(p.getX(k), -p.getZ(k)));
       assert.ok(d > monzaTrack.roadWidth / 2 + 7 && d < monzaTrack.wallOffset + 0.5, `verge at ${d}`);
-      assert.ok(Math.abs(p.getY(k) + 0.02) < 1e-6);
+      assert.ok(Math.abs(p.getY(k) - monzaTrack.heightAt(p.getX(k), -p.getZ(k)) + (monzaTrack.hasElevation ? 0.1 : 0.02)) < 0.2, `mowing height at ${k}`);
     }
   }
   dispose(monza);
