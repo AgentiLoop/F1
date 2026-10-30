@@ -16,8 +16,8 @@ test('the RISE Motordrome keeps its climb: 1363.5-1415 m above sea level (height
 });
 
 test("the road profile's curvature is smooth: flat Monza barely jolts the load, Eau Rouge still compresses", () => {
-  const zss = key => { const c = CIRCUITS[key], t = createCircuitTrack({ ...c, pitLane: false }), out = [];
-    for (let s = 0; s < t.length; s += 2) out.push({ d: ((s - c.timingLine * t.length / c.length) % t.length + t.length) % t.length, zss: t.groundAt(...t.point(s)).zss });
+  const zss = key => { const t = createCircuitTrack({ ...CIRCUITS[key], pitLane: false }), out = [];
+    for (let s = 0; s < t.length; s += 2) out.push({ d: s, zss: t.groundAt(...t.point(s)).zss });
     return out; };
   // Under 0.4 g at 90 m/s anywhere at Monza.
   for (const { d, zss: k } of zss('monza')) assert.ok(Math.abs(k) * 90 * 90 < 0.4 * 9.81, `Monza ${d}: ${k}`);
@@ -42,14 +42,14 @@ test('banking tilts the road: positive banks raise the left edge, and the verges
 test('Zandvoort and Jeddah bank their real banked corners, outside edge up', () => {
   // [circuit, m from the timing line, design angle (degrees)]
   for (const [key, d, degrees] of [['zandvoort', 810, 19], ['zandvoort', 3720, 18], ['jeddah', 2410, 12]]) {
-    const c = CIRCUITS[key], t = createCircuitTrack({ ...c, pitLane: false }), s = (c.timingLine + d) * t.length / c.length % t.length;
+    const t = createCircuitTrack({ ...CIRCUITS[key], pitLane: false }), s = d;
     const half = t.roadWidth / 2, rise = t.elevation(s, -half) - t.elevation(s, half);
     // Left minus right edge: the outside is raised, tan(angle) per metre across the road.
     assert.ok(Math.sign(rise) === -Math.sign(t.curvatureAt(s)), `${key} ${d}: ${rise}`);
     assert.ok(Math.abs(Math.abs(rise) - 2 * half * Math.tan(degrees * Math.PI / 180)) < 0.2, `${key} ${d}: ${rise}`);
   }
   // Zandvoort's Turn 3 rises about 4.5 m from its inside to its outside edge.
-  const z = createCircuitTrack({ ...CIRCUITS.zandvoort, pitLane: false }), s3 = (108 + 810) * z.length / 4259;
+  const z = createCircuitTrack({ ...CIRCUITS.zandvoort, pitLane: false }), s3 = 810;
   assert.ok(Math.abs(z.elevation(s3, z.roadWidth / 2) - z.elevation(s3, -z.roadWidth / 2) - 4.5) < 0.3);
   // Every other real circuit stays flat across.
   for (const key of Object.keys(CIRCUITS)) if (!['zandvoort', 'jeddah', 'rwanda'].includes(key)) assert.equal(CIRCUITS[key].banks, undefined, key);
@@ -71,7 +71,7 @@ test('the real circuits carry the climbs the cars measured (OpenF1 heights)', ()
   }
   for (const key of Object.keys(CIRCUITS)) assert.equal(CIRCUITS[key].heights.length, CIRCUITS[key].points.length / 2, key);
   // Spa: down from La Source to Eau Rouge, then up the Kemmel straight.
-  const spa = createCircuitTrack({ ...CIRCUITS.spa, pitLane: false }), at = d => spa.elevation(CIRCUITS.spa.timingLine * spa.length / CIRCUITS.spa.length + d);
+  const spa = createCircuitTrack({ ...CIRCUITS.spa, pitLane: false }), at = d => spa.elevation(d);
   assert.ok(at(1000) < at(400) - 20 && at(2400) > at(1000) + 50, `${at(400)} ${at(1000)} ${at(2400)}`);
 });
 
@@ -84,7 +84,7 @@ const carAt = (t, s, v) => {
 };
 
 test('the hills act on the car: the climb out of Eau Rouge slows a coasting car, the drop to it speeds one up', () => {
-  const spa = createCircuitTrack({ ...CIRCUITS.spa, pitLane: false }), s0 = CIRCUITS.spa.timingLine * spa.length / CIRCUITS.spa.length;
+  const spa = createCircuitTrack({ ...CIRCUITS.spa, pitLane: false }), s0 = 0;
   assert.equal(createCircuitTrack({ ...CIRCUITS.spa, heights: null, pitLane: false }).groundAt, null);
   // Steepest climb and drop (over 40 m) in the first 2.4 km: Raidillon and the run down to Eau Rouge.
   let up = null, down = null;
@@ -103,7 +103,7 @@ test('the hills act on the car: the climb out of Eau Rouge slows a coasting car,
 });
 
 test("Zandvoort's banked Turn 3 presses the car into the road; crests unload it", () => {
-  const c = CIRCUITS.zandvoort, z = createCircuitTrack({ ...c, pitLane: false }), s3 = (c.timingLine + 810) * z.length / c.length;
+  const z = createCircuitTrack({ ...CIRCUITS.zandvoort, pitLane: false }), s3 = 810;
   const load = (s, v, ground) => {
     const car = carAt(z, s, v), k = z.curvatureAt(s), gr = z.groundAt(car.x, car.y);
     // Steady cornering: the tyres supply what the slope's pull does not.

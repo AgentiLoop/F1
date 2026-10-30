@@ -533,6 +533,16 @@ two-compound rule and no strategy. The traced layouts carry no pit lane, so
 one is laid out beside the start/finish straight. It is a plausible lane, not
 the circuit's real one.
 
+Since autopilot cycle 25 the lap starts on the real timing line (the samples
+are turned round to begin there; the road is unchanged), and in the game the
+lane follows the real one (`src/pits.mjs` from `tools/import_pits.mjs`: the
+OpenStreetMap pit-lane ways, their side and the lap distances they run
+beside). On the real side it is centred beside the real lane and as long as it
+(never shorter than the layout below unless there is no room, and never under
+150 m of boxes, as at Monaco). Shanghai has no pit lane mapped and keeps the
+placement below. Races in Node with the real lanes on all 18 circuits finish
+like the old placement (lap 1, five cars, no contact).
+
 * **Layout** (`circuitPitLane` in `circuit.mjs`): the stadium's cross-section,
   measured from the centreline. The apron runs from 7.7 to 17.5 m off the
   centreline (inside the 18.5 m wall), with the fast lane at 11 m, the box marks
@@ -855,8 +865,9 @@ the cars drive about a 100 m arc, and turn 1 was 19 m against about 24 m.
   corner again, by up to 4.9 m.
 * **Placement:** each path is rotated and shifted onto the old trace (least
   squares, never mirrored) and starts at the old trace's first point. The grid,
-  pit lane and run to turn 1 therefore stay where cycle 31 left them (moving the
-  lap start to the timing line broke lap 1 then). Points are stored every 10 m.
+  pit lane and run to turn 1 therefore stayed where cycle 31 left them (moving the
+  lap start to the timing line broke lap 1 then; autopilot cycle 25 moved it
+  there, see the pit lanes section). Points are stored every 10 m.
 * **Checks on the data:** the rebuilt centrelines are within 1% of the official
   lap lengths (Hungaroring 4417 m against 4381 m, Spa 7034 m against 7004 m).
   The timing line, now read directly from the positions, lands 2–31 m from

@@ -5,7 +5,7 @@
 // negative where a range spans the line) (tools/import_tunnels.mjs).
 // Generated; do not edit by hand.
 export const TUNNELS = Object.freeze({
-  'monaco': [[487, 979]],
-  'monza': [[3278, 3303]],
-  'yas-marina': [[4411, 4440]],
+  'monaco': [[1359, 1851]],
+  'monza': [[3546, 3571]],
+  'yas-marina': [[4515, 4544]],
 });

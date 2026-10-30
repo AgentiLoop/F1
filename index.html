@@ -52,6 +52,7 @@ import { makeMirror } from './src/mirror3d.mjs';
 import { createStadiumTrack } from './src/track.mjs';
 import { createCircuitTrack } from './src/circuit.mjs';
 import { CIRCUITS } from './src/circuits.mjs';
+import { PITS } from './src/pits.mjs';
 import { SCENERY, landcoverField } from './src/scenery.mjs';
 import { createTimeTrial } from './src/trial.mjs';
 import { createLapTimer, formatLapTime } from './src/laptimer.mjs';
@@ -68,7 +69,7 @@ const halfStraight = 220, radius = 90, roadWidth = 15;
 // without it, the stadium test track hosts the race against the AI field.
 const circuitKey = Object.hasOwn(CIRCUITS, new URLSearchParams(location.search).get('track')) ? new URLSearchParams(location.search).get('track') : null;
 // The real land cover beside the road sets its surface: gravel traps, grass, paved run-off.
-const track = circuitKey ? createCircuitTrack({ ...CIRCUITS[circuitKey], cover: SCENERY[circuitKey]?.landcover ? landcoverField(SCENERY[circuitKey].landcover) : null }) : createStadiumTrack({ halfStraight, radius, roadWidth });
+const track = circuitKey ? createCircuitTrack({ ...CIRCUITS[circuitKey], pits: PITS[circuitKey], cover: SCENERY[circuitKey]?.landcover ? landcoverField(SCENERY[circuitKey].landcover) : null }) : createStadiumTrack({ halfStraight, radius, roadWidth });
 const { surfaceAt, barrierAt } = track;
 const timer = createLapTimer(track, circuitKey ? { lineProgress: 0 } : undefined);
 let autopilot = false, command = { throttle: 0, brake: 0, steer: 0 }, opponents = !circuitKey || new URLSearchParams(location.search).has('race');

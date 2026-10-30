@@ -68,7 +68,8 @@ in `.assetsignore` (tests, tools, this README) are not uploaded.
   disqualified. **B** cycles the pit request (Soft → Medium → Hard →
   cancel). On autopilot the car boxes at the next pit entry. When you drive,
   take the pit lane (on the inside of the stadium's main straight; on a real
-  circuit beside the start/finish straight, entry about 300 m before the line),
+  circuit on the side and stretch of the start/finish straight where the real
+  pit lane runs, from OpenStreetMap),
   keep to the 80 km/h limit (+5 s for speeding) and stop on your box, the first
   one, painted green. The crew holds you until it is safe to leave.
 * **DRS.** Hold **F** (gamepad right-stick click). In a race it opens from

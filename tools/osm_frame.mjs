@@ -142,7 +142,7 @@ export function frame(c) {
   const f = traces.features.find(t => t.properties.Name === c.name);
   const geo = f.geometry.coordinates, lon0 = geo.reduce((a, p) => a + p[0], 0) / geo.length, lat0 = geo.reduce((a, p) => a + p[1], 0) / geo.length;
   const project = ([lon, lat]) => [R * (lon - lon0) * rad * Math.cos(lat0 * rad), R * (lat - lat0) * rad];
-  const track = createCircuitTrack({ ...c, pitLane: false }), { x: X, y: Y } = track.samples;
+  const track = createCircuitTrack({ ...c, pitLane: false, timingLine: 0 }), { x: X, y: Y } = track.samples;
   const ours = resample(Array.from(X, (x, i) => [x, Y[i]]), 400);
   const traced = geo.map(project); if (Math.hypot(traced[0][0] - traced.at(-1)[0], traced[0][1] - traced.at(-1)[1]) < 1) traced.pop();
   let fit = null;

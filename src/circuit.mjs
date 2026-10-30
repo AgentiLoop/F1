@@ -102,10 +102,13 @@ function racingLine(xs, ys, headings, limit) {
 // `toLimit` m to the limit line, `limitLength` m of boxes, `toMerge` m to the
 // merge zone, `mergeLength` m of it to the exit) slid as little as possible
 // from its nominal place (entry `entryAt` m before the line) to fit a side's
-// room; the side needing the smaller slide gets it (left on a tie). No room
-// either side: null (no pit stops). The placement is illustrative: the
-// traced layouts carry no pit lane, so it is not each circuit's real one.
-function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, { reach = 700, minInsideRadius = 20, entryAt = 300, toLimit = 120, limitLength = 260, toMerge = 40, mergeLength = 130 } = {}) {
+// room; the side needing the smaller slide gets it (left on a tie). With the
+// real pit lane (real: [side, entry, exit], pits.mjs) it goes on that side,
+// centred beside the real one and as long (the boxes' stretch taking up the
+// difference; never shorter than the standard layout unless the room around
+// the real lane's middle is, and then never under 150 m of boxes); where
+// that side has no room for that, it is placed as without it. No room either side: null (no pit stops).
+function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, { real = null, reach = 700, minInsideRadius = 20, entryAt = 300, toLimit = 120, limitLength = 260, toMerge = 40, mergeLength = 130 } = {}) {
   const layout = { inner: half + 1.2, outer: half + 11, lane: -(half + 4.5), boxOffset: -(half + 8.5), boxSpacing: 30, speedLimit: 80 / 3.6 };
   const total = toLimit + limitLength + toMerge + mergeLength, edge = layout.outer + 1;
   const fits = (s, side) => {
@@ -113,18 +116,30 @@ function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, 
     let k = 0; for (let d = -10; d <= 10; d += 2) { const v = curvatureAt(s + d); if (Math.sign(v) === side) k = Math.max(k, Math.abs(v)); }
     return Math.abs(offset(x, y) - o) < 1 && Math.abs(signed(progress(x, y) - s)) < 20 && (k === 0 || 1 / k - edge >= minInsideRadius);
   };
+  // The room [a, b] on a side around lap distance c, or null.
+  const room = (side, c) => {
+    if (!fits(c, side)) return null;
+    let a = c, b = c;
+    while (a > c - reach && fits(a - 10, side)) a -= 10;
+    while (b < c + reach && fits(b + 10, side)) b += 10;
+    return [a, b];
+  };
   let best = null;
-  for (const side of [1, -1]) {
-    if (!fits(0, side)) continue;
-    let a = 0, b = 0;
-    while (a > -reach && fits(a - 10, side)) a -= 10;
-    while (b < reach && fits(b + 10, side)) b += 10;
-    if (b - a < total) continue;
-    const entry = Math.min(Math.max(-entryAt, a), b - total);
-    if (!best || Math.abs(entry + entryAt) < Math.abs(best.entry + entryAt)) best = { side, entry };
+  if (real) {
+    const [side, from, to] = real, mid = Math.round((from + to) / 20) * 10, r = room(side, mid);
+    if (r && r[1] - r[0] >= total - limitLength + 150) {
+      const len = Math.min(Math.max(total, to - from), r[1] - r[0]);
+      best = { side, entry: Math.min(Math.max((from + to - len) / 2, r[0]), r[1] - len), boxes: limitLength + len - total };
+    }
+  }
+  if (!best) for (const side of [1, -1]) {
+    const r = room(side, 0);
+    if (!r || r[1] - r[0] < total) continue;
+    const entry = Math.min(Math.max(-entryAt, r[0]), r[1] - total);
+    if (!best || Math.abs(entry + entryAt) < Math.abs(best.entry + entryAt)) best = { side, entry, boxes: limitLength };
   }
   if (!best) return null;
-  const { side, entry } = best, limitStart = entry + toLimit, limitEnd = limitStart + limitLength;
+  const { side, entry, boxes } = best, limitStart = entry + toLimit, limitEnd = limitStart + boxes;
   // Five boxes centred between the limit lines.
   return Object.freeze({ ...layout, side, entry, limitStart, limitEnd, mergeStart: limitEnd + toMerge, exit: limitEnd + toMerge + mergeLength,
     boxStart: (limitStart + limitEnd) / 2 - 2 * layout.boxSpacing });
@@ -132,7 +147,7 @@ function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, 
 
 export function createCircuitTrack({ name = 'Circuit', points, length: officialLength, roadWidth = 13, wallOffset = roadWidth / 2 + 12,
   step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, drs = null,
-  heights = null, banks = null, lakeLevel = null, cover = null }) {
+  heights = null, banks = null, lakeLevel = null, cover = null, pits = null }) {
   const pairs = points.length && typeof points[0] === 'number' ? Array.from({ length: points.length / 2 }, (_, i) => [points[2 * i], points[2 * i + 1]]) : points;
   let poly = spline(pairs, step);
   const polyLength = () => poly.reduce((L, a, i) => { const b = poly[(i + 1) % poly.length]; return L + Math.hypot(b[0] - a[0], b[1] - a[1]); }, 0);
@@ -199,6 +214,16 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
       for (let i = 0; i < n; i++) a[i] = 0.5 * v[i] + 0.25 * (v[(i - 1 + n) % n] + v[(i + 1) % n]);
     }
   }
+  // The lap starts on the real timing line (the start/finish line), timingLine
+  // m along the trace: the samples are turned round to begin at the one
+  // nearest it (the road itself is unchanged).
+  if (timingLine) {
+    const t = ((timingLine % ss[n]) + ss[n]) % ss[n];
+    let k = 0; while (k < n - 1 && ss[k + 1] <= t) k++;
+    if (t - ss[k] > ss[k + 1] - t) k = (k + 1) % n;
+    for (const a of [xs, ys, zs, banking]) { const v = a.slice(); for (let i = 0; i < n; i++) a[i] = v[(i + k) % n]; }
+    for (let i = 0; i < n; i++) ss[i + 1] = ss[i] + Math.hypot(xs[(i + 1) % n] - xs[i], ys[(i + 1) % n] - ys[i]);
+  }
   const headings = new Float64Array(n), curvature = new Float64Array(n);
   for (let i = 0; i < n; i++) { const j = (i + 1) % n; headings[i] = Math.atan2(ys[j] - ys[i], xs[j] - xs[i]); }
   for (let i = 0; i < n; i++) {
@@ -262,7 +287,7 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     const z = zs[i] + (zs[j] - zs[i]) * f, b = banking[i] + (banking[j] - banking[i]) * f;
     return z - Math.sign(off) * e * b - (Math.abs(off) - e) * verge;
   };
-  const pit = pitLane ? circuitPitLane({ length, half, wallOffset, point, offset, progress, signed, curvatureAt: s => curvature[index(s)] }) : null;
+  const pit = pitLane ? circuitPitLane({ length, half, wallOffset, point, offset, progress, signed, curvatureAt: s => curvature[index(s)] }, { real: pits }) : null;
   const surface = (x, y) => {
     const q = nearest(x, y), d = q.d;
     // The pit apron, and its entry and exit roads from the road edge.
@@ -274,9 +299,8 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
   return {
     kind: 'circuit', name, length, roadWidth, wallOffset, step, offset, surface, progress, point, pit,
     // DRS zones [open, close] (lap progress, m), or null: drs gives them as
-    // fractions of the lap from the real timing line, which lies timingLine m
-    // along the trace (the lap here still starts at its first point).
-    drsZones: drs && drs.map(z => z.map(f => ((f * length + timingLine) % length + length) % length)),
+    // fractions of the lap from the real timing line, where the lap starts.
+    drsZones: drs && drs.map(z => z.map(f => f * length)),
     // z, bank: the centreline height (m) and cross-slope (height gained per
     // metre to the left) at each sample, all zero without heights.
     samples: { x: xs, y: ys, s: ss, heading: headings, curvature, kerb, line, lineStep, lineCurvature, z: zs, bank: banking },
