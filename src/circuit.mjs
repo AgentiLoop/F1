@@ -123,7 +123,7 @@ function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, 
 }
 
 export function createCircuitTrack({ name = 'Circuit', points, length: officialLength, roadWidth = 13, wallOffset = roadWidth / 2 + 12,
-  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, drs = null,
+  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, lapStart = 0, drs = null,
   heights = null, banks = null, lakeLevel = null }) {
   const pairs = points.length && typeof points[0] === 'number' ? Array.from({ length: points.length / 2 }, (_, i) => [points[2 * i], points[2 * i + 1]]) : points;
   let poly = spline(pairs, step);
@@ -190,6 +190,13 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
       const v = a.slice();
       for (let i = 0; i < n; i++) a[i] = 0.5 * v[i] + 0.25 * (v[(i - 1 + n) % n] + v[(i + 1) % n]);
     }
+  }
+  // lapStart: the lap (s = 0, the start line, grid and pits) begins this far
+  // along the trace instead of at its first point; the road itself is unchanged.
+  if (lapStart) {
+    let k = 0; while (ss[k + 1] <= lapStart) k++;
+    for (const a of [xs, ys, zs, banking]) a.set([...a.subarray(k), ...a.subarray(0, k)]);
+    for (let i = 0; i < n; i++) ss[i + 1] = ss[i] + Math.hypot(xs[(i + 1) % n] - xs[i], ys[(i + 1) % n] - ys[i]);
   }
   const headings = new Float64Array(n), curvature = new Float64Array(n);
   for (let i = 0; i < n; i++) { const j = (i + 1) % n; headings[i] = Math.atan2(ys[j] - ys[i], xs[j] - xs[i]); }
@@ -265,8 +272,8 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     kind: 'circuit', name, length, roadWidth, wallOffset, step, offset, surface, progress, point, pit,
     // DRS zones [open, close] (lap progress, m), or null: drs gives them as
     // fractions of the lap from the real timing line, which lies timingLine m
-    // along the trace (the lap here still starts at its first point).
-    drsZones: drs && drs.map(z => z.map(f => ((f * length + timingLine) % length + length) % length)),
+    // along the trace (the lap here starts lapStart m along it).
+    drsZones: drs && drs.map(z => z.map(f => ((f * length + timingLine - lapStart) % length + length) % length)),
     samples: { x: xs, y: ys, s: ss, heading: headings, curvature, kerb, line, lineStep, lineCurvature },
     heading: s => headings[index(s)], curvatureAt: s => curvature[index(s)],
     // Racing-line offset (m, + right) at arc length s, interpolated.

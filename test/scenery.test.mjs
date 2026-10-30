@@ -73,8 +73,9 @@ test('town circuits get buildings clear of the road and the sea; Monaco is lined
       }
       assert.ok(hw > 5 && hd > 4, key);
     }
-    // (Port Hercule and the sea now take over a third of Monaco's box.)
-    if (key === 'monaco') assert.ok(town.count >= 350, `monaco: ${town.count}`);
+    // (Port Hercule and the sea now take over a third of Monaco's box, and the
+    // pits and grandstands on the harbour straight keep blocks off it.)
+    if (key === 'monaco') assert.ok(town.count >= 330, `monaco: ${town.count}`);
   }
   for (const key of ['spa', 'silverstone']) assert.equal(townOf(buildCircuitWorld(createCircuitTrack(CIRCUITS[key]), { scenery: SCENERY[key] })), undefined, key);
 });
