@@ -480,28 +480,39 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // roofed, with window bays of 3.5 m × 3.2 m floors. Left out where the fit
   // to the globe puts one within 3 m of the barriers, in the sea or water, or
   // where our own grandstand and garages stand (the straight before the line,
-  // the pit lane).
-  const blocks = [], cell = 40, blockGrid = new Map();
-  for (const b of scenery.buildings ?? []) {
+  // the pit lane). The grandstands among them (scenery.stands) are raked
+  // instead: their seating rises from 1.5 m over the ground at the side
+  // facing the circuit to their full height at the back, rows of spectators
+  // 0.8 m deep on top.
+  const blocks = [], cell = 40, blockGrid = new Map(), standSet = new Set(scenery.stands ?? []);
+  (scenery.buildings ?? []).forEach((b, bi) => {
     const ring = Array.from({ length: (b.length - 1) / 2 }, (_, i) => [b[1 + 2 * i], b[2 + 2 * i]]);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, ok = true;
     for (const [x, y] of ring) {
       x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
       if (Math.abs(track.offset(x, y)) < wallAt + 3 || beach(x, y) > -1 || shore(x, y) < 1) { ok = false; break; }
     }
-    if (!ok) continue;
+    if (!ok) return;
     const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
     if (Math.abs(track.offset(mx, my)) < wallAt + 40) {
       const near = track.progress(mx, my), sp = near > track.length / 2 ? near - track.length : near;
-      if ((sp > -140 && sp < 20) || (pit && sp > pit.entry - 20 && sp < pit.exit + 20)) continue;
+      if ((sp > -140 && sp < 20) || (pit && sp > pit.entry - 20 && sp < pit.exit + 20)) return;
     }
     const gs = ring.map(([x, y]) => terrainHeight(x, y)), base = Math.min(...gs);
     const blk = { ring, box: [x0, y0, x1, y1], base, top: Math.max(base + b[0], Math.max(...gs) + 2.5) };
+    if (standSet.has(bi)) {
+      // Raked by distance from the circuit; seat rows run across ux, uy (away
+      // from the nearest point of the centreline).
+      const [px, py] = track.point(track.progress(mx, my)), l = Math.hypot(mx - px, my - py) || 1, ux = (mx - px) / l, uy = (my - py) / l;
+      const d = ring.map(([x, y]) => Math.abs(track.offset(x, y))), d0 = Math.min(...d), depth = Math.max(...d) - d0, front = Math.max(...gs) + 1.5;
+      if (depth > 4 && blk.top > front + 2) Object.assign(blk, { stand: [ux, uy], depth, tops: d.map(v => front + (blk.top - front) * (v - d0) / depth), rows: d.map(v => (v - d0) / 0.8) });
+    }
     blocks.push(blk);
     for (let u = Math.floor((x0 - 5) / cell); u <= Math.floor((x1 + 5) / cell); u++) for (let v = Math.floor((y0 - 5) / cell); v <= Math.floor((y1 + 5) / cell); v++) {
       const k = `${u},${v}`; (blockGrid.get(k) ?? blockGrid.set(k, []).get(k)).push(blk);
     }
-  }
+  });
+
   // Whether (x, y) is within `pad` (up to 5) m of a building.
   const built = (x, y, pad) => (blockGrid.get(`${Math.floor(x / cell)},${Math.floor(y / cell)}`) ?? []).some(({ ring, box: [x0, y0, x1, y1] }) => {
     if (x < x0 - pad || x > x1 + pad || y < y0 - pad || y > y1 + pad) return false;
@@ -520,21 +531,29 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
       g.fillStyle = '#5b6670'; g.fillRect(s * 0.22, s * 0.22, s * 0.56, s * 0.5);
     });
     const shades = [0xe9dcc3, 0xf1e6d2, 0xd9b48f, 0xe6c9a8, 0xf4f1ea, 0xc9a98a, 0xe8d6b0, 0xcfd2d4].map(c => new THREE.Color(c));
-    const wp = [], wuv = [], wc = [], rp = [], rc = [], ri = [];
+    const wp = [], wuv = [], wc = [], rp = [], rc = [], ri = [], sp = [], suv = [], si = [], standGrey = new THREE.Color(0xb9bcb8);
     blocks.forEach((b, k) => {
-      const tone = shades[(k * 7919) % shades.length], roof = tone.clone().multiplyScalar(0.72), r = b.ring, bottom = b.base - 3, floors = (b.top - bottom) / 3.2;
+      const tone = b.stand ? standGrey : shades[(k * 7919) % shades.length], roof = tone.clone().multiplyScalar(0.72), r = b.ring, bottom = b.base - 3, tops = b.tops ?? r.map(() => b.top);
       let u = 0;
       for (let i = 0; i < r.length; i++) {
-        const [ax, ay] = r[i], [bx, by] = r[(i + 1) % r.length], du = Math.hypot(bx - ax, by - ay) / 3.5;
+        const j = (i + 1) % r.length, [ax, ay] = r[i], [bx, by] = r[j], du = Math.hypot(bx - ax, by - ay) / 3.5, fa = (tops[i] - bottom) / 3.2, fb = (tops[j] - bottom) / 3.2;
         // Two triangles, outward faces (the footprint is anticlockwise).
-        wp.push(ax, bottom, -ay, bx, bottom, -by, bx, b.top, -by, ax, bottom, -ay, bx, b.top, -by, ax, b.top, -ay);
-        wuv.push(u, 0, u + du, 0, u + du, floors, u, 0, u + du, floors, u, floors);
+        wp.push(ax, bottom, -ay, bx, bottom, -by, bx, tops[j], -by, ax, bottom, -ay, bx, tops[j], -by, ax, tops[i], -ay);
+        wuv.push(u, 0, u + du, 0, u + du, fb, u, 0, u + du, fb, u, fa);
         for (let q = 0; q < 6; q++) wc.push(tone.r, tone.g, tone.b);
         u += du;
       }
+      const tris = THREE.ShapeUtils.triangulateShape(r.map(([x, y]) => new THREE.Vector2(x, y)), []);
+      if (b.stand) {
+        // Seats: 0.5 m wide (16 to a texture's width) along the front, rows up the rake.
+        const at = sp.length / 3, [ux, uy] = b.stand;
+        r.forEach(([x, y], i) => { sp.push(x, tops[i], -y); suv.push((-x * uy + y * ux) / 8, b.rows[i]); });
+        for (const t of tris) si.push(at + t[0], at + t[1], at + t[2]);
+        return;
+      }
       const at = rp.length / 3;
       for (const [x, y] of r) { rp.push(x, b.top, -y); rc.push(roof.r, roof.g, roof.b); }
-      for (const t of THREE.ShapeUtils.triangulateShape(r.map(([x, y]) => new THREE.Vector2(x, y)), [])) ri.push(at + t[0], at + t[1], at + t[2]);
+      for (const t of tris) ri.push(at + t[0], at + t[1], at + t[2]);
     });
     const walls = new THREE.BufferGeometry();
     walls.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
@@ -547,8 +566,15 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     roofs.setIndex(ri); roofs.computeVertexNormals();
     const town = new THREE.Group();
     town.add(new THREE.Mesh(walls, new THREE.MeshStandardMaterial({ map: facade, vertexColors: true, roughness: 0.85 })), new THREE.Mesh(roofs, std({ vertexColors: true, roughness: 0.9 })));
+    if (si.length) {
+      const seats = new THREE.BufferGeometry(), map = crowd.clone(); map.repeat.set(1, 1); map.needsUpdate = true;
+      seats.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+      seats.setAttribute('uv', new THREE.Float32BufferAttribute(suv, 2));
+      seats.setIndex(si); seats.computeVertexNormals();
+      town.add(new THREE.Mesh(seats, std({ map, roughness: 0.9 })));
+    }
     town.children.forEach(m => { m.castShadow = m.receiveShadow = true; m.userData.kind = 'buildings'; });
-    town.userData = { kind: 'buildings', count: blocks.length, blocks };
+    town.userData = { kind: 'buildings', count: blocks.length, blocks, stands: blocks.filter(b => b.stand).length };
     world.add(town);
   }
   // The real roads and streets (scenery.roads, roads.mjs: OpenStreetMap):

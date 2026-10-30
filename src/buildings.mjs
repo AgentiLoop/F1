@@ -4,7 +4,8 @@
 // metres through its bacinger/f1-circuits trace: footprints within 500 m of
 // the road, simplified to 0.8 m (tools/import_buildings.mjs). Each building is
 // flat [height m, x, y, x, y, ...], its footprint anticlockwise; none is on or
-// over the road. Generated; do not edit by hand.
+// over the road. STANDS lists which of them are grandstands (building=grandstand),
+// by index. Generated; do not edit by hand.
 export const BUILDINGS = Object.freeze({
   'bahrain': [[8,-43.5,134.5,-34.5,133.5,-33,145.5,-42,146.5],
     [8,-353.5,-373,-354,-385.5,-345,-386,-344,-373.5],
@@ -9329,4 +9330,24 @@ export const BUILDINGS = Object.freeze({
     [5,-1198,-23.5,-1199.5,-18,-1213,-22,-1209.5,-34.5,-1196,-30.5,-1197,-26.5,-1200.5,-27.5,-1201.5,-24.5],
     [9,-1003,-532,-1003,-536.5,-1020.5,-537,-1020.5,-538.5,-1032,-540.5,-1031.5,-552.5,-1019,-551,-1019,-549,-973,-547.5,-973,-535,-991,-536,-991,-532],
     [5,-1197.5,-216.5,-1197,-208.5,-1207,-208,-1208,-220.5,-1193.5,-221.5,-1193,-216.5]],
+});
+export const STANDS = Object.freeze({
+  'bahrain': [2,6,11,13,16,18,21,22,27,103],
+  'shanghai': [0,1,2,5,6,9,12,14,16,20,22,23,24,25,43,49],
+  'catalunya': [0,3,4,6,7,8,10,11,13,14,15,19,24,25,26,42,49],
+  'monaco': [],
+  'montreal': [25,26,27,35,36,38],
+  'red-bull-ring': [2,3,4,5,6,8,14,15,22],
+  'silverstone': [3,6,8,11,18,20,21,30,35,36,41,42,44,45,48,52,53,63,66,71,75,77],
+  'hungaroring': [],
+  'spa': [5,7,13,17,20,23,32,42],
+  'monza': [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,28,29,30,31,32,33,38,39,40,41,42,47,54,77,142],
+  'cota': [0,1,5,10,17,20,30,31,33],
+  'mexico': [0,3,4,7,21,22,42,49,61,67,86,89,92,101,110,118,128,141,172,179,180,183,199,201,208,274],
+  'interlagos': [0,1,2],
+  'yas-marina': [1,3,11],
+  'imola': [1,9,14,18,21,27,29,30,54,57,65,66,127],
+  'zandvoort': [3],
+  'jeddah': [0,1,2,4],
+  'miami': [],
 });

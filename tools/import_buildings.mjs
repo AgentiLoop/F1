@@ -27,7 +27,7 @@ const heightOf = t => {
   return KIND_HEIGHT[t.building] ?? 8;
 };
 
-const out = {}, report = [];
+const out = {}, stands = {}, report = [];
 for (const [id, c] of Object.entries(CIRCUITS)) {
   if (id === 'rwanda') continue;
   const { X, Y, toLocal, bb: bbOf } = frame(c), half = createCircuitTrack({ ...c, pitLane: false }).roadWidth / 2;
@@ -67,8 +67,9 @@ for (const [id, c] of Object.entries(CIRCUITS)) {
   list.sort((a, b) => a.d - b.d);
   const kept = list.slice(0, MAX);
   out[id] = kept.map(b => [b.h, ...b.ring.flatMap(([x, y]) => [Math.round(x * 2) / 2, Math.round(y * 2) / 2])]);
-  const stands = kept.filter(b => b.kind === 'grandstand').length, tall = Math.max(0, ...kept.map(b => b.h));
-  report.push(`${id}: ${kept.length} buildings (of ${list.length} within ${REACH} m; ${through} on or over the road left out), ${stands} grandstands, tallest ${tall} m, ${Math.round(kept.reduce((a, b) => a + Math.abs(area(b.ring)), 0) / 1e4)} ha`);
+  stands[id] = kept.flatMap((b, i) => b.kind === 'grandstand' ? [i] : []);
+  const tall = Math.max(0, ...kept.map(b => b.h));
+  report.push(`${id}: ${kept.length} buildings (of ${list.length} within ${REACH} m; ${through} on or over the road left out), ${stands[id].length} grandstands, tallest ${tall} m, ${Math.round(kept.reduce((a, b) => a + Math.abs(area(b.ring)), 0) / 1e4)} ha`);
 }
 
 const head = `// Real buildings around each real circuit (circuits.mjs keys) from
@@ -77,8 +78,9 @@ const head = `// Real buildings around each real circuit (circuits.mjs keys) fro
 // metres through its bacinger/f1-circuits trace: footprints within ${REACH} m of
 // the road, simplified to ${TOL} m (tools/import_buildings.mjs). Each building is
 // flat [height m, x, y, x, y, ...], its footprint anticlockwise; none is on or
-// over the road. Generated; do not edit by hand.
+// over the road. STANDS lists which of them are grandstands (building=grandstand),
+// by index. Generated; do not edit by hand.
 `;
 const body = Object.entries(out).map(([id, bs]) => `  '${id}': [${bs.map(b => `[${b.join(',')}]`).join(',\n    ')}],`).join('\n');
-writeFileSync(new URL('../src/buildings.mjs', import.meta.url), `${head}export const BUILDINGS = Object.freeze({\n${body}\n});\n`);
+writeFileSync(new URL('../src/buildings.mjs', import.meta.url), `${head}export const BUILDINGS = Object.freeze({\n${body}\n});\nexport const STANDS = Object.freeze({\n${Object.entries(stands).map(([id, l]) => `  '${id}': [${l.join(',')}],`).join('\n')}\n});\n`);
 console.log(report.join('\n'));

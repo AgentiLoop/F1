@@ -78,6 +78,26 @@ test('every real circuit gets its real buildings (OpenStreetMap), clear of the r
   }
   assert.ok(counts.monaco >= 1000, `monaco: ${counts.monaco}`);
 });
+test('the real grandstands (OpenStreetMap building=grandstand) are raked: seats rise from the side facing the circuit to the back', () => {
+  const placed = {};
+  for (const key of ['monza', 'silverstone', 'catalunya', 'mexico', 'spa', 'hungaroring']) {
+    const s = SCENERY[key], track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: s }), town = townOf(world);
+    const stands = town.userData.blocks.filter(b => b.stand);
+    assert.equal(stands.length, town.userData.stands, key);
+    if (!s.stands) { assert.equal(stands.length, 0, key); continue; }
+    for (const b of stands) {
+      // The lowest seats are the ones nearest the circuit, the highest the farthest.
+      const off = b.ring.map(([x, y]) => Math.abs(track.offset(x, y)));
+      const lo = b.tops.indexOf(Math.min(...b.tops)), hi = b.tops.indexOf(Math.max(...b.tops));
+      assert.ok(off[lo] < off[hi], `${key}: stand rakes towards the circuit`);
+      assert.ok(Math.max(...b.tops) - Math.min(...b.tops) > 2 && Math.min(...b.tops) >= b.base + 1.5 - 1e-9, key);
+    }
+    assert.ok(meshes(town).some(m => m.geometry.index && m.material.map && m.geometry.attributes.uv && !m.material.vertexColors), `${key}: seating mesh`);
+    placed[key] = stands.length;
+  }
+  assert.ok(placed.monza >= 10 && placed.silverstone >= 10 && placed.catalunya >= 8, JSON.stringify(placed));
+});
+
 
 test('real water (OpenStreetMap) lies off the road; Montreal has the Olympic Basin beside it', () => {
   const area = r => { let a = 0; for (let i = 0; i < r.length; i += 2) { const j = (i + 2) % r.length; a += r[i] * r[j + 1] - r[j] * r[i + 1]; } return a / 2; };
