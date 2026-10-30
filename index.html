@@ -52,6 +52,7 @@ import { makeMirror } from './src/mirror3d.mjs';
 import { createStadiumTrack } from './src/track.mjs';
 import { createCircuitTrack } from './src/circuit.mjs';
 import { CIRCUITS } from './src/circuits.mjs';
+import { SCENERY } from './src/scenery.mjs';
 import { createTimeTrial } from './src/trial.mjs';
 import { createLapTimer, formatLapTime } from './src/laptimer.mjs';
 import { createDriverInput, readGamepad } from './src/input.mjs';
@@ -244,7 +245,7 @@ Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, n
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target);
 const boxColors = [0x39e0ae, ...DEFAULT_GRID.map(g => g.color)];
-const world = circuitKey ? buildCircuitWorld(track, { boxColors }) : buildWorld({ halfStraight, radius, roadWidth, boxColors });
+const world = circuitKey ? buildCircuitWorld(track, { boxColors, scenery: SCENERY[circuitKey] }) : buildWorld({ halfStraight, radius, roadWidth, boxColors });
 scene.add(world);
 // Real circuits span kilometres: see the far side of the layout from the overview.
 if (circuitKey) camera.far = 2 * world.userData.extent + 3000;
