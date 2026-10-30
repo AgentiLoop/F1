@@ -693,6 +693,103 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     lines.userData = { kind: 'barriers', km: Object.fromEntries(['walls', 'fences', 'hedges', 'guardRails', 'railway'].map((k, i) => [k, Math.round(lineKm[i] * 10) / 10])) };
     world.add(lines);
   }
+  // The real bridges and viaducts (scenery.bridges, bridges.mjs:
+  // OpenStreetMap) in steps of at most 3 m: a concrete deck (roads 1.2 m
+  // thick, railways 1.4 m, footbridges 0.5 m) 1 m wider than the way with
+  // 1.1 m parapets, asphalt on road decks, ballast and rails on railway
+  // ones, and a pier about every 30 m where the deck stands 2.5 m or more
+  // over the ground (none on the circuit or a street). The deck clears the
+  // ground (or the sea) by 5.5 m a layer for roads and railways, 2.5 m for
+  // footbridges, easing down to it over the 40 m at its ends, and the
+  // circuit by 6.5 m wherever it crosses it; it falls at most 8% (railways
+  // 5%, footbridges 30%) from there. Left out where a bridge runs along the
+  // circuit inside its barriers (a street circuit's own bridges).
+  const BRIDGE = [{ t: 1.2, c: 5.5, g: 0.08 }, { t: 1.4, c: 5.5, g: 0.05 }, { t: 0.5, c: 2.5, g: 0.3 }];
+  const dp = [], di = [], ap = [], auv = [], ai = [], gp = [], gi = [], rp2 = [], ri2 = [], bridgeKm = [0, 0, 0], deckGrid = [];
+  let piers = 0;
+  const floorAt = (x, y) => Math.max(onGround(x, y), terrainHeight.seaLevel ?? -Infinity);
+  // A closed box section from left offset a to b along run, between heights lo[k] and hi[k].
+  const slab = (run, lo, hi, a, b) => {
+    const at = dp.length / 3;
+    run.forEach(([x, y], k) => {
+      const [nx, ny] = across(run, k);
+      for (const [o, up] of [[b, false], [b, true], [a, true], [a, false]]) dp.push(x + nx * o, up ? hi[k] : lo[k], -(y + ny * o));
+      if (k) { const q = at + 4 * k, p = q - 4; for (let f = 0; f < 4; f++) { const f1 = (f + 1) % 4; di.push(p + f, q + f, q + f1, p + f, q + f1, p + f1); } }
+    });
+    const end = at + 4 * (run.length - 1);
+    di.push(at, at + 1, at + 2, at, at + 2, at + 3, end, end + 2, end + 1, end, end + 3, end + 2);
+  };
+  // A flat band from a to b m left of run at heights z[k] + lift.
+  const deckBand = (run, z, a, b, lift, P, I, U) => run.forEach(([x, y], k) => {
+    const [nx, ny] = across(run, k);
+    for (const o of [a, b]) { P.push(x + nx * o, z[k] + lift, -(y + ny * o)); U?.push((x + nx * o) / 2.5, (y + ny * o) / 2.5); }
+    if (k) { const q = P.length / 3 - 2; I.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+  });
+  for (const [kind, w, layer, ...flat] of scenery.bridges ?? []) {
+    const { t, c, g } = BRIDGE[kind], path = [];
+    for (let i = 0; i + 3 < flat.length; i += 2) {
+      const [ax, ay, bx, by] = flat.slice(i, i + 4), m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
+      for (let k = i ? 1 : 0; k <= m; k++) path.push([ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
+    }
+    // Inside the barriers, kept only where it crosses the circuit at 30° or more.
+    const keep = path.map(([x, y], k) => {
+      if (Math.abs(track.offset(x, y)) > wallAt + w / 2 + 3) return true;
+      const [px, py] = path[Math.max(0, k - 1)], [qx, qy] = path[Math.min(path.length - 1, k + 1)], l = Math.hypot(qx - px, qy - py) || 1;
+      const gx = track.offset(x + 1, y) - track.offset(x - 1, y), gy = track.offset(x, y + 1) - track.offset(x, y - 1);
+      return Math.abs(gx * (qx - px) + gy * (qy - py)) / (Math.hypot(gx, gy) || 1) / l > 0.5;
+    });
+    for (let a = 0; a < path.length;) {
+      if (!keep[a]) { a++; continue; }
+      let b = a; while (b + 1 < path.length && keep[b + 1]) b++;
+      const run = path.slice(a, b + 1);
+      a = b + 1;
+      if (run.length < 2) continue;
+      const s = [0]; for (let k = 1; k < run.length; k++) s.push(s[k - 1] + Math.hypot(run[k][0] - run[k - 1][0], run[k][1] - run[k - 1][1]));
+      const len = s.at(-1), fl = run.map(([x, y]) => floorAt(x, y)), over = run.map(([x, y]) => Math.abs(track.offset(x, y)) < wallAt + 2);
+      const z = run.map((_, k) => Math.max(fl[k] + (c + 5 * (layer - 1) + t) * Math.min(1, Math.min(s[k], len - s[k]) / 40), over[k] ? fl[k] + 6.5 + t : -Infinity, fl[k] + 0.3));
+      for (let k = 1; k < run.length; k++) z[k] = Math.max(z[k], z[k - 1] - g * (s[k] - s[k - 1]));
+      for (let k = run.length - 2; k >= 0; k--) z[k] = Math.max(z[k], z[k + 1] - g * (s[k + 1] - s[k]));
+      bridgeKm[kind] += len / 1000;
+      const e = w / 2 + 0.5;
+      slab(run, z.map(v => v - t), z, -e, e);
+      slab(run, z, z.map(v => v + 1.1), e - 0.25, e);
+      slab(run, z, z.map(v => v + 1.1), -e, -e + 0.25);
+      if (kind === 0) deckBand(run, z, -w / 2, w / 2, 0.03, ap, ai, auv);
+      else if (kind === 1) {
+        deckBand(run, z, -1.5, 1.5, 0.1, gp, gi);
+        for (const o of [-0.72, 0.72]) deckBand(run, z, o - 0.04, o + 0.04, 0.28, rp2, ri2);
+      }
+      for (let k = 0, next = 15; k < run.length; k++) {
+        const [x, y] = run[k];
+        deckGrid.push([x, y, e]);
+        if (s[k] < next || s[k] > len - 10) continue;
+        if (z[k] - t - fl[k] < 2.5 || over[k] || Math.abs(track.offset(x, y)) < wallAt + 1 || paved(x, y, 0)) continue;
+        const [nx, ny] = across(run, k), tx = ny, ty = -nx, pw = Math.min(w, 8) * 0.35;
+        slab([[x - tx * 0.75, y - ty * 0.75], [x + tx * 0.75, y + ty * 0.75]], [fl[k] - 1, fl[k] - 1], [z[k] - t, z[k] - t], -pw, pw);
+        piers++; next = s[k] + 30;
+      }
+    }
+  }
+  if (di.length) {
+    const spans = new THREE.Group(), add = (P, I, mat, name, U) => {
+      if (!I.length) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+      if (U) geo.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+      geo.setIndex(I); geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat); m.castShadow = name === 'decks'; m.receiveShadow = true; m.userData.kind = name; spans.add(m);
+    };
+    add(dp, di, std({ color: 0xa9a59c, roughness: 0.9, flatShading: true }), 'decks');
+    const deckAsphalt = asphaltMaterial(1, 1); deckAsphalt.color.setHex(0xa9a9a9);
+    deckAsphalt.polygonOffset = true; deckAsphalt.polygonOffsetFactor = -2; deckAsphalt.polygonOffsetUnits = -2;
+    add(ap, ai, deckAsphalt, 'deckRoads', auv);
+    add(gp, gi, ballast, 'deckBallast');
+    add(rp2, ri2, std({ color: 0x8a8d90, metalness: 0.8, roughness: 0.35 }), 'deckRails');
+    spans.userData = { kind: 'bridges', piers, km: Object.fromEntries(['road', 'railway', 'foot'].map((k, i) => [k, Math.round(bridgeKm[i] * 100) / 100])) };
+    world.add(spans);
+    // Trees keep off them as off the streets.
+    for (const [x, y, hw] of deckGrid) { const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`; (laneGrid.get(key) ?? laneGrid.set(key, []).get(key)).push([x, y, hw]); }
+  }
   // Trees stand at least 20 m clear of the road, 40 m in from the sea, 5 m
   // from the water, 4 m from any building and 2 m from any street, and not
   // on sand, gravel or paved ground (landcover.mjs).
@@ -958,6 +1055,7 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   height.dist = (x, y) => bilinear(dist, x, y);
   height.lake = lake !== null ? (x, y) => lakeSdf(x, -y) : null;
   height.sea = seaSide;
+  height.seaLevel = seaLevel;
   height.water = wf.list.length ? wf.sd : null;
   height.cover = cover;
   // The ground mesh's own height at (x, y): linear over the triangle of its

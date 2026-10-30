@@ -184,5 +184,5 @@ For example [a race at Monza](https://f1.gokart.games/?track=monza&race) or
 ## Credits
 
 Three.js is MIT licensed (`vendor/LICENSE-three`). 3D models and textures keep their own licences; see `models/CREDITS.md`.
-The water, sea, buildings, woods, land cover, roads, walls, fences, hedges and railways around the real circuits (`src/water.mjs`, `src/coast.mjs`, `src/buildings.mjs`, `src/woods.mjs`, `src/landcover.mjs`, `src/roads.mjs`, `src/barriers.mjs`) are from OpenStreetMap, © OpenStreetMap contributors, under the ODbL (openstreetmap.org/copyright).
+The water, sea, buildings, woods, land cover, roads, walls, fences, hedges, railways, bridges and viaducts around the real circuits (`src/water.mjs`, `src/coast.mjs`, `src/buildings.mjs`, `src/woods.mjs`, `src/landcover.mjs`, `src/roads.mjs`, `src/barriers.mjs`, `src/bridges.mjs`) are from OpenStreetMap, © OpenStreetMap contributors, under the ODbL (openstreetmap.org/copyright).
 The ground around them (`src/terrain.mjs`) is from the Mapzen/AWS Terrain Tiles (open data from SRTM, NED, EU-DEM, ETOPO1 and others; see github.com/tilezen/joerd/blob/master/docs/attribution.md).

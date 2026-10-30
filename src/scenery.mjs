@@ -26,7 +26,8 @@ const DUNES = { grass: 0x8f9a5a, dry: 0xd2c08e, soil: 0xc8b07c };
 // gravel traps, car parks and paddocks), and roads: the public roads and
 // streets around it (roads.mjs, OpenStreetMap), and barriers: the walls,
 // fences, hedges, guard rails and railway lines around it (barriers.mjs,
-// OpenStreetMap), added to every entry below. Where OSM maps few
+// OpenStreetMap), and bridges: the road, railway and foot bridges and
+// viaducts around it (bridges.mjs, OpenStreetMap), added to every entry below. Where OSM maps few
 // trees, clusters random clusters of trees of these kinds are added.
 import { WATER } from './water.mjs';
 import { WOODS } from './woods.mjs';
@@ -36,8 +37,9 @@ import { TERRAIN } from './terrain.mjs';
 import { LANDCOVER } from './landcover.mjs';
 import { ROADS } from './roads.mjs';
 import { BARRIERS } from './barriers.mjs';
+import { BRIDGES } from './bridges.mjs';
 
-export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, water: null, terrain: null, woods: null, landcover: null, roads: null, barriers: null });
+export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, water: null, terrain: null, woods: null, landcover: null, roads: null, barriers: null, bridges: null });
 
 export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'bahrain': { ground: DESERT, clusters: 60, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
@@ -58,7 +60,7 @@ export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'zandvoort': { ground: DUNES, clusters: 120, trees: { conifer: 0.85, broadleaf: 0.15, palm: 0 } },
   'jeddah': { ground: DESERT, clusters: 80, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
   'miami': { ground: GREEN, clusters: 160, trees: { conifer: 0, broadleaf: 0.3, palm: 0.7 } },
-}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null, terrain: TERRAIN[key] ?? null, woods: WOODS[key] && (WOODS[key].woods.length || WOODS[key].trees.length) ? WOODS[key] : null, landcover: LANDCOVER[key]?.length ? LANDCOVER[key] : null, roads: ROADS[key]?.length ? ROADS[key] : null, barriers: BARRIERS[key]?.length ? BARRIERS[key] : null })])));
+}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null, terrain: TERRAIN[key] ?? null, woods: WOODS[key] && (WOODS[key].woods.length || WOODS[key].trees.length) ? WOODS[key] : null, landcover: LANDCOVER[key]?.length ? LANDCOVER[key] : null, roads: ROADS[key]?.length ? ROADS[key] : null, barriers: BARRIERS[key]?.length ? BARRIERS[key] : null, bridges: BRIDGES[key]?.length ? BRIDGES[key] : null })])));
 
 
 // Water polygons (water.mjs form) prepared for the terrain: each as rings

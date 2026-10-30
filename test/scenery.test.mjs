@@ -281,3 +281,28 @@ test('every real circuit gets its real walls, fences, hedges, guard rails and ra
   assert.ok(km.cota.guardRails > 3, JSON.stringify(km.cota));
   assert.ok(km.monza.railway > 1, JSON.stringify(km.monza));
 });
+
+test('real bridges and viaducts (OpenStreetMap) stand over the circuits they cross with 6 m to spare and carry Mexico City\'s Line 9 and Montreal\'s railway', () => {
+  const km = {};
+  for (const [key, s] of Object.entries(SCENERY)) {
+    if (!s.bridges) continue;
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: s });
+    let group = null; world.traverse(o => { if (o.userData.kind === 'bridges') group = o; });
+    assert.ok(group, key);
+    km[key] = group.userData.km;
+    // Nothing of a bridge (deck, parapet, pier) within 6 m of the road surface it spans.
+    for (const m of meshes(group)) {
+      const P = m.geometry.attributes.position;
+      for (let i = 0; i < P.count; i++) {
+        const x = P.getX(i), y = -P.getZ(i), o = track.offset(x, y);
+        if (Math.abs(o) > track.roadWidth / 2 + 2) continue;
+        const at = track.progress(x, y), e = Math.max(track.elevation(at, o), track.elevation(at, -o));
+        assert.ok(P.getY(i) - e > 5.5, `${key}: ${m.userData.kind} ${(P.getY(i) - e).toFixed(2)} m over the road`);
+      }
+    }
+  }
+  assert.ok(km.mexico.railway > 4, JSON.stringify(km.mexico));
+  assert.ok(km.montreal.railway > 3 && km.montreal.road > 4, JSON.stringify(km.montreal));
+  assert.ok(km.shanghai.road > 2, JSON.stringify(km.shanghai));
+  assert.ok(km.silverstone.foot > 0.2, JSON.stringify(km.silverstone));
+});
