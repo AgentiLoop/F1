@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
-import { SCENERY, coast, waterField } from '../src/scenery.mjs';
+import { SCENERY, waterField } from '../src/scenery.mjs';
 
 // A do-nothing 2D canvas so buildCircuitWorld's textures can be drawn in Node.
 const ctx = new Proxy({}, { get: (_, k) => k === 'measureText' ? () => ({ width: 10 }) : k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
@@ -19,34 +19,39 @@ test('every real circuit has its scenery, with tree weights summing to 1', () =>
   assert.equal(SCENERY.rwanda, undefined);
 });
 
-test('the coast lies 160 m beyond the circuit, towards the bearing', () => {
-  const c = coast([[0, 0], [100, 50], [-30, 20]], 270);
-  assert.ok(Math.abs(c.dir[0] + 1) < 1e-12 && Math.abs(c.dir[1]) < 1e-12);
-  assert.ok(Math.abs(c.seaSide(-30, 0) + 160) < 1e-9 && Math.abs(c.seaSide(-190, 99) - 0) < 1e-9);
-});
-
 const meshes = world => { const out = []; world.traverse(o => o.isMesh && out.push(o)); return out; };
 const kindsOf = world => meshes(world).filter(m => m.isInstancedMesh && m.count > 0 && !m.geometry.parameters).length;
 
-test('coastal circuits get the sea beside them, below every part of the road', () => {
-  for (const key of ['zandvoort', 'jeddah', 'monaco']) {
-    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] });
-    const sea = meshes(world).find(m => m.material.color?.getHex() === 0x1f5b78);
-    assert.ok(sea, key);
-    let lo = Infinity;
+test('coastal circuits get the real sea (OpenStreetMap) beside them, below the road, off it, with no tree in it', () => {
+  assert.deepEqual(Object.keys(SCENERY).filter(k => SCENERY[k].sea).sort(), ['bahrain', 'jeddah', 'monaco', 'yas-marina', 'zandvoort']);
+  for (const key of ['zandvoort', 'jeddah', 'monaco', 'yas-marina']) {
+    const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), sf = waterField(SCENERY[key].sea);
+    const seas = meshes(world).filter(m => m.userData.kind === 'sea');
+    assert.equal(seas.length, sf.list.length, key);
+    let lo = Infinity, near = Infinity;
     for (let s = 0; s < track.length; s += 5) lo = Math.min(lo, track.elevation(s, -track.roadWidth / 2), track.elevation(s, track.roadWidth / 2));
-    assert.ok(sea.position.y < lo - 2, `${key}: sea ${sea.position.y} road ${lo}`);
-    // No tree stands in the water.
-    const c = coast(Array.from(track.samples.x, (x, i) => [x, track.samples.y[i]]), SCENERY[key].sea), m = new (sea.matrix.constructor)();
-    for (const t of meshes(world).filter(o => o.isInstancedMesh && o.count > 0 && !o.geometry.parameters)) {
-      for (let i = 0; i < t.count; i++) { t.getMatrixAt(i, m); assert.ok(c.seaSide(m.elements[12], -m.elements[14]) < 0, key); }
+    for (const m of seas) assert.ok(m.position.y < lo - 2, `${key}: sea ${m.position.y} road ${lo}`);
+    for (let i = 0; i < track.samples.x.length; i++) near = Math.min(near, sf.sd(track.samples.x[i], track.samples.y[i], Infinity));
+    assert.ok(near > 0 && near < 500, `${key}: road ${near} m from the sea`);
+    // The ground dips under the sea (Port Hercule and Yas Marina right up to the barriers).
+    const P = meshes(world).filter(o => o.material.vertexColors && o.geometry.index).sort((a, b) => b.geometry.attributes.position.count - a.geometry.attributes.position.count)[0].geometry.attributes.position;
+    let wet = 0;
+    for (let i = 0; i < P.count; i += 7) {
+      const x = P.getX(i), y = -P.getZ(i);
+      if (Math.abs(track.offset(x, y)) < track.wallOffset + 15 || sf.sd(x, y, Infinity) > -5) continue;
+      assert.ok(P.getY(i) < seas[0].position.y, `${key}: ground above the sea`); wet++;
+    }
+    assert.ok(wet > 500, `${key}: ${wet} ground points under the sea`);
+    const m = new (seas[0].matrix.constructor)();
+    for (const t of meshes(world).filter(o => o.isInstancedMesh && o.count > 0 && !o.geometry.parameters && o.userData.kind !== 'buildings')) {
+      for (let i = 0; i < t.count; i++) { t.getMatrixAt(i, m); assert.ok(sf.sd(m.elements[12], -m.elements[14], Infinity) > 0, `${key}: tree in the sea`); }
     }
   }
 });
 
 test('inland circuits have no sea; desert circuits only palms, Spa conifers and broadleaves', () => {
   const spa = buildCircuitWorld(createCircuitTrack(CIRCUITS.spa), { scenery: SCENERY.spa });
-  assert.ok(!meshes(spa).some(m => m.material.color?.getHex() === 0x1f5b78));
+  assert.ok(!meshes(spa).some(m => m.userData.kind === 'sea'));
   assert.equal(kindsOf(spa), 2);
   const bahrain = buildCircuitWorld(createCircuitTrack(CIRCUITS.bahrain), { scenery: SCENERY.bahrain });
   assert.equal(kindsOf(bahrain), 1);
@@ -56,7 +61,7 @@ test('town circuits get buildings clear of the road and the sea; Monaco is lined
   for (const key of ['monaco', 'interlagos', 'mexico', 'jeddah', 'yas-marina']) {
     const track = createCircuitTrack(CIRCUITS[key]), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), town = townOf(world);
     assert.ok(town && town.count > 0, key);
-    const m = new (town.matrix.constructor)(), c = SCENERY[key].sea == null ? null : coast(Array.from(track.samples.x, (x, i) => [x, track.samples.y[i]]), SCENERY[key].sea);
+    const m = new (town.matrix.constructor)(), c = SCENERY[key].sea && waterField(SCENERY[key].sea);
     for (let i = 0; i < town.count; i++) {
       town.getMatrixAt(i, m);
       const e = m.elements, x = e[12], y = -e[14], hw = Math.hypot(e[0], e[2]) / 2, hd = Math.hypot(e[8], e[10]) / 2;
@@ -64,11 +69,12 @@ test('town circuits get buildings clear of the road and the sea; Monaco is lined
       for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
         const px = x + u * e[0] / 2 + v * e[8] / 2, py = y - (u * e[2] / 2 + v * e[10] / 2);
         assert.ok(Math.abs(track.offset(px, py)) > track.wallOffset + 3, `${key} block ${i}`);
-        if (c) assert.ok(c.seaSide(px, py) < 0, `${key} block ${i} in the sea`);
+        if (c) assert.ok(c.sd(px, py, Infinity) > 0, `${key} block ${i} in the sea`);
       }
       assert.ok(hw > 5 && hd > 4, key);
     }
-    if (key === 'monaco') assert.ok(town.count >= 500, `monaco: ${town.count}`);
+    // (Port Hercule and the sea now take over a third of Monaco's box.)
+    if (key === 'monaco') assert.ok(town.count >= 350, `monaco: ${town.count}`);
   }
   for (const key of ['spa', 'silverstone']) assert.equal(townOf(buildCircuitWorld(createCircuitTrack(CIRCUITS[key]), { scenery: SCENERY[key] })), undefined, key);
 });
