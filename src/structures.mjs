@@ -4,7 +4,8 @@
 // every 34 m on alternating sides, the paddock's 64 m cone tower with a helical
 // rib, white tensile domes and thatched huts on the terraces behind the pits,
 // villages of small houses with tin or tile roofs out in the farmland, and the
-// trackside furniture: braking boards, corner numbers and marshal posts.
+// trackside furniture: braking boards, corner numbers, marshal posts and raised
+// billboards past four corners.
 // Our own WebGL code (instanced meshes and canvas textures instead of the sim's
 // WebGPU node shaders). Our lap starts on that sim's start line (80.1 m into
 // its lap) and shares its world x / z, so its places carry over directly.
@@ -19,12 +20,12 @@ const RISE_START = 80.1, DECK = 7.5, MAST = 24;
 const RISE_CORNERS = [[1, 607.7, 'L'], [2, 824.3, 'R'], [3, 1375.2, 'R'], [4, 1514, 'L'], [5, 1707.4, 'R'], [6, 1816.7, 'L'],
   [7, 2071.2, 'L'], [8, 3160.4, 'L'], [9, 3547.2, 'R'], [10, 3932, 'L'], [11, 4110.7, 'L'], [12, 4365.2, 'R'], [13, 4640, 'R'],
   [14, 4825, 'L'], [15, 4925, 'R'], [16, 5095, 'L'], [17, 5695.9, 'L']].map(([n, s, dir]) => ({ n, s, dir }));
-const HEAVY = [1, 3, 4, 8, 12, 14, 17];
+const HEAVY = [1, 3, 4, 8, 12, 14, 17], BILLBOARD = [3, 8, 12, 17];
 
 // Where everything goes. terrain: { height(x, y), dist(x, y), lake(x, y) }.
 // Returns { bridges: [{ s, yaw, half, x, y, h }], masts: [{ x, y, yaw }],
 // tower: { x, y }, domes / huts: [{ x, y, r }], houses: [{ x, y, yaw, w, l, tint, roof }],
-// boards / cornerSigns: [{ s, x, y, yaw, n }], posts: [{ s, x, y, yaw }], clear(x, y) }: clear is false where a tree would stand in one of them.
+// boards / cornerSigns / billboards: [{ s, x, y, yaw, n }], posts: [{ s, x, y, yaw }], clear(x, y) }: clear is false where a tree would stand in one of them.
 export function structuresPlan(track, terrain) {
   const wallAt = track.wallOffset, half = track.roadWidth / 2, pit = track.pit, lake = track.lakeLevel;
   const signed = s => { s = ((s % track.length) + track.length) % track.length; return s > track.length / 2 ? s - track.length : s; };
@@ -102,9 +103,17 @@ export function structuresPlan(track, terrain) {
     const [x, y] = track.point(s, side * (wallAt + 2.2));
     if (offRoad(x, y, wallAt + 1) && dry(x, y)) posts.push({ s, x, y, yaw: facing(s) });
   }
-  const round = [{ ...tower, r: 13 }, ...domes, ...huts].map(o => ({ x: o.x, y: o.y, r: o.r + 4 }));
+  // Raised billboards (its buildBillboards): 22 m boards 5 m behind the
+  // outside wall 5 m past Turns 3, 8, 12 and 17, turned to face the braking
+  // zone 150 m back up the track; none in the lake.
+  const billboards = [];
+  for (const c of RISE_CORNERS.filter(c => BILLBOARD.includes(c.n))) {
+    const s = c.s - RISE_START + 5, [x, y] = track.point(s, outside(c) * (wallAt + 5)), [ax, ay] = track.point(c.s - RISE_START - 150);
+    if (offRoad(x, y, wallAt + 3) && dry(x, y)) billboards.push({ s, x, y, yaw: Math.atan2(ax - x, y - ay), n: c.n });
+  }
+  const round = [{ ...tower, r: 13 }, ...domes, ...huts, ...billboards.map(o => ({ ...o, r: 10 }))].map(o => ({ x: o.x, y: o.y, r: o.r + 4 }));
   const clear = (x, y) => !round.some(o => Math.hypot(x - o.x, y - o.y) < o.r) && !houses.some(o => Math.hypot(x - o.x, y - o.y) < 10);
-  return { bridges, masts, tower, domes, huts, houses, boards, cornerSigns, posts, clear };
+  return { bridges, masts, tower, domes, huts, houses, boards, cornerSigns, posts, billboards, clear };
 }
 
 function canvasTexture(w, h, draw) {
@@ -114,11 +123,13 @@ function canvasTexture(w, h, draw) {
 }
 
 // The cone's skin: white with grey ribs winding six times round it, one turn
-// every 9 m of height (u around, v up the 64 m lathe).
-function towerTexture() {
+// every 9 m of height (u around, v up the 64 m lathe). With other colours it is
+// the night-glow mask: the sim's rib * 2.2 + 0.15, as 1 on the ribs and 0.064
+// (sRGB #474747) between them.
+function towerTexture(skin = '#eeeee6', rib = '#c7ccd1') {
   return canvasTexture(512, 512, (g, w, h) => {
-    g.fillStyle = '#eeeee6'; g.fillRect(0, 0, w, h);
-    g.fillStyle = '#c7ccd1';
+    g.fillStyle = skin; g.fillRect(0, 0, w, h);
+    g.fillStyle = rib;
     const turns = 64 / 9;
     for (let k = -8; k <= 6; k++) {
       const u = (c, v) => (k + c - turns * v) / 6 * w;
@@ -136,8 +147,8 @@ function thatchTexture() {
 }
 
 // Adds the structures in `plan` to world. ground(x, y) is the terrain height;
-// bannerMat is the branding on the footbridges.
-export function buildStructures(world, track, plan, { ground, bannerMat = null }) {
+// bannerMat is the branding on the footbridges, billboardMat on the billboards.
+export function buildStructures(world, track, plan, { ground, bannerMat = null, billboardMat = null }) {
   const group = new THREE.Group(); group.name = 'rise-structures'; world.add(group);
   const std = o => new THREE.MeshStandardMaterial(o);
   const shade = m => { m.castShadow = true; m.receiveShadow = true; return m; };
@@ -181,7 +192,9 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null }
   const pts = [];
   for (let i = 0; i <= 40; i++) { const t = i / 40; pts.push(new THREE.Vector2(11 * Math.pow(1 - t, 1.35) + 1.3, t * 64)); }
   pts.push(new THREE.Vector2(0.01, 64.6));
-  const tower = shade(new THREE.Mesh(new THREE.LatheGeometry(pts, 64), nightGlow(std({ map: towerTexture(), roughness: 0.35, metalness: 0.1 }), 0xffd980, 0.2)));
+  const towerMat = nightGlow(std({ map: towerTexture(), roughness: 0.35, metalness: 0.1 }), 0xffd980, 1.18);
+  towerMat.emissiveMap = towerTexture('#474747', '#ffffff');
+  const tower = shade(new THREE.Mesh(new THREE.LatheGeometry(pts, 64), towerMat));
   tower.name = 'paddock-tower'; tower.position.set(plan.tower.x, ground(plan.tower.x, plan.tower.y) - 0.5, -plan.tower.y); group.add(tower);
   q.identity();
   const dome = nightGlow(std({ color: 0xf4f2ec, roughness: 0.7, side: THREE.DoubleSide }), 0xffebbf, 0.18);
@@ -197,9 +210,12 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null }
   const prism = new THREE.Shape(); prism.moveTo(-0.58, 0); prism.lineTo(0.58, 0); prism.lineTo(0, 0.42); prism.closePath();
   const roofGeo = new THREE.ExtrudeGeometry(prism, { depth: 1.08, bevelEnabled: false }); roofGeo.translate(0, 0, -0.54);
   const plaster = new THREE.Color(0xc7b89e), brick = new THREE.Color(0x8c6b4d), blue = new THREE.Color(0x9ebdcc), tin = new THREE.Color(0x8c8f94), tile = new THREE.Color(0x732919);
-  const walls = instanced(wallGeo, std({ roughness: 0.9 }), plan.houses,
-    o => { v.set(o.x, ground(o.x, o.y) - 2, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(o.w, 4.8, o.l); },
-    o => o.tint > 0.85 ? blue : o.tint > 0.55 ? brick : plaster);
+  // Houses with tint 0.6 and up have a light on at night (warm, faint).
+  const atHouse = o => { v.set(o.x, ground(o.x, o.y) - 2, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(o.w, 4.8, o.l); };
+  const wallTint = o => o.tint > 0.85 ? blue : o.tint > 0.55 ? brick : plaster;
+  const walls = instanced(wallGeo, std({ roughness: 0.9 }), plan.houses.filter(o => o.tint < 0.6), atHouse, wallTint);
+  const litWalls = instanced(wallGeo, nightGlow(std({ roughness: 0.9 }), 0xffc773, 0.06), plan.houses.filter(o => o.tint >= 0.6), atHouse, wallTint);
+  if (litWalls) litWalls.name = 'village-houses-lit';
   instanced(roofGeo, std({ roughness: 0.45, metalness: 0.5 }), plan.houses,
     o => { v.set(o.x, ground(o.x, o.y) + 2.8, -o.y); q.setFromAxisAngle(up, o.yaw); sc.set(o.w, o.w * 0.9, o.l); },
     o => o.roof > 0.6 ? tile : tin);
@@ -232,6 +248,19 @@ export function buildStructures(world, track, plan, { ground, bannerMat = null }
   const marshal = instanced(hutGeo(-0.6, 1.6), std({ color: 0xf26b0d, roughness: 0.7 }), plan.posts, atPost);
   instanced(hutGeo(1.6, 2.6), std({ color: 0xebebe6, roughness: 0.7 }), plan.posts, atPost);
   if (marshal) marshal.name = 'marshal-posts';
+  // Raised billboards: a 22 m board, 3.2 : 1, 3.5 m up on two steel posts,
+  // our branding on both faces (theirs carries their sponsor).
+  if (billboardMat) {
+    const bw = 22, bh = bw / 3.2, lift = 3.5, bbSteel = std({ color: 0x1c2026, roughness: 0.5, metalness: 0.5 });
+    const bbGeo = new THREE.BoxGeometry(bw, bh, 0.4); bbGeo.translate(0, lift + bh / 2, 0);
+    const bbPost = new THREE.BoxGeometry(0.5, lift + 0.6, 0.5); bbPost.translate(0, (lift + 0.6) / 2 - 0.3, 0);
+    for (const o of plan.billboards) {
+      at(o, ground(o.x, o.y));
+      const board = shade(new THREE.Mesh(bbGeo, [bbSteel, bbSteel, bbSteel, bbSteel, billboardMat, billboardMat]));
+      board.name = 'billboard-' + o.n; board.position.copy(v); board.quaternion.copy(q); group.add(board);
+      for (const lx of [-bw * 0.3, bw * 0.3]) { const p = shade(new THREE.Mesh(bbPost, bbSteel)); p.position.set(lx, 0, 0).applyQuaternion(q).add(v); p.quaternion.copy(q); group.add(p); }
+    }
+  }
   return { bridges: plan.bridges.length, masts: plan.masts.length, domes: plan.domes.length, huts: plan.huts.length, houses: plan.houses.length,
-    boards: plan.boards.length, cornerSigns: plan.cornerSigns.length, posts: plan.posts.length };
+    boards: plan.boards.length, cornerSigns: plan.cornerSigns.length, posts: plan.posts.length, billboards: billboardMat ? plan.billboards.length : 0 };
 }

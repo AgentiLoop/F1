@@ -7,9 +7,10 @@ import { buildRiseStands } from './stands.mjs';
 import { DEFAULT_SCENERY, waterField, terrainField, landcoverField } from './scenery.mjs';
 import { buildWildlife, wildlifePlan } from './wildlife.mjs';
 import { buildLake } from './lake.mjs';
-import { buildSky } from './sky.mjs';
+import { buildSky, nightGlow } from './sky.mjs';
 import { structuresPlan, buildStructures } from './structures.mjs';
 import { lakesidePlan, buildLakeside } from './lakeside.mjs';
+import { buildTrackPaint, mowMaterial, MOW_PERIOD } from './trackpaint.mjs';
 
 function texture(size, draw, repeatX = 1, repeatY = 1) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
@@ -326,6 +327,9 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   // from the kerb out (olive, yellow, terracotta, green, blue) then sand, and
   // TecPro red/white blocks (1.5 m) on the outside walls of tight corners.
   const rise = track.lakeLevel !== null;
+  // Its night race: the floodlit road, kerbs, run-off and walls give off their
+  // own colour (RISE: albedo x flood 0.34 x k, halved like our other glows).
+  const flood = (mat, k = 1) => rise ? nightGlow(mat, mat.map ? 0xffffff : mat.color, 0.17 * k, { useMap: !!mat.map }) : mat;
   const riseRunoffTex = rise && texture(256, (g, s) => {
     noise(g, s, '#9a8d75', 0.3, 20000);
     ['#4d4a24', '#c79a10', '#801c14', '#0a5445', '#00529a'].forEach((c, k) => { g.fillStyle = c; g.fillRect(s * k * 1.3 / 6.8, 0, s * 1.3 / 6.8 + 1, s); });
@@ -339,24 +343,29 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   }, 20, 1);
   const fenceMat = new THREE.MeshStandardMaterial({ map: meshTex, alphaTest: 0.4, side: THREE.DoubleSide, metalness: 0.6, roughness: 0.5 });
   const steel = new THREE.MeshStandardMaterial({ color: 0x2b2f35, metalness: 0.7, roughness: 0.4 });
-  world.add(ribbon(pts, -half, half, 0, asphaltMaterial(track.roadWidth), 30));
-  const postSpots = [];
+  world.add(ribbon(pts, -half, half, 0, flood(asphaltMaterial(track.roadWidth), 1.1), 30));
+  // The RISE sim's rubbered racing line and painted grid slots (trackpaint.mjs).
+  world.add(buildTrackPaint(track, { slots: boxColors.length, glow: m => flood(m, 1.1) }));
+  // The RISE sim's mowing stripes on the verge from the run-off to the wall,
+  // just over the ground (terrain sits 0.25 m under the road's level).
+  const postSpots = [], mowMat = mowMaterial(), mowLift = track.hasElevation ? -0.1 : -0.02;
   for (const side of [-1, 1]) {
-    world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
-    for (const r of runs(p => kerb[p.i])) world.add(ribbon(r, side * half, side * (half + 1.2), 0.012, std({ map: kerbTex, roughness: 0.7 }), 4));
-    const runoff = ribbon(pts, side * (half + 1.2), side * (half + 8), 0.004, std({ map: rise ? riseRunoffTex : runoffTex, roughness: rise ? 0.8 : 1 }), 20);
+    world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, flood(std({ color: 0xf2f2ee, roughness: 0.6 }), 1.1), 10));
+    for (const r of runs(p => kerb[p.i])) world.add(ribbon(r, side * half, side * (half + 1.2), 0.012, flood(std({ map: kerbTex, roughness: 0.7 })), 4));
+    const runoff = ribbon(pts, side * (half + 1.2), side * (half + 8), 0.004, flood(std({ map: rise ? riseRunoffTex : runoffTex, roughness: rise ? 0.8 : 1 })), 20);
     if (rise) runoff.name = 'rise-runoff';
     world.add(runoff);
     // Barrier where its line is still nearest this part of the circuit.
     const clear = p => Math.abs(track.offset(p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt)) > wallAt - 1;
     for (const r of runs(clear)) {
-      const w = ribbon(r, side * wallAt, 0, footing, std({ map: wallTex, roughness: 0.8 }), 6, 1.1); w.castShadow = true; world.add(w);
+      const w = ribbon(r, side * wallAt, 0, footing, flood(std({ map: wallTex, roughness: 0.8 }), 0.8), 6, 1.1); w.castShadow = true; world.add(w);
       world.add(ribbon(r, side * wallAt, 0, 1.1, fenceMat, 0.16, 4.2));
+      const mow = ribbon(r, side * (half + 8), side * wallAt, mowLift, mowMat, MOW_PERIOD); mow.name = 'mowing'; mow.renderOrder = 1; world.add(mow);
       r.forEach((p, k) => { if (k % 4 === 0) postSpots.push([p.x + p.nx * side * wallAt, p.y + p.ny * side * wallAt, p.h(side * wallAt)]); });
     }
     // TecPro facing just in front of the wall (no gaps where it starts and stops).
     if (rise) for (const r of runs(p => clear(p) && side * bend(p.i) < -1 / 70)) {
-      const t = ribbon(r, side * (wallAt - 0.06), 0, footing, std({ map: tecproTex, roughness: 0.85 }), 3, 1.05);
+      const t = ribbon(r, side * (wallAt - 0.06), 0, footing, flood(std({ map: tecproTex, roughness: 0.85 }), 0.8), 3, 1.05);
       t.name = 'tecpro'; t.castShadow = true; world.add(t);
     }
   }
@@ -423,7 +432,7 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     });
     // Ribbon offsets are positive to the left: centreline offset −(side × f).
     const r = f => -pit.side * f;
-    world.add(ribbon(strip(pit.entry, pit.exit), r(-half), r(-pit.outer), 0.006, asphaltMaterial(Math.abs(pit.outer - half)), 30));
+    world.add(ribbon(strip(pit.entry, pit.exit), r(-half), r(-pit.outer), 0.006, flood(asphaltMaterial(Math.abs(pit.outer - half)), 1.1), 30));
     world.add(ribbon(strip(pit.limitStart, pit.limitEnd), r(-pit.inner), r(-pit.inner - 0.25), 0.009, std({ color: 0xf2f2ee, roughness: 0.6 }), 10));
     const flat = (s, f, length, width, color, y = 0.01) => onRoad(new THREE.Mesh(new THREE.PlaneGeometry(length, width), std({ color, roughness: 0.6 })), s, pit.side * f, y);
     for (const s of [pit.limitStart, pit.limitEnd]) flat(s, -(pit.inner + pit.outer) / 2, 0.4, pit.outer - pit.inner, 0xf2f2ee);
@@ -520,12 +529,20 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     if (herds) for (const k in plan) plan[k] = plan[k].filter(([x, y]) => !herds.glade(x, y));
     // With the lake: the RISE sim's footbridges, floodlights, paddock and villages, trees kept out of them.
     const builds = track.lakeLevel !== null ? structuresPlan(track, terrain) : null;
-    if (builds) { for (const k in plan) plan[k] = plan[k].filter(([x, y]) => builds.clear(x, y)); buildStructures(world, track, builds, { ground: terrainHeight, bannerMat: logoMat }); }
+    // Its raised billboards carry our logo across a 3.2 : 1 face, lit at night like its sign material (0.55, halved).
+    if (builds) {
+      const board = texture(1, () => {}), cv = board.image; cv.width = 1024; cv.height = 320;
+      const g = cv.getContext('2d'); g.fillStyle = '#0d1a28'; g.fillRect(0, 0, 1024, 320);
+      g.save(); g.translate(0, 70); drawLogo(g, 1024, 160, true); g.restore();
+      g.fillStyle = '#6fffc3'; g.fillRect(0, 290, 1024, 14); board.needsUpdate = true;
+      const billboardMat = nightGlow(new THREE.MeshStandardMaterial({ map: board, roughness: 0.55 }), 0xffffff, 0.28, { day: 0.08, useMap: true });
+      for (const k in plan) plan[k] = plan[k].filter(([x, y]) => builds.clear(x, y)); buildStructures(world, track, builds, { ground: terrainHeight, bannerMat: logoMat, billboardMat });
+    }
     // With the lake: the RISE sim's hospitality pods and jetties on the shore (lakeside.mjs).
     const shore = track.lakeLevel !== null ? lakesidePlan(terrain) : null;
     if (shore) { for (const k in plan) plan[k] = plan[k].filter(([x, y]) => shore.clear(x, y)); buildLakeside(world, shore, terrain); }
     const wildlife = herds ? buildWildlife(world, herds, terrain) : null;
-    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, plan, terrain), wildlife: wildlife?.counts, update: wildlife?.update };
+    world.userData = { center: [cx, cy], extent, trees: buildSavanna(world, plan, terrain, { flood: track.lakeLevel !== null }), wildlife: wildlife?.counts, update: wildlife?.update };
     return world;
   }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
@@ -1191,7 +1208,27 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const detail = texture(256, (g, s) => noise(g, s, '#d4d4d4', 0.45, 14000));
-  const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: detail, vertexColors: true, roughness: 1 }));
+  const groundMat = new THREE.MeshStandardMaterial({ map: detail, vertexColors: true, roughness: 1 });
+  // RISE's night: floodlight spill on the ground, fading from 5 to 160 m off
+  // the centreline (per vertex: emissive x ground colour x spill), and only
+  // the band around the circuit catches the light: the ground's colour x
+  // 0.06 + 0.9 x smoothstep(320, 50, distance) at night (uNight).
+  if (lake !== null) {
+    const spill = new Float32Array(N), fade = new Float32Array(N);
+    for (let k = 0; k < N; k++) { const d = bilinear(dist, pos[3 * k], -pos[3 * k + 2]); spill[k] = smooth(160, 5, d); fade[k] = 0.06 + 0.9 * smooth(320, 50, d); }
+    geo.setAttribute('flood', new THREE.BufferAttribute(spill, 1)); geo.setAttribute('nightFade', new THREE.BufferAttribute(fade, 1));
+    nightGlow(groundMat, 0xffffff, 0.17, { useMap: true });
+    groundMat.userData.uNight = { value: 0 };
+    groundMat.onBeforeCompile = sh => {
+      sh.uniforms.uNight = groundMat.userData.uNight;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float flood, nightFade;\nvarying float vFlood, vFade;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlood = flood; vFade = nightFade;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFlood, vFade;\nuniform float uNight;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(1.0, vFade, uNight);')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= vColor.rgb * vFlood;');
+    };
+  }
+  const ground = new THREE.Mesh(geo, groundMat);
   ground.receiveShadow = true; ground.userData = { kind: 'ground', covered }; world.add(ground);
   // The real water's surfaces, islands cut out.
   const pondMat = new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 });

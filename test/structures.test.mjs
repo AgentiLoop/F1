@@ -50,3 +50,13 @@ test('RISE trackside furniture: braking boards on the run-off, corner numbers an
     assert.ok(Math.sin(o.yaw) * Math.cos(h) - Math.cos(o.yaw) * Math.sin(h) < -0.99, `faces the cars at ${o.s}`);
   }
 });
+test('RISE raised billboards: behind the outside wall past Turns 3, 8, 12 and 17, facing back up the braking zone', () => {
+  assert.ok(plan.billboards.length >= 3, `${plan.billboards.length} billboards`);
+  for (const o of plan.billboards) {
+    assert.ok(Math.abs(track.offset(o.x, o.y)) > wallAt + 3 && lakeSdf(o.x, -o.y) > 0, `billboard ${o.n}`);
+    // its face (local +z: sin yaw, -cos yaw in physics x / y) points at the track 150 m before it
+    const [ax, ay] = track.point(o.s - 155), d = Math.hypot(ax - o.x, ay - o.y);
+    assert.ok((Math.sin(o.yaw) * (ax - o.x) - Math.cos(o.yaw) * (ay - o.y)) / d > 0.999, `billboard ${o.n} faces the braking zone`);
+    assert.equal(plan.clear(o.x, o.y), false);
+  }
+});
