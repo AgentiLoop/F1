@@ -8,7 +8,15 @@
 // Kerbs are laid only where the line curves (|curvature| above kerbCurvature
 // within kerbReach); elsewhere the road edge runs straight into runoff.
 // Surface widths, wall placement and grip are illustrative, not survey data.
-import { SURFACE_GRIP } from './track.mjs';
+import { SURFACE_GRIP, SURFACE_ROLLING } from './track.mjs';
+
+// Beyond the kerbs, the surface of the real land cover under a point (cover,
+// e.g. scenery.mjs landcoverField: 1 farmland, 2 grass, 3 scrub/heath, 4 sand,
+// 5 gravel, 6 paved), where one is mapped: sand and gravel are gravel traps,
+// paved ground is asphalt run-off. Elsewhere runoff to 8 m, then grass.
+const COVER_SURFACE = [null, 'grass', 'grass', 'grass', 'gravel', 'gravel', 'runoff'];
+// Loose surfaces as physics.mjs's { grip, rolling }.
+const LOOSE = Object.fromEntries(Object.entries(SURFACE_ROLLING).map(([name, rolling]) => [name, Object.freeze({ grip: SURFACE_GRIP[name], rolling })]));
 
 // Long traced segments are straights: they are kept straight rather than
 // bowed by the spline's end tangents (a 700 m chord would otherwise bulge).
@@ -94,10 +102,13 @@ function racingLine(xs, ys, headings, limit) {
 // `toLimit` m to the limit line, `limitLength` m of boxes, `toMerge` m to the
 // merge zone, `mergeLength` m of it to the exit) slid as little as possible
 // from its nominal place (entry `entryAt` m before the line) to fit a side's
-// room; the side needing the smaller slide gets it (left on a tie). No room
-// either side: null (no pit stops). The placement is illustrative: the
-// traced layouts carry no pit lane, so it is not each circuit's real one.
-function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, { reach = 700, minInsideRadius = 20, entryAt = 300, toLimit = 120, limitLength = 260, toMerge = 40, mergeLength = 130 } = {}) {
+// room; the side needing the smaller slide gets it (left on a tie). With the
+// real pit lane (real: [side, entry, exit], pits.mjs) it goes on that side,
+// centred beside the real one and as long (the boxes' stretch taking up the
+// difference; never shorter than the standard layout unless the room around
+// the real lane's middle is, and then never under 150 m of boxes); where
+// that side has no room for that, it is placed as without it. No room either side: null (no pit stops).
+function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, { real = null, reach = 700, minInsideRadius = 20, entryAt = 300, toLimit = 120, limitLength = 260, toMerge = 40, mergeLength = 130 } = {}) {
   const layout = { inner: half + 1.2, outer: half + 11, lane: -(half + 4.5), boxOffset: -(half + 8.5), boxSpacing: 30, speedLimit: 80 / 3.6 };
   const total = toLimit + limitLength + toMerge + mergeLength, edge = layout.outer + 1;
   const fits = (s, side) => {
@@ -105,26 +116,38 @@ function circuitPitLane({ half, point, offset, progress, signed, curvatureAt }, 
     let k = 0; for (let d = -10; d <= 10; d += 2) { const v = curvatureAt(s + d); if (Math.sign(v) === side) k = Math.max(k, Math.abs(v)); }
     return Math.abs(offset(x, y) - o) < 1 && Math.abs(signed(progress(x, y) - s)) < 20 && (k === 0 || 1 / k - edge >= minInsideRadius);
   };
+  // The room [a, b] on a side around lap distance c, or null.
+  const room = (side, c) => {
+    if (!fits(c, side)) return null;
+    let a = c, b = c;
+    while (a > c - reach && fits(a - 10, side)) a -= 10;
+    while (b < c + reach && fits(b + 10, side)) b += 10;
+    return [a, b];
+  };
   let best = null;
-  for (const side of [1, -1]) {
-    if (!fits(0, side)) continue;
-    let a = 0, b = 0;
-    while (a > -reach && fits(a - 10, side)) a -= 10;
-    while (b < reach && fits(b + 10, side)) b += 10;
-    if (b - a < total) continue;
-    const entry = Math.min(Math.max(-entryAt, a), b - total);
-    if (!best || Math.abs(entry + entryAt) < Math.abs(best.entry + entryAt)) best = { side, entry };
+  if (real) {
+    const [side, from, to] = real, mid = Math.round((from + to) / 20) * 10, r = room(side, mid);
+    if (r && r[1] - r[0] >= total - limitLength + 150) {
+      const len = Math.min(Math.max(total, to - from), r[1] - r[0]);
+      best = { side, entry: Math.min(Math.max((from + to - len) / 2, r[0]), r[1] - len), boxes: limitLength + len - total };
+    }
+  }
+  if (!best) for (const side of [1, -1]) {
+    const r = room(side, 0);
+    if (!r || r[1] - r[0] < total) continue;
+    const entry = Math.min(Math.max(-entryAt, r[0]), r[1] - total);
+    if (!best || Math.abs(entry + entryAt) < Math.abs(best.entry + entryAt)) best = { side, entry, boxes: limitLength };
   }
   if (!best) return null;
-  const { side, entry } = best, limitStart = entry + toLimit, limitEnd = limitStart + limitLength;
+  const { side, entry, boxes } = best, limitStart = entry + toLimit, limitEnd = limitStart + boxes;
   // Five boxes centred between the limit lines.
   return Object.freeze({ ...layout, side, entry, limitStart, limitEnd, mergeStart: limitEnd + toMerge, exit: limitEnd + toMerge + mergeLength,
     boxStart: (limitStart + limitEnd) / 2 - 2 * layout.boxSpacing });
 }
 
 export function createCircuitTrack({ name = 'Circuit', points, length: officialLength, roadWidth = 13, wallOffset = roadWidth / 2 + 12,
-  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, lapStart = 0, drs = null,
-  heights = null, banks = null, lakeLevel = null }) {
+  step = 2, smoothing = 40, kerbCurvature = 1 / 600, kerbReach = 30, lineMargin = 1.6, minRadius = 15, pitLane = true, timingLine = 0, drs = null,
+  heights = null, banks = null, lakeLevel = null, cover = null, pits = null }) {
   const pairs = points.length && typeof points[0] === 'number' ? Array.from({ length: points.length / 2 }, (_, i) => [points[2 * i], points[2 * i + 1]]) : points;
   let poly = spline(pairs, step);
   const polyLength = () => poly.reduce((L, a, i) => { const b = poly[(i + 1) % poly.length]; return L + Math.hypot(b[0] - a[0], b[1] - a[1]); }, 0);
@@ -191,11 +214,14 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
       for (let i = 0; i < n; i++) a[i] = 0.5 * v[i] + 0.25 * (v[(i - 1 + n) % n] + v[(i + 1) % n]);
     }
   }
-  // lapStart: the lap (s = 0, the start line, grid and pits) begins this far
-  // along the trace instead of at its first point; the road itself is unchanged.
-  if (lapStart) {
-    let k = 0; while (ss[k + 1] <= lapStart) k++;
-    for (const a of [xs, ys, zs, banking]) a.set([...a.subarray(k), ...a.subarray(0, k)]);
+  // The lap starts on the real timing line (the start/finish line), timingLine
+  // m along the trace: the samples are turned round to begin at the one
+  // nearest it (the road itself is unchanged).
+  if (timingLine) {
+    const t = ((timingLine % ss[n]) + ss[n]) % ss[n];
+    let k = 0; while (k < n - 1 && ss[k + 1] <= t) k++;
+    if (t - ss[k] > ss[k + 1] - t) k = (k + 1) % n;
+    for (const a of [xs, ys, zs, banking]) { const v = a.slice(); for (let i = 0; i < n; i++) a[i] = v[(i + k) % n]; }
     for (let i = 0; i < n; i++) ss[i + 1] = ss[i] + Math.hypot(xs[(i + 1) % n] - xs[i], ys[(i + 1) % n] - ys[i]);
   }
   const headings = new Float64Array(n), curvature = new Float64Array(n);
@@ -261,36 +287,45 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
     const z = zs[i] + (zs[j] - zs[i]) * f, b = banking[i] + (banking[j] - banking[i]) * f;
     return z - Math.sign(off) * e * b - (Math.abs(off) - e) * verge;
   };
-  const pit = pitLane ? circuitPitLane({ length, half, wallOffset, point, offset, progress, signed, curvatureAt: s => curvature[index(s)] }) : null;
+  const pit = pitLane ? circuitPitLane({ length, half, wallOffset, point, offset, progress, signed, curvatureAt: s => curvature[index(s)] }, { real: pits }) : null;
   const surface = (x, y) => {
     const q = nearest(x, y), d = q.d;
     // The pit apron, and its entry and exit roads from the road edge.
     if (pit && pit.side * q.offset < -half && pit.side * q.offset > -pit.outer && (s => s > pit.entry && s < pit.exit)(signed(ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f))) return 'pit';
-    return d <= half ? 'asphalt' : d <= half + 1.2 && kerb[q.i] ? 'kerb' : d <= half + 8 ? 'runoff' : 'grass';
+    if (d <= half) return 'asphalt';
+    if (d <= half + 1.2 && kerb[q.i]) return 'kerb';
+    return COVER_SURFACE[cover?.(x, y) ?? 0] ?? (d <= half + 8 ? 'runoff' : 'grass');
   };
   return {
     kind: 'circuit', name, length, roadWidth, wallOffset, step, offset, surface, progress, point, pit,
     // DRS zones [open, close] (lap progress, m), or null: drs gives them as
-    // fractions of the lap from the real timing line, which lies timingLine m
-    // along the trace (the lap here starts lapStart m along it).
-    drsZones: drs && drs.map(z => z.map(f => ((f * length + timingLine - lapStart) % length + length) % length)),
-    samples: { x: xs, y: ys, s: ss, heading: headings, curvature, kerb, line, lineStep, lineCurvature },
+    // fractions of the lap from the real timing line, where the lap starts.
+    drsZones: drs && drs.map(z => z.map(f => f * length)),
+    // z, bank: the centreline height (m) and cross-slope (height gained per
+    // metre to the left) at each sample, all zero without heights.
+    samples: { x: xs, y: ys, s: ss, heading: headings, curvature, kerb, line, lineStep, lineCurvature, z: zs, bank: banking },
     heading: s => headings[index(s)], curvatureAt: s => curvature[index(s)],
     // Racing-line offset (m, + right) at arc length s, interpolated.
     lineOffset: s => { const i = index(s), f = (wrap(s) - ss[i]) / (ss[i + 1] - ss[i]); return line[i] + (line[(i + 1) % n] - line[i]) * f; },
-    surfaceAt: (x, y) => SURFACE_GRIP[surface(x, y)],
+    surfaceAt: (x, y) => { const name = surface(x, y); return LOOSE[name] ?? SURFACE_GRIP[name]; },
     // Elevation (all zero without heights): elevation(s, off) along the lap,
     // heightAt(x, y) from the nearest part of the circuit; lakeLevel, if any,
     // is the height of the water beside it.
     hasElevation: !!heights, lakeLevel, elevation,
     heightAt: (x, y) => { const q = nearest(x, y); return elevation(ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, q.offset); },
-    // slopeAt(x, y): the ground's gradient [dz/dx, dz/dy] there (null when
-    // flat), from its grade along the lap and its cross-slope to the right.
-    slopeAt: heights ? (x, y) => {
-      const q = nearest(x, y), s = ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, h = headings[q.i];
-      const along = (elevation(s + 1, q.offset) - elevation(s - 1, q.offset)) / 2 / Math.max(0.2, 1 + curvature[q.i] * q.offset);
-      const right = (elevation(s, q.offset + 0.25) - elevation(s, q.offset - 0.25)) / 0.5;
-      return [along * Math.cos(h) + right * Math.sin(h), along * Math.sin(h) - right * Math.cos(h)];
+    // For the physics (null without heights): the ground's world gradient
+    // (gx, gy) = (dz/dx, dz/dy) under (x, y) and the road profile's second
+    // derivative along the lap (zss, 1/m: + in compressions, - over crests),
+    // all from the nearest part of the circuit, so a crossover's other level
+    // never leaks in. zss spans ±25 m: the telemetry heights (0.1 m steps,
+    // 10 m apart) give a ±10 m stencil bumps of up to 9e-4/m even at flat
+    // Monza (0.6 g at 80 m/s); at ±25 m that falls to 4.5e-4 while Eau
+    // Rouge's compression (2.5e-3, 1 km from the line) keeps 77% of its size.
+    groundAt: heights ? (x, y) => {
+      const q = nearest(x, y), s = ss[q.i] + (ss[q.i + 1] - ss[q.i]) * q.f, off = q.offset, h = headings[q.i];
+      const along = (elevation(s + 2, off) - elevation(s - 2, off)) / 4, across = elevation(s, off + 0.5) - elevation(s, off - 0.5);
+      const zss = (elevation(s + 25, off) - 2 * elevation(s, off) + elevation(s - 25, off)) / 625;
+      return { gx: along * Math.cos(h) + across * Math.sin(h), gy: along * Math.sin(h) - across * Math.cos(h), zss };
     } : null,
     // Walls wallOffset either side of the centreline; where two parts of the
     // circuit run closer than that, the boundary is the midline between them.

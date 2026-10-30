@@ -3,7 +3,10 @@
 // Grip multipliers are illustrative assumptions, not measured surface data.
 import { clamp } from './physics.mjs';
 
-export const SURFACE_GRIP = Object.freeze({ asphalt: 1, pit: 1, kerb: 0.9, runoff: 0.7, grass: 0.35 });
+export const SURFACE_GRIP = Object.freeze({ asphalt: 1, pit: 1, kerb: 0.9, runoff: 0.7, grass: 0.35, gravel: 0.45 });
+// Loose surfaces also plough: a drag of this fraction of each wheel's load
+// against its motion (gravel traps; circuit.mjs, from real land cover).
+export const SURFACE_ROLLING = Object.freeze({ gravel: 0.25 });
 
 // Pit lane on the inside of the circuit, positions in metres of lap progress
 // (0 = left end of the main straight) and track offset (negative = inside).

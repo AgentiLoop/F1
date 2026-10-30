@@ -4,7 +4,7 @@ import * as THREE from '../vendor/three.module.js';
 import { stadiumPitLane } from './track.mjs';
 import { buildSavanna, savannaPlan } from './savanna.mjs';
 import { buildRiseStands } from './stands.mjs';
-import { DEFAULT_SCENERY, waterField } from './scenery.mjs';
+import { DEFAULT_SCENERY, waterField, terrainField, landcoverField } from './scenery.mjs';
 import { buildWildlife, wildlifePlan } from './wildlife.mjs';
 import { buildLake } from './lake.mjs';
 import { buildSky } from './sky.mjs';
@@ -438,6 +438,27 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     }
   }
 
+  // Whether (x, y) is on the plot of our own grandstand (its roof and a 3 m
+  // margin: s = -125 to 5, out to wallAt + 26 on its side) or of our pit lane
+  // and garages (entry to exit, out to the garages' back + 3 m), widened by
+  // `pad` m all round.
+  const ourPlot = (x, y, pad = 0) => {
+    const o = track.offset(x, y), a = Math.abs(o);
+    if (a > wallAt + 26 + pad) return false;
+    const near = track.progress(x, y), sp = near > track.length / 2 ? near - track.length : near;
+    if (standSide && Math.sign(o) === standSide && sp > -125 - pad && sp < 5 + pad) return true;
+    return !!pit && Math.sign(o) === -pit.side && sp > pit.entry - 10 - pad && sp < pit.exit + 10 + pad && a < Math.max(pit.outer, wallAt + 8) + 3 + pad;
+  };
+  const inside = (ring, x, y) => {
+    let c = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) if ((ring[i][1] > y) !== (ring[j][1] > y) && x < (ring[j][0] - ring[i][0]) * (y - ring[i][1]) / (ring[j][1] - ring[i][1]) + ring[i][0]) c = !c;
+    return c;
+  };
+  // Points inside our grandstand and garages: no building may enclose them.
+  const ourProbes = [];
+  if (standSide) for (let s = -110; s <= -10; s += 20) ourProbes.push(track.point(s, standSide * (wallAt + 14)));
+  if (pit) for (let s = pit.entry; s <= pit.exit; s += 20) ourProbes.push(track.point(s, -pit.side * (wallAt + 4.5)));
+
   // Hoardings every ~36 m both sides, facing the track (none along the pit lane).
   const logo = (w, h) => { const t = texture(1, () => {}); const cv = t.image; cv.width = w; cv.height = h; drawLogo(cv.getContext('2d'), w, h, true); t.needsUpdate = true; return t; };
   const logoMat = new THREE.MeshStandardMaterial({ map: logo(1024, 128), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.08 });
@@ -490,9 +511,7 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   if (!track.hasElevation) world.add(new THREE.Mesh(hillGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
 
   // Beside the lake (the RISE Motordrome): East African vegetation
-  // (savanna.mjs); otherwise scenery.clusters tree clusters of the circuit's
-  // kinds anywhere at least 20 m clear of the road and off the beach, on the
-  // terrain when there is one.
+  // (savanna.mjs); otherwise the real buildings and trees below.
   if (track.lakeLevel !== null) {
     const terrain = { height: terrainHeight, dist: terrainHeight.dist, lake: terrainHeight.lake, lakeLevel: track.lakeLevel };
     const box = { minX, maxX, minY, maxY }, plan = savannaPlan(track, terrain, box);
@@ -511,42 +530,489 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   }
   const rng = (() => { let s = 11; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
   const beach = terrainHeight.sea ?? (() => -Infinity), shore = terrainHeight.water ?? (() => Infinity);
-  // Town blocks (scenery.buildings): flat-roofed boxes of the given heights
-  // facing the nearest road, from `near` m (default 4) out to `far` m beyond
-  // the barriers, off the beach, standing on their lowest ground.
-  const blocks = [];
-  if (scenery.buildings) {
-    const { count, near: from = 4, far, low, high } = scenery.buildings;
-    for (let tries = 0; blocks.length < count && tries < count * 30; tries++) {
-      const x = cx + (rng() - 0.5) * (maxX - minX + 2 * far), y = cy + (rng() - 0.5) * (maxY - minY + 2 * far);
-      const w = 12 + rng() * 18, d = 10 + rng() * 14, r = Math.hypot(w, d) / 2, o = Math.abs(track.offset(x, y));
-      if (o < wallAt + from + r || o > wallAt + far || beach(x, y) > -r - 10 || shore(x, y) < r + 6 || blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + r + 3)) continue;
-      const near = track.progress(x, y), hd = track.heading(near), sp = near > track.length / 2 ? near - track.length : near;
-      // Not over the grandstand and garages (the straight before the line, the pit lane).
-      if ((sp > -140 && sp < 20) || (pit && sp > pit.entry - 20 && sp < pit.exit + 20)) continue;
-      let base = Infinity;
-      for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]]) base = Math.min(base, terrainHeight(x + u * r * 0.7, y + v * r * 0.7));
-      blocks.push({ x, y, r, w, d, hd, base, h: low + Math.pow(rng(), 1.6) * (high - low), tone: rng() });
+  // The real buildings (scenery.buildings, buildings.mjs: OpenStreetMap
+  // footprints with their heights), extruded from their lowest ground, flat
+  // roofed, with window bays of 3.5 m × 3.2 m floors. Left out where the fit
+  // to the globe puts one within 3 m of the barriers (a grandstand is moved
+  // back behind them instead), in the sea or water, or on the plot of our own
+  // grandstand and garages (ourPlot). The grandstands among them (scenery.stands) are raked
+  // instead: their seating rises from 1.5 m over the ground at the side
+  // facing the circuit to their full height at the back, rows of spectators
+  // 0.8 m deep on top.
+  const blocks = [], cell = 40, blockGrid = new Map(), standSet = new Set(scenery.stands ?? []), movedStands = [];
+  const fits = r => r.every(([x, y]) => Math.abs(track.offset(x, y)) >= wallAt + 3 && beach(x, y) <= -1 && shore(x, y) >= 1);
+  const addBlock = (ring, b, bi, moved = 0) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    const gs = ring.map(([x, y]) => terrainHeight(x, y)), base = Math.min(...gs);
+    const blk = { ring, box: [x0, y0, x1, y1], base, top: Math.max(base + b[0], Math.max(...gs) + 2.5), moved };
+    if (standSet.has(bi)) {
+      // Raked by distance from the circuit; seat rows run across ux, uy (away
+      // from the nearest point of the centreline).
+      const [px, py] = track.point(track.progress(mx, my)), l = Math.hypot(mx - px, my - py) || 1, ux = (mx - px) / l, uy = (my - py) / l;
+      const d = ring.map(([x, y]) => Math.abs(track.offset(x, y))), d0 = Math.min(...d), depth = Math.max(...d) - d0, front = Math.max(...gs) + 1.5;
+      if (depth > 4 && blk.top > front + 2) Object.assign(blk, { stand: [ux, uy], depth, tops: d.map(v => front + (blk.top - front) * (v - d0) / depth), rows: d.map(v => (v - d0) / 0.8) });
     }
-    const facade = texture(128, (g, s) => {
+    blocks.push(blk);
+    for (let u = Math.floor((x0 - 5) / cell); u <= Math.floor((x1 + 5) / cell); u++) for (let v = Math.floor((y0 - 5) / cell); v <= Math.floor((y1 + 5) / cell); v++) {
+      const k = `${u},${v}`; (blockGrid.get(k) ?? blockGrid.set(k, []).get(k)).push(blk);
+    }
+  };
+  // Points every 2 m along a footprint's outline.
+  const outline = ring => ring.flatMap(([ax, ay], i) => {
+    const [bx, by] = ring[(i + 1) % ring.length], m = Math.ceil(Math.hypot(bx - ax, by - ay) / 2);
+    return Array.from({ length: m }, (_, k) => [ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
+  });
+  (scenery.buildings ?? []).forEach((b, bi) => {
+    let ring = Array.from({ length: (b.length - 1) / 2 }, (_, i) => [b[1 + 2 * i], b[2 + 2 * i]]), moved = 0;
+    if (!fits(ring)) {
+      // A real grandstand nearer the circuit than our barriers (Monza's,
+      // Silverstone's): moved straight back until it stands 3.5 m behind
+      // them, by at most 12 m, where no other building stands (below).
+      if (!standSet.has(bi)) return;
+      for (let pass = 0; pass < 3 && !fits(ring); pass++) {
+        const cx0 = ring.reduce((a, p) => a + p[0], 0) / ring.length, cy0 = ring.reduce((a, p) => a + p[1], 0) / ring.length;
+        const [px, py] = track.point(track.progress(cx0, cy0)), l = Math.hypot(cx0 - px, cy0 - py) || 1;
+        const shift = wallAt + 3.5 - Math.min(...ring.map(([x, y]) => Math.abs(track.offset(x, y))));
+        if (shift <= 0 || (moved += shift) > 12) return;
+        ring = ring.map(([x, y]) => [x + (cx0 - px) / l * shift, y + (cy0 - py) / l * shift]);
+      }
+      if (!fits(ring)) return;
+    }
+    // Clear of our own grandstand and pits.
+    if (outline(ring).some(([x, y]) => ourPlot(x, y)) || ourProbes.some(([px, py]) => inside(ring, px, py))) return;
+    if (moved) movedStands.push([ring, b, bi, moved]); else addBlock(ring, b, bi);
+  });
+
+  // Whether (x, y) is within `pad` (up to 5) m of a building.
+  const built = (x, y, pad) => (blockGrid.get(`${Math.floor(x / cell)},${Math.floor(y / cell)}`) ?? []).some(({ ring, box: [x0, y0, x1, y1] }) => {
+    if (x < x0 - pad || x > x1 + pad || y < y0 - pad || y > y1 + pad) return false;
+    let c = false, d2 = Infinity;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [ax, ay] = ring[j], [bx, by] = ring[i], dx = bx - ax, dy = by - ay;
+      if ((ay > y) !== (by > y) && x < dx * (y - ay) / (by - ay) + ax) c = !c;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+      d2 = Math.min(d2, (x - ax - dx * t) ** 2 + (y - ay - dy * t) ** 2);
+    }
+    return c || d2 < pad * pad;
+  });
+  for (const [ring, b, bi, moved] of movedStands) {
+    const near = new Set(); let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    for (let u = Math.floor(x0 / cell); u <= Math.floor(x1 / cell); u++) for (let v = Math.floor(y0 / cell); v <= Math.floor(y1 / cell); v++) for (const o of blockGrid.get(`${u},${v}`) ?? []) near.add(o);
+    if (outline(ring).some(([x, y]) => built(x, y, 0.5)) || [...near].some(o => o.ring.some(([x, y]) => inside(ring, x, y)))) continue;
+    addBlock(ring, b, bi, moved);
+  }
+  if (blocks.length) {
+    const facade = texture(64, (g, s) => {
       g.fillStyle = '#ffffff'; g.fillRect(0, 0, s, s);
-      g.fillStyle = '#5b6670';
-      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) g.fillRect(i * s / 4 + s / 16, j * s / 4 + s / 12, s / 8, s / 7);
+      g.fillStyle = '#5b6670'; g.fillRect(s * 0.22, s * 0.22, s * 0.56, s * 0.5);
     });
-    const town = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ map: facade, roughness: 0.85 }), Math.max(1, blocks.length));
-    const shades = [0xe9dcc3, 0xf1e6d2, 0xd9b48f, 0xe6c9a8, 0xf4f1ea, 0xc9a98a, 0xe8d6b0];
-    blocks.forEach((b, i) => {
-      dummy.position.set(b.x, b.base - 3, -b.y); dummy.rotation.set(0, b.hd, 0); dummy.scale.set(b.w, b.h + 3, b.d);
-      dummy.updateMatrix(); town.setMatrixAt(i, dummy.matrix); town.setColorAt(i, new THREE.Color(shades[Math.floor(b.tone * shades.length)]));
+    const shades = [0xe9dcc3, 0xf1e6d2, 0xd9b48f, 0xe6c9a8, 0xf4f1ea, 0xc9a98a, 0xe8d6b0, 0xcfd2d4].map(c => new THREE.Color(c));
+    const wp = [], wuv = [], wc = [], rp = [], rc = [], ri = [], sp = [], suv = [], si = [], standGrey = new THREE.Color(0xb9bcb8);
+    blocks.forEach((b, k) => {
+      const tone = b.stand ? standGrey : shades[(k * 7919) % shades.length], roof = tone.clone().multiplyScalar(0.72), r = b.ring, bottom = b.base - 3, tops = b.tops ?? r.map(() => b.top);
+      let u = 0;
+      for (let i = 0; i < r.length; i++) {
+        const j = (i + 1) % r.length, [ax, ay] = r[i], [bx, by] = r[j], du = Math.hypot(bx - ax, by - ay) / 3.5, fa = (tops[i] - bottom) / 3.2, fb = (tops[j] - bottom) / 3.2;
+        // Two triangles, outward faces (the footprint is anticlockwise).
+        wp.push(ax, bottom, -ay, bx, bottom, -by, bx, tops[j], -by, ax, bottom, -ay, bx, tops[j], -by, ax, tops[i], -ay);
+        wuv.push(u, 0, u + du, 0, u + du, fb, u, 0, u + du, fb, u, fa);
+        for (let q = 0; q < 6; q++) wc.push(tone.r, tone.g, tone.b);
+        u += du;
+      }
+      const tris = THREE.ShapeUtils.triangulateShape(r.map(([x, y]) => new THREE.Vector2(x, y)), []);
+      if (b.stand) {
+        // Seats: 0.5 m wide (16 to a texture's width) along the front, rows up the rake.
+        const at = sp.length / 3, [ux, uy] = b.stand;
+        r.forEach(([x, y], i) => { sp.push(x, tops[i], -y); suv.push((-x * uy + y * ux) / 8, b.rows[i]); });
+        for (const t of tris) si.push(at + t[0], at + t[1], at + t[2]);
+        return;
+      }
+      const at = rp.length / 3;
+      for (const [x, y] of r) { rp.push(x, b.top, -y); rc.push(roof.r, roof.g, roof.b); }
+      for (const t of tris) ri.push(at + t[0], at + t[1], at + t[2]);
     });
-    town.count = blocks.length; town.castShadow = town.receiveShadow = true; town.userData.kind = 'buildings'; world.add(town);
+    const walls = new THREE.BufferGeometry();
+    walls.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
+    walls.setAttribute('uv', new THREE.Float32BufferAttribute(wuv, 2));
+    walls.setAttribute('color', new THREE.Float32BufferAttribute(wc, 3));
+    walls.computeVertexNormals();
+    const roofs = new THREE.BufferGeometry();
+    roofs.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
+    roofs.setAttribute('color', new THREE.Float32BufferAttribute(rc, 3));
+    roofs.setIndex(ri); roofs.computeVertexNormals();
+    const town = new THREE.Group();
+    town.add(new THREE.Mesh(walls, new THREE.MeshStandardMaterial({ map: facade, vertexColors: true, roughness: 0.85 })), new THREE.Mesh(roofs, std({ vertexColors: true, roughness: 0.9 })));
+    if (si.length) {
+      const seats = new THREE.BufferGeometry(), map = crowd.clone(); map.repeat.set(1, 1); map.needsUpdate = true;
+      seats.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+      seats.setAttribute('uv', new THREE.Float32BufferAttribute(suv, 2));
+      seats.setIndex(si); seats.computeVertexNormals();
+      town.add(new THREE.Mesh(seats, std({ map, roughness: 0.9 })));
+    }
+    town.children.forEach(m => { m.castShadow = m.receiveShadow = true; m.userData.kind = 'buildings'; });
+    town.userData = { kind: 'buildings', count: blocks.length, blocks, stands: blocks.filter(b => b.stand).length };
+    world.add(town);
+  }
+  // The real roads and streets (scenery.roads, roads.mjs: OpenStreetMap):
+  // asphalt ribbons of their width, cut into steps of at most 3 m that lie
+  // 0.12 m over the ground mesh's own facets. Left out within 3 m of the
+  // barriers (where a street circuit runs on public roads, the circuit is
+  // drawn there instead), in the sea or water, and within 1 m of the plot of
+  // our own grandstand and pits (ourPlot).
+  const roadDist = terrainHeight.dist ?? ((x, y) => Math.abs(track.offset(x, y)));
+  const ours = (x, y, w) => roadDist(x, y) <= wallAt + 80 && (Math.abs(track.offset(x, y)) < wallAt + w / 2 + 3 || ourPlot(x, y, w / 2 + 1));
+  const onGround = terrainHeight.mesh ?? terrainHeight, laneGrid = new Map(), rp = [], ruv = [], ri = [], mp = [], mi = [];
+  let roadKm = 0, markKm = 0;
+  // Unit left normal of a run at point k.
+  const across = (run, k) => {
+    const [px, py] = run[Math.max(0, k - 1)], [qx, qy] = run[Math.min(run.length - 1, k + 1)], l = Math.hypot(qx - px, qy - py) || 1;
+    return [-(qy - py) / l, (qx - px) / l];
+  };
+  for (const [w, ...flat] of scenery.roads ?? []) {
+    // Densified path, then its runs of kept points.
+    const path = [];
+    for (let i = 0; i + 3 < flat.length; i += 2) {
+      const [ax, ay, bx, by] = flat.slice(i, i + 4), m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
+      for (let k = i ? 1 : 0; k <= m; k++) path.push([ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
+    }
+    const keep = path.map(([x, y]) => !ours(x, y, w) && beach(x, y) < -w / 2 && shore(x, y) > 0);
+    for (let a = 0; a < path.length;) {
+      if (!keep[a]) { a++; continue; }
+      let b = a; while (b + 1 < path.length && keep[b + 1]) b++;
+      if (b > a) {
+        const run = path.slice(a, b + 1), at = rp.length / 3;
+        run.forEach(([x, y], k) => {
+          const [px, py] = run[Math.max(0, k - 1)], [qx, qy] = run[Math.min(run.length - 1, k + 1)], l = Math.hypot(qx - px, qy - py) || 1, nx = -(qy - py) / l * w / 2, ny = (qx - px) / l * w / 2;
+          for (const s of [1, -1]) { const vx = x + nx * s, vy = y + ny * s; rp.push(vx, onGround(vx, vy) + 0.12, -vy); ruv.push(vx / 2.5, vy / 2.5); }
+          if (k) { const q = at + 2 * k; ri.push(q - 2, q - 1, q, q - 1, q + 1, q); roadKm += Math.hypot(x - run[k - 1][0], y - run[k - 1][1]) / 1000; }
+          const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`; (laneGrid.get(key) ?? laneGrid.set(key, []).get(key)).push([x, y, w / 2]);
+        });
+        // Painted lines: a dashed centre line (4.5 m dashes, 4.5 m gaps) on
+        // roads 6 m wide or more, solid edge lines 0.3 m in on roads 8 m or
+        // more; 0.12 m wide.
+        if (w >= 6) {
+          let d = 0;
+          for (let k = 1; k < run.length; k++) {
+            const [ax, ay] = run[k - 1], [bx, by] = run[k], l = Math.hypot(bx - ax, by - ay);
+            const lines = [];
+            if (Math.floor((d + l / 2) / 4.5) % 2 === 0) lines.push(0);
+            if (w >= 8) lines.push(w / 2 - 0.3, 0.3 - w / 2);
+            d += l;
+            if (!lines.length) continue;
+            const [nax, nay] = across(run, k - 1), [nbx, nby] = across(run, k);
+            for (const o of lines) {
+              const q = mp.length / 3;
+              for (const [x, y, nx, ny] of [[ax, ay, nax, nay], [bx, by, nbx, nby]]) for (const s of [0.06, -0.06]) {
+                const vx = x + nx * (o + s), vy = y + ny * (o + s); mp.push(vx, onGround(vx, vy) + 0.14, -vy);
+              }
+              mi.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
+              markKm += l / 1000;
+            }
+          }
+        }
+      }
+      a = b + 1;
+    }
+  }
+  if (ri.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(ruv, 2));
+    geo.setIndex(ri); geo.computeVertexNormals();
+    const mat = asphaltMaterial(1, 1); mat.color.setHex(0xa9a9a9);
+    mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
+    const streets = new THREE.Mesh(geo, mat); streets.receiveShadow = true;
+    streets.userData = { kind: 'roads', km: Math.round(roadKm * 10) / 10 }; world.add(streets);
+  }
+  if (mi.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(mp, 3));
+    geo.setIndex(mi); geo.computeVertexNormals();
+    const mat = std({ color: 0xe8e8e2, roughness: 0.7 });
+    mat.polygonOffset = true; mat.polygonOffsetFactor = -3; mat.polygonOffsetUnits = -3;
+    const paint = new THREE.Mesh(geo, mat); paint.receiveShadow = true;
+    paint.userData = { kind: 'markings', km: Math.round(markKm * 10) / 10 }; world.add(paint);
+  }
+  // Whether (x, y) is within `pad` m of a road's edge (points every 3 m).
+  const paved = (x, y, pad) => {
+    const u = Math.floor(x / cell), v = Math.floor(y / cell);
+    for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) for (const [px, py, hw] of laneGrid.get(`${u + du},${v + dv}`) ?? []) if ((x - px) ** 2 + (y - py) ** 2 < (hw + pad + 1.5) ** 2) return true;
+    return false;
+  };
+  // The real walls, fences, hedges, guard rails and railway lines
+  // (scenery.barriers, barriers.mjs: OpenStreetMap), on the ground mesh in
+  // steps of at most 3 m: walls (2 m tall unless mapped) 0.3 m thick, hedges
+  // (1.6 m) 1 m thick, guard rails (0.8 m) 0.25 m thick, fences (1.8 m) of
+  // see-through mesh, and railway track as a ballast bed with two rails.
+  // Left out where the roads are (within 3 m of the barriers, in the sea or
+  // water, our grandstand and pits), on the streets and inside buildings.
+  const LINE = [{ h: 2, w: 0.3, color: 0xb3ab9c }, { h: 1.8 }, { h: 1.6, w: 1, color: 0x2e5524 }, { h: 0.8, w: 0.25, color: 0xb4babe }, { w: 3 }];
+  const sp = [], sc = [], si = [], fp = [], fuv = [], fi = [], bp = [], bi = [], tp = [], ti = [], lineKm = [0, 0, 0, 0, 0];
+  // A flat band from a to b m left of a run, `lift` m over the ground mesh.
+  const band = (run, a, b, lift, P, I) => run.forEach(([x, y], k) => {
+    const [nx, ny] = across(run, k);
+    for (const o of [a, b]) P.push(x + nx * o, onGround(x + nx * o, y + ny * o) + lift, -(y + ny * o));
+    if (k) { const q = P.length / 3 - 2; I.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+  });
+  for (const [kind, dm, ...flat] of scenery.barriers ?? []) {
+    const { h: h0, w = 0, color } = LINE[kind], h = dm ? dm / 10 : h0, path = [];
+    for (let i = 0; i + 3 < flat.length; i += 2) {
+      const [ax, ay, bx, by] = flat.slice(i, i + 4), m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
+      for (let k = i ? 1 : 0; k <= m; k++) path.push([ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
+    }
+    const keep = path.map(([x, y]) => !ours(x, y, Math.max(w, 1)) && beach(x, y) < -1 - w / 2 && shore(x, y) > w / 2 && !paved(x, y, -2) && !built(x, y, 0));
+    for (let a = 0; a < path.length;) {
+      if (!keep[a]) { a++; continue; }
+      let b = a; while (b + 1 < path.length && keep[b + 1]) b++;
+      const run = path.slice(a, b + 1);
+      a = b + 1;
+      if (run.length < 2) continue;
+      for (let k = 1; k < run.length; k++) lineKm[kind] += Math.hypot(run[k][0] - run[k - 1][0], run[k][1] - run[k - 1][1]) / 1000;
+      if (kind === 4) {
+        band(run, -1.5, 1.5, 0.1, bp, bi);
+        for (const o of [-0.72, 0.72]) band(run, o - 0.04, o + 0.04, 0.28, tp, ti);
+      } else if (kind === 1) {
+        let u = 0;
+        run.forEach(([x, y], k) => {
+          if (k) u += Math.hypot(x - run[k - 1][0], y - run[k - 1][1]) / 0.5;
+          const g = onGround(x, y); fp.push(x, g - 0.1, -y, x, g + h, -y); fuv.push(u, 0, u, (h + 0.1) / 0.5);
+          if (k) { const q = fp.length / 3 - 2; fi.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+        });
+      } else {
+        // Four corners a point (left foot, left top, right top, right foot);
+        // the sides and top between points, closed at both ends.
+        const c = new THREE.Color(color), at = sp.length / 3;
+        run.forEach(([x, y], k) => {
+          const [nx, ny] = across(run, k), d = w / 2;
+          for (const [s, up] of [[1, false], [1, true], [-1, true], [-1, false]]) {
+            const vx = x + nx * d * s, vy = y + ny * d * s, g = onGround(vx, vy);
+            sp.push(vx, up ? g + h : g - 0.4, -vy); sc.push(c.r, c.g, c.b);
+          }
+          if (k) { const q = at + 4 * k, p = q - 4; for (let f = 0; f < 3; f++) si.push(p + f, q + f, q + f + 1, p + f, q + f + 1, p + f + 1); }
+        });
+        const end = at + 4 * (run.length - 1);
+        si.push(at, at + 1, at + 2, at, at + 2, at + 3, end, end + 2, end + 1, end, end + 3, end + 2);
+      }
+    }
+  }
+  const lines = new THREE.Group();
+  const lineMesh = (P, I, mat, kindName, U, C) => {
+    if (!I.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    if (U) geo.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+    if (C) geo.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+    geo.setIndex(I); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat); m.castShadow = kindName !== 'ballast'; m.receiveShadow = true; m.userData.kind = kindName; lines.add(m);
+  };
+  lineMesh(sp, si, std({ vertexColors: true, roughness: 0.9, flatShading: true }), 'walls', null, sc);
+  const chain = texture(64, (g, s) => {
+    g.clearRect(0, 0, s, s); g.strokeStyle = '#a9b0b3'; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(s, s); g.moveTo(s, 0); g.lineTo(0, s); g.stroke();
+    g.fillStyle = '#6e7478'; g.fillRect(0, 0, 6, s);
+  });
+  lineMesh(fp, fi, new THREE.MeshStandardMaterial({ map: chain, alphaTest: 0.4, side: THREE.DoubleSide, metalness: 0.5, roughness: 0.6 }), 'fences', fuv);
+  const ballast = std({ map: texture(128, (g, s) => noise(g, s, '#7d7468', 0.35, 6000), 1, 1), roughness: 1 });
+  ballast.polygonOffset = true; ballast.polygonOffsetFactor = -3; ballast.polygonOffsetUnits = -3;
+  lineMesh(bp, bi, ballast, 'ballast');
+  lineMesh(tp, ti, std({ color: 0x8a8d90, metalness: 0.8, roughness: 0.35 }), 'rails');
+  if (lines.children.length) {
+    lines.userData = { kind: 'barriers', km: Object.fromEntries(['walls', 'fences', 'hedges', 'guardRails', 'railway'].map((k, i) => [k, Math.round(lineKm[i] * 10) / 10])) };
+    world.add(lines);
+  }
+  // The real bridges and viaducts (scenery.bridges, bridges.mjs:
+  // OpenStreetMap) in steps of at most 3 m: a concrete deck (roads 1.2 m
+  // thick, railways 1.4 m, footbridges 0.5 m) 1 m wider than the way with
+  // 1.1 m parapets, asphalt on road decks, ballast and rails on railway
+  // ones, and a pier about every 30 m where the deck stands 2.5 m or more
+  // over the ground (none on the circuit or a street). The deck clears the
+  // ground (or the sea) by 5.5 m a layer for roads and railways, 2.5 m for
+  // footbridges, easing down to it over the 40 m at its ends, and the
+  // circuit by 6.5 m wherever it crosses it; it falls at most 8% (railways
+  // 5%, footbridges 30%) from there. Left out where a bridge runs along the
+  // circuit inside its barriers (a street circuit's own bridges).
+  const BRIDGE = [{ t: 1.2, c: 5.5, g: 0.08 }, { t: 1.4, c: 5.5, g: 0.05 }, { t: 0.5, c: 2.5, g: 0.3 }];
+  const dp = [], di = [], ap = [], auv = [], ai = [], gp = [], gi = [], rp2 = [], ri2 = [], bridgeKm = [0, 0, 0], deckGrid = [];
+  let piers = 0;
+  const floorAt = (x, y) => Math.max(onGround(x, y), terrainHeight.seaLevel ?? -Infinity);
+  const tunnelRanges = scenery.tunnels ?? [];
+  const underRoof = (x, y) => {
+    if (!tunnelRanges.length || Math.abs(track.offset(x, y)) > wallAt + 3) return false;
+    const s = track.progress(x, y);
+    return tunnelRanges.some(([a, b]) => (s >= a && s <= b) || (s - track.length >= a && s - track.length <= b));
+  };
+  // A closed box section from left offset a to b along run, between heights lo[k] and hi[k].
+  const slab = (run, lo, hi, a, b) => {
+    const at = dp.length / 3;
+    run.forEach(([x, y], k) => {
+      const [nx, ny] = across(run, k);
+      for (const [o, up] of [[b, false], [b, true], [a, true], [a, false]]) dp.push(x + nx * o, up ? hi[k] : lo[k], -(y + ny * o));
+      if (k) { const q = at + 4 * k, p = q - 4; for (let f = 0; f < 4; f++) { const f1 = (f + 1) % 4; di.push(p + f, q + f, q + f1, p + f, q + f1, p + f1); } }
+    });
+    const end = at + 4 * (run.length - 1);
+    di.push(at, at + 1, at + 2, at, at + 2, at + 3, end, end + 2, end + 1, end, end + 3, end + 2);
+  };
+  // A flat band from a to b m left of run at heights z[k] + lift.
+  const deckBand = (run, z, a, b, lift, P, I, U) => run.forEach(([x, y], k) => {
+    const [nx, ny] = across(run, k);
+    for (const o of [a, b]) { P.push(x + nx * o, z[k] + lift, -(y + ny * o)); U?.push((x + nx * o) / 2.5, (y + ny * o) / 2.5); }
+    if (k) { const q = P.length / 3 - 2; I.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+  });
+  for (const [kind, w, layer, ...flat] of scenery.bridges ?? []) {
+    const { t, c, g } = BRIDGE[kind], path = [];
+    for (let i = 0; i + 3 < flat.length; i += 2) {
+      const [ax, ay, bx, by] = flat.slice(i, i + 4), m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
+      for (let k = i ? 1 : 0; k <= m; k++) path.push([ax + (bx - ax) * k / m, ay + (by - ay) * k / m]);
+    }
+    // None over the circuit's own tunnels (their roof is drawn instead, below).
+    if (path.some(([x, y]) => underRoof(x, y))) continue;
+    // Inside the barriers, kept only where it crosses the circuit at 30° or more.
+    const keep = path.map(([x, y], k) => {
+      if (Math.abs(track.offset(x, y)) > wallAt + w / 2 + 3) return true;
+      const [px, py] = path[Math.max(0, k - 1)], [qx, qy] = path[Math.min(path.length - 1, k + 1)], l = Math.hypot(qx - px, qy - py) || 1;
+      const gx = track.offset(x + 1, y) - track.offset(x - 1, y), gy = track.offset(x, y + 1) - track.offset(x, y - 1);
+      return Math.abs(gx * (qx - px) + gy * (qy - py)) / (Math.hypot(gx, gy) || 1) / l > 0.5;
+    });
+    for (let a = 0; a < path.length;) {
+      if (!keep[a]) { a++; continue; }
+      let b = a; while (b + 1 < path.length && keep[b + 1]) b++;
+      const run = path.slice(a, b + 1);
+      a = b + 1;
+      if (run.length < 2) continue;
+      const s = [0]; for (let k = 1; k < run.length; k++) s.push(s[k - 1] + Math.hypot(run[k][0] - run[k - 1][0], run[k][1] - run[k - 1][1]));
+      const len = s.at(-1), fl = run.map(([x, y]) => floorAt(x, y)), over = run.map(([x, y]) => Math.abs(track.offset(x, y)) < wallAt + 2);
+      const z = run.map((_, k) => Math.max(fl[k] + (c + 5 * (layer - 1) + t) * Math.min(1, Math.min(s[k], len - s[k]) / 40), over[k] ? fl[k] + 6.5 + t : -Infinity, fl[k] + 0.3));
+      for (let k = 1; k < run.length; k++) z[k] = Math.max(z[k], z[k - 1] - g * (s[k] - s[k - 1]));
+      for (let k = run.length - 2; k >= 0; k--) z[k] = Math.max(z[k], z[k + 1] - g * (s[k + 1] - s[k]));
+      bridgeKm[kind] += len / 1000;
+      const e = w / 2 + 0.5;
+      slab(run, z.map(v => v - t), z, -e, e);
+      slab(run, z, z.map(v => v + 1.1), e - 0.25, e);
+      slab(run, z, z.map(v => v + 1.1), -e, -e + 0.25);
+      if (kind === 0) deckBand(run, z, -w / 2, w / 2, 0.03, ap, ai, auv);
+      else if (kind === 1) {
+        deckBand(run, z, -1.5, 1.5, 0.1, gp, gi);
+        for (const o of [-0.72, 0.72]) deckBand(run, z, o - 0.04, o + 0.04, 0.28, rp2, ri2);
+      }
+      for (let k = 0, next = 15; k < run.length; k++) {
+        const [x, y] = run[k];
+        deckGrid.push([x, y, e]);
+        if (s[k] < next || s[k] > len - 10) continue;
+        if (z[k] - t - fl[k] < 2.5 || over[k] || Math.abs(track.offset(x, y)) < wallAt + 1 || paved(x, y, 0)) continue;
+        const [nx, ny] = across(run, k), tx = ny, ty = -nx, pw = Math.min(w, 8) * 0.35;
+        slab([[x - tx * 0.75, y - ty * 0.75], [x + tx * 0.75, y + ty * 0.75]], [fl[k] - 1, fl[k] - 1], [z[k] - t, z[k] - t], -pw, pw);
+        piers++; next = s[k] + 30;
+      }
+    }
+  }
+  if (di.length) {
+    const spans = new THREE.Group(), add = (P, I, mat, name, U) => {
+      if (!I.length) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+      if (U) geo.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+      geo.setIndex(I); geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat); m.castShadow = name === 'decks'; m.receiveShadow = true; m.userData.kind = name; spans.add(m);
+    };
+    add(dp, di, std({ color: 0xa9a59c, roughness: 0.9, flatShading: true }), 'decks');
+    const deckAsphalt = asphaltMaterial(1, 1); deckAsphalt.color.setHex(0xa9a9a9);
+    deckAsphalt.polygonOffset = true; deckAsphalt.polygonOffsetFactor = -2; deckAsphalt.polygonOffsetUnits = -2;
+    add(ap, ai, deckAsphalt, 'deckRoads', auv);
+    add(gp, gi, ballast, 'deckBallast');
+    add(rp2, ri2, std({ color: 0x8a8d90, metalness: 0.8, roughness: 0.35 }), 'deckRails');
+    spans.userData = { kind: 'bridges', piers, km: Object.fromEntries(['road', 'railway', 'foot'].map((k, i) => [k, Math.round(bridgeKm[i] * 100) / 100])) };
+    world.add(spans);
+    // Trees keep off them as off the streets.
+    for (const [x, y, hw] of deckGrid) { const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`; (laneGrid.get(key) ?? laneGrid.set(key, []).get(key)).push([x, y, hw]); }
+  }
+  // The circuit's own tunnels and covered stretches (scenery.tunnels,
+  // tunnels.mjs: OpenStreetMap; Monaco's tunnel, the pass under Monza's old
+  // banking) in steps of at most 2 m: a 1.5 m concrete roof whose underside
+  // stands 6.5 m over the highest point across the road, reaching 3 m past
+  // the barriers, walls from below the ground up to it just behind them,
+  // and a row of lamps either side of the middle every 8 m.
+  if (tunnelRanges.length) {
+    const tp = [], ti = [], lamps = [], out = wallAt + 3, inn = wallAt + 0.3;
+    let tunnelM = 0;
+    // A quad strip through the points corner(k, j) (j = 0, 1) along stations k.
+    const strip = (m, corner) => {
+      const at = tp.length / 3;
+      for (let k = 0; k < m; k++) for (let j = 0; j < 2; j++) tp.push(...corner(k, j));
+      for (let k = 1; k < m; k++) { const q = at + 2 * k; ti.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+    };
+    for (const [s0, s1] of tunnelRanges) {
+      const m = Math.max(2, Math.ceil((s1 - s0) / 2) + 1), st = Array.from({ length: m }, (_, k) => {
+        const s = s0 + (s1 - s0) * k / (m - 1), [x, y] = track.point(s), h = track.heading(s);
+        return { s, x, y, nx: -Math.sin(h), ny: Math.cos(h), z: Math.max(ground(s, -half), ground(s, 0), ground(s, half)) + 6.5 };
+      });
+      tunnelM += s1 - s0;
+      const at = (p, o, z) => [p.x + p.nx * o, z, -(p.y + p.ny * o)];
+      strip(m, (k, j) => at(st[k], j ? out : -out, st[k].z));
+      strip(m, (k, j) => at(st[k], j ? -out : out, st[k].z + 1.5));
+      for (const o of [-out, out, -inn, inn]) strip(m, (k, j) => at(st[k], o, Math.abs(o) === out ? st[k].z + 1.5 * j : j ? st[k].z : ground(st[k].s, o) + footing - 0.5));
+      for (const p of [st[0], st[m - 1]]) strip(2, (k, j) => at(p, k ? out : -out, p.z + 1.5 * j));
+      for (let k = 0; k < m; k += 4) for (const o of [-half * 0.4, half * 0.4]) lamps.push(at(st[k], o, st[k].z - 0.08).concat(st[k].s));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3));
+    geo.setIndex(ti); geo.computeVertexNormals();
+    const shell = new THREE.Mesh(geo, std({ color: 0x8f8d88, roughness: 0.95 }));
+    shell.castShadow = shell.receiveShadow = true; shell.userData.kind = 'tunnelShell';
+    const lampMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1.2, 0.12, 0.35), new THREE.MeshStandardMaterial({ color: 0xfff1c8, emissive: 0xffd98a, emissiveIntensity: 1.4 }), lamps.length);
+    lamps.forEach(([x, y, z, s], i) => { dummy.position.set(x, y, z); dummy.rotation.set(0, track.heading(s), 0); dummy.updateMatrix(); lampMesh.setMatrixAt(i, dummy.matrix); });
+    lampMesh.userData.kind = 'tunnelLamps';
+    const tunnels = new THREE.Group(); tunnels.add(shell, lampMesh);
+    tunnels.userData = { kind: 'tunnels', ranges: tunnelRanges, m: Math.round(tunnelM), lamps: lamps.length };
+    world.add(tunnels);
+  }
+
+  // Trees stand at least 20 m clear of the road, 40 m in from the sea, 5 m
+  // from the water, 4 m from any building and 2 m from any street, and not
+  // on sand, gravel or paved ground (landcover.mjs).
+  const onBare = terrainHeight.cover ?? (() => 0);
+  const clear = (x, y) => Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !built(x, y, 4) && !paved(x, y, 2) && onBare(x, y) < 4;
+  // The real woods and trees (scenery.woods, woods.mjs: OpenStreetMap): each
+  // wood filled with trees on a jittered 8 m grid, kept 9 m apart on average
+  // up to 150 m from the road and thinning to 20 m apart by 600 m, and the
+  // mapped single trees and tree rows; at most MAX_TREES of them, nearest the
+  // road first. A tree's kind comes from its leaf type (needleleaved:
+  // conifer; broadleaved: broadleaf or palm by the circuit's weights; mixed
+  // or not mapped: any kind by them), among the kinds the circuit has. Where OSM maps fewer than MIN_REAL
+  // trees, scenery.clusters random clusters of the circuit's kinds are added.
+  const MAX_TREES = 6000, MIN_REAL = 200, real = [];
+  const kinds = ['conifer', 'broadleaf', 'palm'], weight = kinds.map(k => scenery.trees[k] ?? 0), sum = weight.reduce((a, b) => a + b, 0) || 1;
+  const kindOf = v => { let acc = 0; for (let k = 0; k < kinds.length; k++) if (v < (acc += weight[k] / sum)) return k; return kinds.length - 1; };
+  const leafKind = (leaf, v) => leaf === 2 && weight[0] ? 0 : leaf === 1 && weight[1] + weight[2] ? (v * (weight[1] + weight[2]) < weight[1] ? 1 : 2) : kindOf(v);
+  if (scenery.woods) {
+    const roadDist = terrainHeight.dist ?? ((x, y) => Math.abs(track.offset(x, y))), g = 8, taken = new Set();
+    for (const [leaf, ...flat] of scenery.woods.woods) {
+      const rings = flat.map(r => Array.from({ length: r.length / 2 }, (_, i) => [r[2 * i], r[2 * i + 1]]));
+      const xs = rings[0].map(p => p[0]), ys = rings[0].map(p => p[1]);
+      for (let gx = Math.floor(Math.min(...xs) / g); gx * g <= Math.max(...xs); gx++) for (let gy = Math.floor(Math.min(...ys) / g); gy * g <= Math.max(...ys); gy++) {
+        const x = (gx + rng()) * g, y = (gy + rng()) * g, keep = rng(), cellKey = gx * 65536 + gy;
+        if (taken.has(cellKey)) continue;
+        let inWood = false;
+        for (const r of rings) for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) inWood = !inWood;
+        if (!inWood) continue;
+        const d = roadDist(x, y), apart = d < 150 ? 9 : Math.min(20, 9 + (d - 150) * 11 / 450);
+        if (keep > (g / apart) ** 2 || !clear(x, y)) continue;
+        taken.add(cellKey); real.push([x, y, leaf, d]);
+      }
+    }
+    const { trees } = scenery.woods;
+    for (let k = 0; k < trees.length; k += 3) if (clear(trees[k], trees[k + 1])) real.push([trees[k], trees[k + 1], trees[k + 2], roadDist(trees[k], trees[k + 1])]);
+    real.sort((a, b) => a[3] - b[3]).splice(MAX_TREES);
   }
   const spots = [];
-  for (let tries = 0; spots.length < scenery.clusters * 3 && tries < scenery.clusters * 2; tries++) {
+  for (const [x, y, leaf] of real) { const v = rng(); spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, v, leafKind(leaf, v), true]); }
+  if (real.length < MIN_REAL) for (let tries = 0; spots.length < scenery.clusters * 3 && tries < scenery.clusters * 2; tries++) {
     const tx = cx + (rng() - 0.5) * (maxX - minX + 300), ty = cy + (rng() - 0.5) * (maxY - minY + 300), m = 3 + Math.floor(rng() * 9);
     for (let i = 0; i < m; i++) {
       const x = tx + (rng() - 0.5) * 40, y = ty + (rng() - 0.5) * 40;
-      if (Math.abs(track.offset(x, y)) > half + 20 && beach(x, y) < -40 && shore(x, y) > 5 && !blocks.some(b => Math.hypot(b.x - x, b.y - y) < b.r + 4)) spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, rng()]);
+      if (clear(x, y)) { const v = rng(); spots.push([x, y, 0.75 + rng() * 0.6, rng() * Math.PI * 2, v, kindOf(v)]); }
     }
   }
   world.add(...plantTrees(spots, (x, y) => terrainHeight(x, y) - 0.2, rng, scenery.trees));
@@ -615,11 +1081,13 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
     const [u, v] = cellUV(x, y), i = Math.floor(u), j = Math.floor(v), a = u - i, b = v - j, k = j * NX + i;
     return (f[k] * (1 - a) + f[k + 1] * a) * (1 - b) + (f[k + NX] * (1 - a) + f[k + NX + 1] * a) * b;
   };
-  // Away from the road: the road's height fading out over 150-700 m, rolling
-  // ground, hills rising towards the horizon, and the lake.
+  // Away from the road: the real ground (scenery.terrain, terrain.mjs) where
+  // it is known; otherwise the road's height fading out over 150-700 m,
+  // rolling ground and hills rising towards the horizon. Then the lake.
+  const real = scenery.terrain ? terrainField(scenery.terrain) : null;
   const far = (x, y) => {
     const d = bilinear(dist, x, y), r = Math.hypot(x - cx, y - cy), th = Math.atan2(y - cy, x - cx);
-    let h = bilinear(base, x, y) * (1 - smooth(150, 700, d))
+    let h = real ? real(x, y) : bilinear(base, x, y) * (1 - smooth(150, 700, d))
       + (3 * Math.sin(x * 0.011 + 0.7) * Math.cos(y * 0.013) + 1.5 * Math.sin(x * 0.029 + y * 0.021)) * smooth(40, 200, d)
       + Math.max(0, 45 + 30 * Math.sin(th * 3 + 1) + 20 * Math.sin(th * 7 + 2) + 10 * Math.sin(th * 17)) * smooth(extent * 0.9, extent + 1100, r);
     if (lake !== null) {
@@ -631,6 +1099,9 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
       const o = seaSide(x, y);
       h += (seaLevel + 1.2 + Math.max(0, -o) * 0.02 - h) * smooth(-160, 0, o);
       if (o > 0) h = Math.min(h, seaLevel - 0.6 - Math.min(o * 0.05, 10));
+      // (Our sea level is the lowest road − 3 m, not the real one: real
+      // low-lying land stays above it.)
+      else if (real) h = Math.max(h, seaLevel + 0.6);
     }
     return h;
   };
@@ -693,16 +1164,27 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx); geo.computeVertexNormals();
-  // Colours (scenery.ground): grass patched with dry grass, bare soil where
-  // the ground is steep (red laterite by the lake), sand along the shore and
-  // mud under the water.
+  // Colours (scenery.ground): grass patched with dry grass, then the real
+  // land cover (scenery.landcover, landcover.mjs: farmland in a patchwork of
+  // crop, stubble and ploughed tones, mown grass, scrub, sand, gravel, paved
+  // ground), bare soil where natural ground is steep (red laterite by the
+  // lake), sand along the shore and mud under the water.
   const { ground: tone } = scenery;
   const grass = new THREE.Color(tone.grass), dry = new THREE.Color(tone.dry), laterite = new THREE.Color(lake !== null ? 0xa4532e : tone.soil), sand = new THREE.Color(0xb9a57a), mud = new THREE.Color(0x5b5040);
+  const cover = scenery.landcover ? landcoverField(scenery.landcover) : null;
+  const covered = new Array(7).fill(0), COVER = [0, 0x8f8b4e, 0x5e8f3e, 0x56633a, 0xd2bf8e, 0x9e988c, 0x5d5e60].map(v => new THREE.Color(v)), crop = new THREE.Color(0x6e8c3a), ploughed = new THREE.Color(0x7a6448), tint = new THREE.Color();
   const col = new Float32Array(N * 3), c = new THREE.Color(), nrm = geo.attributes.normal;
   for (let k = 0; k < N; k++) {
     const x = pos[3 * k], h = pos[3 * k + 1], z = pos[3 * k + 2];
     c.copy(grass).lerp(dry, smooth(-0.2, 0.8, Math.sin(x * 0.0041 + 1.7) * Math.cos(z * 0.0053 - 0.6) + 0.3 * Math.sin((x + z) * 0.017)));
-    c.lerp(laterite, smooth(0.06, 0.2, 1 - nrm.getY(k)));
+    const kind = cover ? cover(x, -z) : 0;
+    covered[kind]++;
+    if (kind) {
+      tint.copy(COVER[kind]);
+      if (kind === 1) { const f = Math.sin(x * 0.021 + 0.4) * Math.cos(z * 0.017 + 1.1) + 0.5 * Math.sin((x - z) * 0.009); tint.lerp(f > 0.4 ? crop : ploughed, f > 0.4 ? 0.8 : smooth(-0.2, -0.8, f) * 0.8); }
+      c.lerp(tint, 0.85);
+    }
+    if (kind < 5) c.lerp(laterite, smooth(0.06, 0.2, 1 - nrm.getY(k)));
     if (water !== null) c.lerp(sand, smooth(water + 3.5, water + 1, h)).lerp(mud, smooth(water, water - 1.5, h));
     if (wf.list.length) { const sd = wf.sd(x, -z, 8); if (sd < 8) c.lerp(sand, smooth(6, 1, sd) * 0.7).lerp(mud, smooth(0, -2, sd)); }
     col.set([c.r, c.g, c.b], 3 * k);
@@ -710,7 +1192,7 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const detail = texture(256, (g, s) => noise(g, s, '#d4d4d4', 0.45, 14000));
   const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: detail, vertexColors: true, roughness: 1 }));
-  ground.receiveShadow = true; world.add(ground);
+  ground.receiveShadow = true; ground.userData = { kind: 'ground', covered }; world.add(ground);
   // The real water's surfaces, islands cut out.
   const pondMat = new THREE.MeshStandardMaterial({ color: 0x2c5a6c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.9 });
   wf.list.forEach((p, k) => {
@@ -737,7 +1219,18 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   height.dist = (x, y) => bilinear(dist, x, y);
   height.lake = lake !== null ? (x, y) => lakeSdf(x, -y) : null;
   height.sea = seaSide;
+  height.seaLevel = seaLevel;
   height.water = wf.list.length ? wf.sd : null;
+  height.cover = cover;
+  // The ground mesh's own height at (x, y): linear over the triangle of its
+  // grid cell that holds it (each cell split along its (i, j-1)–(i-1, j)
+  // diagonal), so what lies on it follows its facets.
+  const cellOf = (v, a) => { let lo = 0, hi = v.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (v[m] <= a) lo = m; else hi = m; } return lo; };
+  height.mesh = (x, y) => {
+    const i = cellOf(ax, x), j = cellOf(ay, y), fx = Math.max(0, Math.min(1, (x - ax[i]) / (ax[i + 1] - ax[i]))), fy = Math.max(0, Math.min(1, (y - ay[j]) / (ay[j + 1] - ay[j])));
+    const hAt = (u, v) => pos[3 * ((j + v) * W + i + u) + 1], a = hAt(0, 0), b = hAt(1, 0), c = hAt(0, 1), d = hAt(1, 1);
+    return fx + fy <= 1 ? a + (b - a) * fx + (c - a) * fy : d + (c - d) * (1 - fx) + (b - d) * (1 - fy);
+  };
   return height;
 }
 
@@ -788,7 +1281,7 @@ function plantTrees(spots, groundAt, rng, trees = { conifer: 0.45, broadleaf: 0.
   const kinds = ['conifer', 'broadleaf', 'palm'], weight = kinds.map(k => trees[k] ?? 0), sum = weight.reduce((a, b) => a + b, 0) || 1;
   const kindOf = v => { let acc = 0; for (let k = 0; k < kinds.length; k++) if (v < (acc += weight[k] / sum)) return k; return kinds.length - 1; };
   return kinds.flatMap((kind, k) => {
-    const list = spots.filter(t => kindOf(t[4]) === k);
+    const list = spots.filter(t => (t[5] ?? kindOf(t[4])) === k);
     if (!list.length) return [];
     const body = new THREE.InstancedMesh(treeGeometry(kind), bodyMat, list.length), fringe = kind === 'palm' ? null : new THREE.InstancedMesh(treeFringe(kind), fringeMat, list.length);
     list.forEach(([x, y, sc, rot, v], i) => {
@@ -797,6 +1290,7 @@ function plantTrees(spots, groundAt, rng, trees = { conifer: 0.45, broadleaf: 0.
       const tint = 0.8 + rng() * 0.35, c = new THREE.Color(tint * (0.95 + rng() * 0.15), tint, tint * (0.85 + rng() * 0.15));
       body.setColorAt(i, c); fringe?.setColorAt(i, c);
     });
+    body.userData = { kind: 'trees', species: kind, real: list.filter(t => t[6]).length };
     const meshes = fringe ? [body, fringe] : [body];
     for (const m of meshes) m.castShadow = m.receiveShadow = true;
     return meshes;

@@ -799,3 +799,11 @@ test('ERS: deployment stops at the per-lap allowance until a new lap; braking ha
   const full = run(rollingCar(60), 1, { throttle: 1, ers: false });
   near(full.ers.charge, full.config.ersCapacity, 1e-6);
 });
+
+test('a loose surface ({ grip, rolling }) ploughs: gravel slows a coasting car more than grass, yet it drives out from rest', () => {
+  const gravel = () => ({ grip: 0.45, rolling: 0.25 }), coast = surface => run(rollingCar(30), 2, {}, surface).telemetry.speed;
+  const onGrass = coast(() => 0.35), onGravel = coast(gravel);
+  assert.ok(onGravel < onGrass - 3, `gravel ${onGravel} vs grass ${onGrass}`);
+  assert.equal(run(rollingCar(30), 0.1, {}, gravel).telemetry.wheels[0].rolling, 0.25);
+  assert.ok(run(createCar(), 5, { throttle: 1 }, gravel).telemetry.speed > 5);
+});
