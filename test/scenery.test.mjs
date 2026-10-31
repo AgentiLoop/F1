@@ -424,7 +424,7 @@ test('nothing stands on the road or its run-off: the ground stays under it where
   const { PITS } = await import('../src/pits.mjs');
   for (const key of ['monaco', 'zandvoort']) {
     const track = createCircuitTrack({ ...CIRCUITS[key], pits: PITS[key] }), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), half = track.roadWidth / 2;
-    // The ground mesh's facets at points across the road, against the road surface there.
+    // The ground mesh's facets at points across the road and its run-off, against their surface there.
     const P = meshes(world).find(m => m.userData.kind === 'ground').geometry.attributes.position, xs = [], ys = [];
     for (let i = 0; i < P.count && (!xs.length || P.getX(i) > xs.at(-1)); i++) xs.push(P.getX(i));
     for (let j = 0; j * xs.length < P.count; j++) ys.push(-P.getZ(j * xs.length));
@@ -434,11 +434,11 @@ test('nothing stands on the road or its run-off: the ground stays under it where
       return fx + fy <= 1 ? h(0, 0) + (h(1, 0) - h(0, 0)) * fx + (h(0, 1) - h(0, 0)) * fy : h(1, 1) + (h(0, 1) - h(1, 1)) * (1 - fx) + (h(1, 0) - h(1, 1)) * (1 - fy);
     };
     let above = 0;
-    for (let s = 0; s < track.length; s += 2) for (let o = -half; o <= half; o += 1.5) {
+    for (let s = 0; s < track.length; s += 2) for (let o = -half - 8; o <= half + 8; o += 1.5) {
       const [x, y] = track.point(s, o);
       if (Math.abs(Math.abs(track.offset(x, y)) - Math.abs(o)) < 0.5 && groundAt(x, y) > track.elevation(s, o) + 0.05) above++;
     }
-    assert.ok(above < 10, `${key}: ground over the road at ${above} points`);
+    assert.equal(above, 0, `${key}: ground over the road or run-off at ${above} points`);
     const pb = world.getObjectByName('pit-building');
     if (pb) {
       const B = pb.geometry.attributes.position, pit = track.pit, signed = s => s > track.length / 2 ? s - track.length : s;

@@ -357,8 +357,10 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
     world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, flood(std({ color: 0xf2f2ee, roughness: 0.6 }), 1.1), 10));
     for (const r of runs(p => kerb[p.i])) world.add(ribbon(r, side * half, side * (half + 1.2), 0.012, flood(std({ map: kerbTex, roughness: 0.7 })), 4));
     // (only out to where another part of the circuit is nearer, as at
-    // Monaco's swimming pool below Beau Rivage, where it would hang over that road)
-    const reach = p => { for (let o = half + 1.7; o <= half + 8; o += 0.5) { if (Math.abs(track.offset(p.x + p.nx * side * o, p.y + p.ny * side * o)) < o - 0.3) return side * (o - 0.5); } return side * (half + 8); };
+    // Monaco's swimming pool below Beau Rivage, where it would hang over that
+    // road; the shortest of a point's and its neighbours', so no facet cuts the corner)
+    const own = pts.slice(0, n).map(p => { for (let o = half + 1.7; o <= half + 8; o += 0.5) { if (Math.abs(track.offset(p.x + p.nx * side * o, p.y + p.ny * side * o)) < o - 0.3) return Math.max(half + 1.2, o - 1.5); } return half + 8; });
+    const reach = p => side * Math.min(own[(p.i + n - 1) % n], own[p.i], own[(p.i + 1) % n]);
     const runoff = ribbon(pts, side * (half + 1.2), reach, 0.004, flood(std({ map: rise ? riseRunoffTex : runoffTex, roughness: rise ? 0.8 : 1 })), 20);
     if (rise) runoff.name = 'rise-runoff';
     world.add(runoff);
@@ -1214,6 +1216,18 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
     const k = j * W + i; pos.set([x, height(x, y), -y], k * 3); uv.set([x / 6, y / 6], k * 2);
     if (i && j) idx.push(k - W - 1, k - W, k - 1, k - W, k, k - 1);
   }));
+  // Then no facet over the road or its run-off out to the barriers: each grid
+  // cell holding a point of them (every 0.5 m, where that part of the circuit
+  // is the nearest) keeps its corners 0.1 m under it. (Monaco's pool runs
+  // beside Beau Rivage 10 m higher, closer than a cell, and the ground's
+  // slope between them would reach over the lower one.)
+  const cellOf = (v, a) => { let lo = 0, hi = v.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (v[m] <= a) lo = m; else hi = m; } return lo; };
+  for (let s = 0; s < track.length; s += 0.5) for (let o = -wallAt; o <= wallAt; o += 0.5) {
+    const [x, y] = track.point(s, o), top = track.elevation(s, o) - 0.1, i = cellOf(ax, x), j = cellOf(ay, y);
+    const corners = [j * W + i, j * W + i + 1, (j + 1) * W + i, (j + 1) * W + i + 1];
+    if (corners.every(k => pos[3 * k + 1] <= top) || Math.abs(Math.abs(track.offset(x, y)) - Math.abs(o)) > 0.5) continue;
+    for (const k of corners) pos[3 * k + 1] = Math.min(pos[3 * k + 1], top);
+  }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx); geo.computeVertexNormals();
@@ -1298,7 +1312,6 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
   // The ground mesh's own height at (x, y): linear over the triangle of its
   // grid cell that holds it (each cell split along its (i, j-1)–(i-1, j)
   // diagonal), so what lies on it follows its facets.
-  const cellOf = (v, a) => { let lo = 0, hi = v.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (v[m] <= a) lo = m; else hi = m; } return lo; };
   height.mesh = (x, y) => {
     const i = cellOf(ax, x), j = cellOf(ay, y), fx = Math.max(0, Math.min(1, (x - ax[i]) / (ax[i + 1] - ax[i]))), fy = Math.max(0, Math.min(1, (y - ay[j]) / (ay[j + 1] - ay[j])));
     const hAt = (u, v) => pos[3 * ((j + v) * W + i + u) + 1], a = hAt(0, 0), b = hAt(1, 0), c = hAt(0, 1), d = hAt(1, 1);
