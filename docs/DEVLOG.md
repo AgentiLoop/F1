@@ -1120,7 +1120,10 @@ simulation accepts (frames are capped at 0.25 s). Gamepad triggers and stick
 are analog and applied without a ramp, after an 8% deadzone (remaining travel
 rescaled to 0–1); the stick has a 1.5 power curve for finer control near
 centre. Both sources share the speed-based steering authority
-1 / (1 + (u / 22 m/s)²), and the physics steering-rate limit (1.2 rad/s)
+1 / (1 + (max(0, u − 15 m/s) / 16.5 m/s)²): full lock up to hairpin speeds.
+(It was 1 / (1 + (u / 22 m/s)²), which left a player only a 13.4 m turn at
+Monaco's Fairmont hairpin speed, ~14 m/s, against its 10 m racing line.) The
+physics steering-rate limit (1.2 rad/s)
 still applies. When both are used, the larger pedal value wins and a held
 steering key overrides the stick. The HUD shows the active source and the
 throttle/brake commands, including the autopilot's. All rates are illustrative

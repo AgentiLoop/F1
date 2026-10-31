@@ -51,8 +51,9 @@ test('steering authority falls with speed for both keyboard and stick', () => {
   run(input, 0.5, 1 / 240, { ...none, left: true });
   const at = speed => input.update(1 / 240, { ...none, left: true }, null, speed).steer;
   assert.equal(at(0), 1);
-  assert.ok(Math.abs(at(22) - 0.5) < 1e-12);
-  const stick = createDriverInput().update(1 / 240, none, readGamepad(pad(1, 0, 0)), 44);
+  assert.equal(at(15), 1); // full lock up to hairpin speeds
+  assert.ok(Math.abs(at(31.5) - 0.5) < 1e-12);
+  const stick = createDriverInput().update(1 / 240, none, readGamepad(pad(1, 0, 0)), 48);
   assert.ok(Math.abs(stick.steer + 0.2) < 1e-12); // right stick -> negative (right) steer
 });
 

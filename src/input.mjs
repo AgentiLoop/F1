@@ -9,7 +9,10 @@ export const INPUT_DEFAULTS = Object.freeze({
   deadzone: 0.08,                    // stick and trigger deadzone (fraction of travel)
   steerExponent: 1.5,                // stick response curve: finer control near centre
   stickBrakeExponent: 2.5,           // right stick back: gradual brake, full only at full travel
-  steerSpeedScale: 22,               // m/s; steer authority 1 / (1 + (u / scale)^2)
+  // Steer authority 1 / (1 + (max(0, u - fullLockSpeed) / scale)^2): full lock
+  // up to hairpin speeds (Monaco's ~10 m Fairmont hairpin is taken at ~14 m/s),
+  // then falling so a keyboard tap at speed does not spin the car.
+  steerFullLockSpeed: 15, steerSpeedScale: 16.5, // m/s
 });
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -66,7 +69,7 @@ export function createDriverInput(cfg = INPUT_DEFAULTS) {
       return {
         throttle: Math.max(key.throttle, pad?.throttle ?? 0),
         brake: Math.max(key.brake, pad?.brake ?? 0),
-        steer: steer / (1 + (speed / cfg.steerSpeedScale) ** 2),
+        steer: steer / (1 + (Math.max(0, speed - cfg.steerFullLockSpeed) / cfg.steerSpeedScale) ** 2),
       };
     },
   };
