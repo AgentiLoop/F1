@@ -253,17 +253,42 @@ export function createCircuitTrack({ name = 'Circuit', points, length: officialL
       const k = key(cx, cy); (grid.get(k) ?? grid.set(k, []).get(k)).push(i);
     }
   }
-  const all = Array.from({ length: n }, (_, i) => i);
+  // Away from the road (the scenery), a coarse grid of each segment's own
+  // bounding box is searched ring by ring outwards: rings 0..r hold every
+  // point within r cells, so the search stops once the best is nearer than
+  // that (ties to the lowest index, as a search of every segment would give).
+  const coarse = 100, cgrid = new Map(), maxRing = 8;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    for (let cx = Math.floor(Math.min(xs[i], xs[j]) / coarse); cx <= Math.floor(Math.max(xs[i], xs[j]) / coarse); cx++) for (let cy = Math.floor(Math.min(ys[i], ys[j]) / coarse); cy <= Math.floor(Math.max(ys[i], ys[j]) / coarse); cy++) {
+      const k = key(cx, cy); (cgrid.get(k) ?? cgrid.set(k, []).get(k)).push(i);
+    }
+  }
   // Nearest point on the centreline: segment index, fraction, signed offset (+ right), distance.
   function nearest(x, y) {
     const list = grid.get(key(Math.floor(x / cell), Math.floor(y / cell)));
-    let best = null;
-    for (const i of list ?? all) {
+    let bi = -1, bf = 0, bd2 = Infinity;
+    const visit = i => {
       const j = (i + 1) % n, dx = xs[j] - xs[i], dy = ys[j] - ys[i], l2 = dx * dx + dy * dy;
       const f = Math.max(0, Math.min(1, ((x - xs[i]) * dx + (y - ys[i]) * dy) / l2));
-      const px = xs[i] + dx * f, py = ys[i] + dy * f, d = Math.hypot(x - px, y - py);
-      if (!best || d < best.d) best = { i, f, px, py, d, cross: dx * (y - ys[i]) - dy * (x - xs[i]) };
+      const ex = x - xs[i] - dx * f, ey = y - ys[i] - dy * f, d2 = ex * ex + ey * ey;
+      if (d2 < bd2 || (d2 === bd2 && !list && i < bi)) { bi = i; bf = f; bd2 = d2; }
+    };
+    if (list) for (const i of list) visit(i);
+    else {
+      const cx = Math.floor(x / coarse), cy = Math.floor(y / coarse);
+      let found = false;
+      for (let r = 0; r <= maxRing && !found; r++) {
+        for (let u = -r; u <= r; u++) for (let v = -r; v <= r; v += (Math.abs(u) === r ? 1 : 2 * r)) {
+          const c = cgrid.get(key(cx + u, cy + v));
+          if (c) for (const i of c) visit(i);
+        }
+        found = bd2 < (r * coarse) ** 2;
+      }
+      if (!found) for (let i = 0; i < n; i++) visit(i);
     }
+    const i = bi, j = (i + 1) % n, dx = xs[j] - xs[i], dy = ys[j] - ys[i], px = xs[i] + dx * bf, py = ys[i] + dy * bf;
+    const best = { i, f: bf, px, py, d: Math.hypot(x - px, y - py), cross: dx * (y - ys[i]) - dy * (x - xs[i]) };
     best.offset = best.cross > 0 ? -best.d : best.d;
     return best;
   }
