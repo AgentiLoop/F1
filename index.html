@@ -623,7 +623,7 @@ function frame(now) {
     sim.advance((now - previousTime) / 1000, command, surfaceAt, barrierAt);
     // On autopilot the race's traffic-aware driver chooses the player's inputs.
     if (autopilot && !forwardRecovery) command = sim.entries[0].command ?? { throttle: 0, brake: 0, steer: 0 };
-    timer.update(sim.car);
+    timer.update(sim.car, { wallsOnly: assistOn });
   }
   if (audio) {
     // Quieter from the overview camera; silent while paused or muted.

@@ -33,7 +33,7 @@ export function createLapTimer(track, { lineProgress = track.halfStraight + 0.8 
     const [ua, ta] = tr[lo], [ub, tb] = tr[hi];
     return ta + (tb - ta) * (ub === ua ? 0 : (u - ua) / (ub - ua));
   }
-  function update(car) {
+  function update(car, { wallsOnly = false } = {}) {
     const now = car.time, a = along(car.x, car.y);
     if (!s.last) { s.last = { a, t: now }; s.u = a - L; return s; }
     let d = a - s.last.a;
@@ -64,7 +64,9 @@ export function createLapTimer(track, { lineProgress = track.halfStraight + 0.8 
       }
     }
     const off = wheelsOff(car);
-    if (off) { if (!s.offTrack) s.warnings++; s.valid = false; }
+    if (off && !s.offTrack) s.warnings++;
+    // With driver aids on (wallsOnly), track limits are ignored: only a barrier hit deletes the lap.
+    if (wallsOnly ? car.impact && car.impact.time > s.lapStart : off) s.valid = false;
     s.offTrack = off;
     if (s.u - s.trace[s.trace.length - 1][0] >= TRACE_STEP) s.trace.push([s.u, now - s.lapStart]);
     return s;
