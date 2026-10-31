@@ -3,13 +3,23 @@ import assert from 'node:assert/strict';
 import { createCircuitTrack } from '../src/circuit.mjs';
 import { CIRCUITS } from '../src/circuits.mjs';
 import * as THREE from '../vendor/three.module.js';
-import { SCENERY, waterField, terrainField, landcoverField } from '../src/scenery.mjs';
+import { waterField, terrainField, landcoverField, sceneryOf } from '../src/scenery.mjs';
+import { SCENERY, sceneryData } from '../src/scenery_all.mjs';
+import { readFileSync } from 'node:fs';
 import { riseStandsClear, pitBuildingSpan } from '../src/stands.mjs';
 
 // A do-nothing 2D canvas so buildCircuitWorld's textures can be drawn in Node.
 const ctx = new Proxy({}, { get: (_, k) => k === 'measureText' ? () => ({ width: 10 }) : k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
 globalThis.document ??= { createElement: () => ({ width: 1, height: 1, getContext: () => ctx }), createElementNS: () => ({ style: {}, addEventListener() {}, removeEventListener() {} }) };
 const { buildCircuitWorld } = await import('../src/world3d.mjs');
+
+test('each circuit\'s src/tracks/<key>.json is up to date (node tools/split_scenery.mjs) and gives the same scenery', () => {
+  for (const key of Object.keys(SCENERY)) {
+    const text = readFileSync(new URL(`../src/tracks/${key}.json`, import.meta.url), 'utf8');
+    assert.equal(text, JSON.stringify(sceneryData(key)), `${key}: run node tools/split_scenery.mjs`);
+    assert.deepEqual(sceneryOf(key, JSON.parse(text)), JSON.parse(JSON.stringify(SCENERY[key])), key);
+  }
+});
 
 test('every real circuit has its scenery, with tree weights summing to 1', () => {
   for (const key of Object.keys(CIRCUITS).filter(k => k !== 'rwanda')) {

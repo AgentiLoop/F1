@@ -32,20 +32,14 @@ const DUNES = { grass: 0x8f9a5a, dry: 0xd2c08e, soil: 0xc8b07c };
 // circuit's own tunnels and covered stretches (tunnels.mjs, OpenStreetMap:
 // Monaco's tunnel), added to every entry below. Where OSM maps few
 // trees, clusters random clusters of trees of these kinds are added.
-import { WATER } from './water.mjs';
-import { WOODS } from './woods.mjs';
-import { COAST } from './coast.mjs';
-import { BUILDINGS, STANDS } from './buildings.mjs';
-import { TERRAIN } from './terrain.mjs';
-import { LANDCOVER } from './landcover.mjs';
-import { ROADS } from './roads.mjs';
-import { BARRIERS } from './barriers.mjs';
-import { BRIDGES } from './bridges.mjs';
-import { TUNNELS } from './tunnels.mjs';
+// Those data files hold every circuit's; tools/split_scenery.mjs copies each
+// circuit's share to src/tracks/<key>.json, which loadScenery fetches, so the
+// browser downloads only the circuit being driven (scenery_all.mjs builds
+// SCENERY for every circuit at once, for the tests and tools).
 
 export const DEFAULT_SCENERY = Object.freeze({ ground: GREEN, clusters: 300, trees: { conifer: 0.45, broadleaf: 0.55, palm: 0 }, sea: null, buildings: null, stands: null, water: null, terrain: null, woods: null, landcover: null, roads: null, barriers: null, bridges: null, tunnels: null });
 
-export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
+export const SCENERY_STYLE = Object.freeze({
   'bahrain': { ground: DESERT, clusters: 60, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
   'shanghai': { ground: GREEN, clusters: 220, trees: { conifer: 0.15, broadleaf: 0.85, palm: 0 } },
   'catalunya': { ground: DRY, clusters: 260, trees: { conifer: 0.6, broadleaf: 0.4, palm: 0 } },
@@ -64,7 +58,22 @@ export const SCENERY = Object.freeze(Object.fromEntries(Object.entries({
   'zandvoort': { ground: DUNES, clusters: 120, trees: { conifer: 0.85, broadleaf: 0.15, palm: 0 } },
   'jeddah': { ground: DESERT, clusters: 80, trees: { conifer: 0, broadleaf: 0, palm: 1 } },
   'miami': { ground: GREEN, clusters: 160, trees: { conifer: 0, broadleaf: 0.3, palm: 0.7 } },
-}).map(([key, s]) => [key, Object.freeze({ ...s, water: WATER[key]?.length ? WATER[key] : null, sea: COAST[key] ?? null, buildings: BUILDINGS[key]?.length ? BUILDINGS[key] : null, stands: STANDS[key]?.length ? STANDS[key] : null, terrain: TERRAIN[key] ?? null, woods: WOODS[key] && (WOODS[key].woods.length || WOODS[key].trees.length) ? WOODS[key] : null, landcover: LANDCOVER[key]?.length ? LANDCOVER[key] : null, roads: ROADS[key]?.length ? ROADS[key] : null, barriers: BARRIERS[key]?.length ? BARRIERS[key] : null, bridges: BRIDGES[key]?.length ? BRIDGES[key] : null, tunnels: TUNNELS[key] ?? null })])));
+});
+
+// The scenery of circuit key: its style above with its data d (as
+// src/tracks/<key>.json: { water, sea, buildings, stands, terrain, woods,
+// landcover, roads, barriers, bridges, tunnels }, each absent where none).
+export function sceneryOf(key, d) {
+  const { water, sea, buildings, stands, terrain, woods, landcover, roads, barriers, bridges, tunnels } = d;
+  return Object.freeze({ ...SCENERY_STYLE[key], water: water?.length ? water : null, sea: sea ?? null, buildings: buildings?.length ? buildings : null, stands: stands?.length ? stands : null, terrain: terrain ?? null, woods: woods && (woods.woods.length || woods.trees.length) ? woods : null, landcover: landcover?.length ? landcover : null, roads: roads?.length ? roads : null, barriers: barriers?.length ? barriers : null, bridges: bridges?.length ? bridges : null, tunnels: tunnels ?? null });
+}
+
+// Fetches circuit key's data (src/tracks/<key>.json) and returns its scenery.
+export async function loadScenery(key) {
+  const res = await fetch(new URL(`./tracks/${key}.json`, import.meta.url));
+  if (!res.ok) throw new Error(`scenery for ${key}: HTTP ${res.status}`);
+  return sceneryOf(key, await res.json());
+}
 
 
 // Water polygons (water.mjs form) prepared for the terrain: each as rings
