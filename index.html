@@ -377,14 +377,29 @@ const drsNote = e => !sim.drsZones?.length || sim.finish.flag ? '' : e.car.drs >
   : e.drsGap !== null && Number.isFinite(e.drsGap) ? ` · DRS gap ${e.drsGap.toFixed(2)} s` : ' · DRS';
 // Ground height under physics (x, y): the circuit's elevation (0 when flat).
 const groundAt = track.hasElevation ? (x, y) => track.heightAt(x, y) : () => 0;
-// Pose a car model from its physics state: position and heading on the ground
-// (pitched and rolled to its slope: heights 1.8 m ahead and behind, 0.8 m
-// either side), sprung-body roll/pitch/heave, wheel spin and front-wheel steer.
+// Pose a car model from its physics state: position and heading on the ground,
+// sprung-body roll/pitch/heave, wheel spin and front-wheel steer. The ground
+// pose is a plane fitted to heights 0/±1/±2 m along the car, 0.8 m either side:
+// the road is linear between 2 m samples, so single points jolt the car at
+// every kink. It then eases toward that over 0.03 s, carried along its slope as
+// the car moves so climbs don't lag; a jump of over 20 m (a reset) snaps.
 function poseCar(m, c, angles, dt) {
   const ch = Math.cos(c.heading), sh = Math.sin(c.heading), at = (f, l) => groundAt(c.x + ch * f - sh * l, c.y + sh * f + ch * l);
-  m.group.position.set(c.x, groundAt(c.x, c.y), -c.y);
-  m.group.rotation.set(track.hasElevation ? Math.atan((at(0, 0.8) - at(0, -0.8)) / 1.6) : 0, c.heading,
-    track.hasElevation ? Math.atan((at(1.8, 0) - at(-1.8, 0)) / 3.6) : 0, 'YXZ');
+  if (track.hasElevation) {
+    let z = 0, zf = 0, zl = 0;
+    for (const f of [-2, -1, 0, 1, 2]) for (const l of [-0.8, 0.8]) { const h = at(f, l); z += h; zf += h * f; zl += h * l; }
+    const fit = { z: z / 10, pitch: Math.atan(zf / 20), roll: Math.atan(zl / 6.4) }, p = m.ground, dx = c.x - p?.x, dy = c.y - p?.y;
+    if (!p || !(dx * dx + dy * dy < 400)) m.ground = { ...fit, x: c.x, y: c.y };
+    else {
+      const k = 1 - Math.exp(-dt / 0.03);
+      p.z += (dx * ch + dy * sh) * Math.tan(p.pitch) + (dy * ch - dx * sh) * Math.tan(p.roll);
+      for (const q of ['z', 'pitch', 'roll']) p[q] += (fit[q] - p[q]) * k;
+      p.x = c.x; p.y = c.y;
+    }
+  }
+  const g = m.ground ?? { z: 0, pitch: 0, roll: 0 };
+  m.group.position.set(c.x, g.z, -c.y);
+  m.group.rotation.set(g.roll, c.heading, g.pitch, 'YXZ');
   // Physics roll is left side up (left = -z), pitch is nose down, heave is downward.
   m.body.rotation.set(c.body.roll, 0, -c.body.pitch); m.body.position.y = -c.body.heave;
   m.wheels.forEach((w, i) => {
