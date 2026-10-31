@@ -106,7 +106,7 @@ function standGeometries() {
   body.translate(0, 0, -STAND_LEN / 2);
   const p = [], uv = [], idx = [], rnd = mulberry(3), reps = STAND_LEN / (32 * 0.55), z0 = -STAND_LEN / 2, z1 = STAND_LEN / 2;
   for (let r = 1; r < ROWS; r++) {
-    const x = r * TREAD - 0.02, y0 = BASE + (r - 1) * RISE, y1 = y0 + RISE, u = rnd(), b = (r % 4) / 4, k = p.length / 3;
+    const x = r * TREAD - 0.12, y0 = BASE + (r - 1) * RISE, y1 = y0 + RISE, u = rnd(), b = (r % 4) / 4, k = p.length / 3;
     p.push(x, y0, z0, x, y0, z1, x, y1, z1, x, y1, z0);
     uv.push(u, 1 - b - 0.25, u + reps, 1 - b - 0.25, u + reps, 1 - b, u, 1 - b);
     idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
@@ -127,7 +127,7 @@ export function buildRiseStands(world, track, { ground, standSide, pitBoxes = 0,
   if (standSide) {
     const { body, crowd } = standGeometries();
     const concrete = new THREE.MeshStandardMaterial({ color: 0xa39e94, roughness: 0.9 });
-    const crowdMat = nightGlow(new THREE.MeshStandardMaterial({ map: crowdTexture(), roughness: 0.9 }), 0xffffff, 0.22, { useMap: true });
+    const crowdMat = nightGlow(new THREE.MeshStandardMaterial({ map: crowdTexture(), roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), 0xffffff, 0.22, { useMap: true });
     const roofMat = nightGlow(new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.65, side: THREE.DoubleSide }), 0xf2edd9, 0.28);
     const colMat = new THREE.MeshStandardMaterial({ color: 0xd8d8d4, roughness: 0.6, metalness: 0.3 });
     const roof = puffyRoof(STAND_LEN + 6, DEPTH + 9, 6), top = BASE + ROWS * RISE;
