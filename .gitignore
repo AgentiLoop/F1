@@ -2,3 +2,6 @@
 .DS_Store
 models/local/
 .wrangler/
+desktop/release/
+desktop/*/build/
+desktop/macos/.build/

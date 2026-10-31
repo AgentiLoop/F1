@@ -43,7 +43,25 @@ The site is a Cloudflare Worker that serves only static assets (`wrangler.toml`)
 `zsh tools/publish.sh` publishes the committed `main` branch to f1.gokart.games
 (via `git archive`, which stamps the version shown in the header subtitle from
 `git describe --tags`). Files listed in `.assetsignore` (tests, tools, this
-README) are not uploaded.
+README, desktop) are not uploaded.
+
+### Desktop apps (web-thin)
+
+Each [release](https://github.com/AgentiLoop/F1/releases) has small "web-thin"
+apps that open f1.gokart.games in their own window, with no browser tabs or
+address bar. They bundle no game files, so they need an internet connection and
+always run the latest deployed version.
+
+* **macOS 13+** (`AgentiLoopF1-web-thin-<v>-mac-universal.zip`): a WebKit app,
+  Apple silicon and Intel, signed with Developer ID and notarized.
+* **Windows 10 / 11** (`…-win.zip`): opens the game in a Microsoft Edge app
+  window. Unzip and run `Install.cmd`.
+* **Linux x64 / arm64, Raspberry Pi included** (`…-linux.tar.gz`): opens the game
+  in a Chrome or Chromium app window (installs one if needed). Run `install.sh`.
+
+Build them with `desktop/macos/build-web-thin.sh notarize`,
+`desktop/windows/build-web-thin.sh` and `desktop/linux/build-web-thin.sh`
+(output in `desktop/release/`).
 
 
 ## How to play
@@ -74,7 +92,7 @@ README) are not uploaded.
   pit lane runs, from OpenStreetMap),
   keep to the 80 km/h limit (+5 s for speeding) and stop on your box, the first
   one, painted green. The crew holds you until it is safe to leave.
-* **DRS.** Hold **F** (gamepad right-stick click). In a race it opens from
+* **DRS.** Hold **F** (keyboard only). In a race it opens from
   lap 2, in a DRS zone, when you were within 1 s of the car ahead at the
   detection point; any braking closes it. In a time trial it is free in the
   zones. The HUD shows when it is available and when it is open.
@@ -142,16 +160,16 @@ P still switches the autopilot afterwards).
 | Control | Action |
 |---|---|
 | RT (R2) | Throttle, analog |
-| LT (L2) | Brake, analog (held at a standstill: reverse) |
-| Right stick forward / back | Throttle / brake, analog (alternative to the triggers) |
+| LT (L2) | Brake, analog (never selects reverse) |
+| Right stick forward / back | Throttle / brake, analog (alternative to the triggers); back, held at a standstill: reverse |
 | Left stick | Steer, analog |
 | D-pad ↑ / ↓ | Throttle / brake (on/off, with the keyboard ramps) |
 | D-pad ← / → | Steer (on/off, with the keyboard ramps) |
 | RB / LB (R1 / L1) | Shift up / down (manual gearbox); on the start lights: the grid slot behind / ahead |
 | Left-stick click (L3) | Automatic gearbox |
-| Right-stick click (R3) | On autopilot: autopilot off (take the wheel); driving, hold: DRS |
+| Right-stick click (R3) | On autopilot: autopilot off (take the wheel); driving, hold: full brake |
 | A (Cross) | Driver assist (traction control + ABS) on / off |
-| B (Circle) | Cockpit / chase camera |
+| B (Circle) | Camera: chase → close chase → cockpit → driver → halo → T-cam |
 | X (Square) | Full screen on / off (where the browser supports it) |
 | Y (Triangle) | Pause / resume |
 | Menu ≡ (Options) | HUD on / off |
@@ -163,8 +181,8 @@ P still switches the autopilot afterwards).
 * Keyboard and gamepad can be used together: the larger pedal value wins, and
   a held steering key or D-pad direction overrides the stick.
 * Buttons act once per press. R3 only turns the autopilot off; to hand the
-  car back to it use P. Pit request, overview camera, sound, opponents and units have
-  no gamepad button; use B, V, M and O on the keyboard.
+  car back to it use P. DRS, pit request, overview camera, sound, opponents and units have
+  no gamepad button; use F, B, V, M and O on the keyboard (Units: the header button).
 * Rumble mixes separate effects, each with its own motor and rhythm: engine
   throb, limiter chop, gear-shift thumps, tyre scrub, wheelspin, lockup
   judder, dirty-air buffet, kerbs (alternating motors per stripe), grass,

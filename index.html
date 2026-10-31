@@ -574,7 +574,7 @@ function render(dt = 0) {
 function frame(now) {
   const dt = previousTime !== null && !paused ? Math.min((now - previousTime) / 1000, 0.1) : 0;
   gamepadTakeover();
-  // Gamepad buttons: Y pause / resume, Menu (Start) HUD, B cockpit / chase, X full screen, A units, Back (View) reset.
+  // Gamepad buttons: Y pause / resume, Menu (Start) HUD, B camera, X full screen, A assist, Back (View) reset.
   if (gamepadPressed(3)) pause(!paused);
   if (gamepadPressed(9)) toggleHud();
   if (gamepadPressed(1)) changeCamera();
