@@ -58,9 +58,11 @@ export function centerline(halfStraight, radius, step = 2) {
 
 // Strip between left offsets a and b; vertical when y1 is given (walls).
 // Heights are above the ground at each point (p.h(left offset), else 0).
-function ribbon(pts, a, b, y0, material, vScale, y1) {
+// b may be a function of the point (an edge that varies along the strip).
+function ribbon(pts, a, b0, y0, material, vScale, y1) {
   const pos = [], uv = [], idx = [], H = (p, o) => p.h ? p.h(o) : 0;
   pts.forEach((p, i) => {
+    const b = typeof b0 === 'function' ? b0(p) : b0;
     if (y1 === undefined) pos.push(p.x + p.nx * a, y0 + H(p, a), -(p.y + p.ny * a), p.x + p.nx * b, y0 + H(p, b), -(p.y + p.ny * b));
     else { const g = H(p, a); pos.push(p.x + p.nx * a, y0 + g, -(p.y + p.ny * a), p.x + p.nx * a, y1 + g, -(p.y + p.ny * a)); }
     uv.push(0, p.s / vScale, 1, p.s / vScale);
@@ -354,7 +356,10 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   for (const side of [-1, 1]) {
     world.add(ribbon(pts, side * (half - 0.45), side * (half - 0.2), 0.008, flood(std({ color: 0xf2f2ee, roughness: 0.6 }), 1.1), 10));
     for (const r of runs(p => kerb[p.i])) world.add(ribbon(r, side * half, side * (half + 1.2), 0.012, flood(std({ map: kerbTex, roughness: 0.7 })), 4));
-    const runoff = ribbon(pts, side * (half + 1.2), side * (half + 8), 0.004, flood(std({ map: rise ? riseRunoffTex : runoffTex, roughness: rise ? 0.8 : 1 })), 20);
+    // (only out to where another part of the circuit is nearer, as at
+    // Monaco's swimming pool below Beau Rivage, where it would hang over that road)
+    const reach = p => { for (let o = half + 1.7; o <= half + 8; o += 0.5) { if (Math.abs(track.offset(p.x + p.nx * side * o, p.y + p.ny * side * o)) < o - 0.3) return side * (o - 0.5); } return side * (half + 8); };
+    const runoff = ribbon(pts, side * (half + 1.2), reach, 0.004, flood(std({ map: rise ? riseRunoffTex : runoffTex, roughness: rise ? 0.8 : 1 })), 20);
     if (rise) runoff.name = 'rise-runoff';
     world.add(runoff);
     // Barrier where its line is still nearest this part of the circuit.
@@ -1155,7 +1160,19 @@ function buildTerrain(world, track, { cx, cy, extent, minX, maxX, minY, maxY }, 
       const f = Math.max(0, Math.min(1, ((x - X[i]) * dx + (y - Y[i]) * dy) / (dx * dx + dy * dy))), d = Math.hypot(x - X[i] - dx * f, y - Y[i] - dy * f);
       if (!best || d < best.d) best = { d, s: S[i] + (S[i + 1] - S[i]) * f, right: dx * (y - Y[i]) - dy * (x - X[i]) < 0 };
     }
-    const w = smooth(wallAt + 4, wallAt + 150, best.d), road = track.elevation(best.s, best.right ? best.d : -best.d) - 0.25;
+    // Where two parts of the circuit run close (Monaco), the coarse nearest
+    // sample can be on the other one: then the exact nearest part decides,
+    // or the real ground would rise through the road.
+    if (best.d < wallAt + 60) {
+      const o = track.offset(x, y);
+      if (Math.abs(o) < best.d - 1e-6) best = { d: Math.abs(o), s: track.progress(x, y), right: o > 0 };
+    }
+    // (Deeper where the road surface is concave over a ground cell, across
+    // it as on the low side of a banked turn or along it as in a dip, so the
+    // facets between grid points stay under it.)
+    const o = best.right ? best.d : -best.d, e = (ds, a) => track.elevation(best.s + ds, a), e0 = e(0, o);
+    const dip = Math.max(0, (e(0, o - 5) + e(0, o + 5)) / 2 - e0) + Math.max(0, (e(-5, o) + e(5, o)) / 2 - e0);
+    const w = smooth(wallAt + 4, wallAt + 150, best.d), road = e0 - 0.25 - dip;
     return { h: w >= 1 ? far(x, y) : road + (far(x, y) - road) * w, d: best.d };
   };
   // Real water (scenery.water, water.mjs): each polygon's surface 0.6 m below

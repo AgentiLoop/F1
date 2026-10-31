@@ -419,3 +419,33 @@ test('the circuits\' own tunnels (OpenStreetMap): Monaco\'s tunnel, the pass und
   assert.deepEqual(Object.keys(m).sort(), ['monaco', 'monza', 'yas-marina']);
   assert.ok(m.monaco > 450 && m.monza >= 20 && m['yas-marina'] >= 20, JSON.stringify(m));
 });
+
+test('nothing stands on the road or its run-off: the ground stays under it where two parts of a circuit run close, and the pit building keeps off the rest of the lap', async () => {
+  const { PITS } = await import('../src/pits.mjs');
+  for (const key of ['monaco', 'zandvoort']) {
+    const track = createCircuitTrack({ ...CIRCUITS[key], pits: PITS[key] }), world = buildCircuitWorld(track, { scenery: SCENERY[key] }), half = track.roadWidth / 2;
+    // The ground mesh's facets at points across the road, against the road surface there.
+    const P = meshes(world).find(m => m.userData.kind === 'ground').geometry.attributes.position, xs = [], ys = [];
+    for (let i = 0; i < P.count && (!xs.length || P.getX(i) > xs.at(-1)); i++) xs.push(P.getX(i));
+    for (let j = 0; j * xs.length < P.count; j++) ys.push(-P.getZ(j * xs.length));
+    const cellOf = (v, a) => { let lo = 0, hi = v.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (v[m] <= a) lo = m; else hi = m; } return lo; };
+    const groundAt = (x, y) => {
+      const i = cellOf(xs, x), j = cellOf(ys, y), fx = (x - xs[i]) / (xs[i + 1] - xs[i]), fy = (y - ys[j]) / (ys[j + 1] - ys[j]), h = (u, v) => P.getY((j + v) * xs.length + i + u);
+      return fx + fy <= 1 ? h(0, 0) + (h(1, 0) - h(0, 0)) * fx + (h(0, 1) - h(0, 0)) * fy : h(1, 1) + (h(0, 1) - h(1, 1)) * (1 - fx) + (h(1, 0) - h(1, 1)) * (1 - fy);
+    };
+    let above = 0;
+    for (let s = 0; s < track.length; s += 2) for (let o = -half; o <= half; o += 1.5) {
+      const [x, y] = track.point(s, o);
+      if (Math.abs(Math.abs(track.offset(x, y)) - Math.abs(o)) < 0.5 && groundAt(x, y) > track.elevation(s, o) + 0.05) above++;
+    }
+    assert.ok(above < 10, `${key}: ground over the road at ${above} points`);
+    const pb = world.getObjectByName('pit-building');
+    if (pb) {
+      const B = pb.geometry.attributes.position, pit = track.pit, signed = s => s > track.length / 2 ? s - track.length : s;
+      for (let i = 0; i < B.count; i++) {
+        const x = B.getX(i), y = -B.getZ(i), s = signed(track.progress(x, y));
+        assert.ok((s > pit.entry - 20 && s < pit.exit + 20) || Math.abs(track.offset(x, y)) > track.wallOffset + 2, `${key}: pit building by lap metre ${s}`);
+      }
+    }
+  }
+});

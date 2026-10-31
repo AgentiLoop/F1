@@ -152,9 +152,25 @@ export function buildRiseStands(world, track, { ground, standSide, pitBoxes = 0,
     }
   }
   const pit = track.pit;
-  if (pit && pitBoxes > 0) {
-    const [s0, s1] = pitBuildingSpan(pit, pitBoxes), len = s1 - s0, sMid = (s0 + s1) / 2;
-    const depth = 20, height = 15, foot = 2, front = track.wallOffset + 1, dir = -pit.side;
+  const depth = 20, front = pit && track.wallOffset + 1, dir = pit && -pit.side;
+  // Cut to its longest stretch whose footprint (roof slab over the pit lane
+  // included, 3 m margin at the back) no other part of the circuit comes
+  // nearer than its own barrier + 3 m (Monaco's and Zandvoort's pits back
+  // onto the circuit further round the lap); none shorter than 40 m.
+  let span = pit && pitBoxes > 0 ? pitBuildingSpan(pit, pitBoxes) : null;
+  if (span) {
+    const clear = s => { for (let x = -8; x <= depth + 3; x += 2) { const [px, py] = track.point(s, dir * (front + x)); if (Math.abs(track.offset(px, py)) < Math.min(front + x, track.wallOffset + 3) - 0.5) return false; } return true; };
+    let best = null, a = null;
+    for (let s = span[0]; s <= span[1] + 1e-9; s += 2) {
+      if (clear(s)) { a ??= s; if (!best || s - a > best[1] - best[0]) best = [a, s]; } else a = null;
+    }
+    // (inset where cut: the roof slab reaches 3 m past the ends)
+    if (best) best = [best[0] > span[0] ? best[0] + 5 : best[0], best[1] < span[1] ? best[1] - 5 : best[1]];
+    span = best && best[1] - best[0] >= 40 ? best : null;
+  }
+  if (span) {
+    const [s0, s1] = span, len = s1 - s0, sMid = (s0 + s1) / 2;
+    const height = 15, foot = 2;
     const seg = l => Math.ceil(l / 4);
     // Bend a box laid out in pit-frame metres (x out from the garage line,
     // y up from the ground there, z along the lap) onto the straight.
