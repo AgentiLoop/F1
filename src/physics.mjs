@@ -29,6 +29,7 @@ export const DEFAULT_CAR = Object.freeze({
   maxBrakeForce: 34000,
   brakeBias: 0.59, rollingResistance: 0.015,
   maxSteer: 0.38, steerRate: 1.2,
+  assistDemand: 1.6, assistRelease: 0.3,
   // Sprung-body modes (illustrative): roll/pitch about axes near the ground,
   // heave against the aero platform springs. Damping as a ratio of critical.
   rollStiffness: 400000, rollInertia: 120, pitchStiffness: 600000, pitchInertia: 650,
@@ -346,8 +347,21 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
   if (!(Number.isFinite(dt) && dt > 0 && dt <= 1 / 60)) throw new RangeError('Use a positive timestep <= 1/60 s');
   const c = car.config, m = carMass(car);
   // An empty tank starves the engine: no drive, whatever the pedal.
-  const throttle = car.fuel == null || car.fuel > 0 ? clamp(input.throttle || 0, 0, 1) : 0;
+  let throttle = car.fuel == null || car.fuel > 0 ? clamp(input.throttle || 0, 0, 1) : 0;
   const brake = clamp(input.brake || 0, 0, 1);
+  // Driver aids (input.assist): traction control trims the throttle and ABS an
+  // axle's brakes once its tires pass assistDemand of the way to the peak
+  // (last step's combined demand, peak at 2), easing back over assistRelease s.
+  const aid = car.assist ??= { front: 1, rear: 1 };
+  if (input.assist) {
+    const axle = (a, b) => {
+      const w = car.telemetry.wheels, d = Math.max(w[a]?.combinedDemand ?? 0, w[b]?.combinedDemand ?? 0);
+      return clamp((2.2 - d) / (2.2 - c.assistDemand), 0, 1);
+    };
+    aid.front = Math.min(axle(0, 1), aid.front + dt / c.assistRelease);
+    aid.rear = Math.min(axle(2, 3), aid.rear + dt / c.assistRelease);
+    throttle *= aid.rear;
+  } else aid.front = aid.rear = 1;
   // Explicit direction requests wait for stopped chassis/wheels and safe pedals.
   const requestedGear = input.reverse === true ? -1 : input.reverse === false ? 1 : car.gear;
   if ((requestedGear < 0) !== (car.gear < 0) && car.shiftTimer === 0 && !input.throttle && brake > 0.5
@@ -453,9 +467,9 @@ export function step(car, input = {}, dt = FIXED_DT, surfaceAt = () => 1, barrie
     const contactV = v + car.yawRate * x;
     const wheelU = contactU * ca + contactV * sa;
     const wheelV = -contactU * sa + contactV * ca;
-    const brakeForce = brake * c.maxBrakeForce * (front ? c.brakeBias : 1 - c.brakeBias) / 2;
+    const brakeForce = brake * (front ? aid.front : aid.rear) * c.maxBrakeForce * (front ? c.brakeBias : 1 - c.brakeBias) / 2;
     const resistanceTorque = (brakeForce + c.rollingResistance * loads[i]) * c.wheelRadius
-      + (front ? 0 : engineBraking);
+      + (front ? 0 : engineBraking * aid.rear);
     const torque = front ? 0 : driveTorque + (i === 2 ? -diffTransfer : diffTransfer);
     const omega = car.wheelOmega[i];
     const r = c.wheelRadius, inertia = c.wheelInertia;

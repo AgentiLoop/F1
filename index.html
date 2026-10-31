@@ -28,7 +28,7 @@
 header{position:absolute;top:0;left:0;right:0;z-index:20}main{height:100vh}.tag,#timing{top:104px}aside{top:104px}#lights{top:114px}@media(max-width:760px){main{height:100vh}.tag,#timing{top:118px}aside{top:118px}#lights{top:118px}}</style>
 </head>
 <body>
-<header><div><h1><span>AgentiLoop</span> RACING</h1><div class="subtitle">F1 DYNAMICS SIMULATOR · 240 Hz PHYSICS</div></div><nav aria-label="Simulation controls"><button id="autopilot" aria-pressed="false">Autopilot: off</button><button id="pause" aria-pressed="false">Pause</button><button id="cockpit" aria-pressed="false">Camera: Chase</button><button id="view" aria-pressed="false">Overview</button><button id="sound" aria-pressed="true">Sound: on</button><button id="field" aria-pressed="true">Opponents: on</button><button id="reset">Reset car</button><button id="hud" aria-pressed="true">HUD: on</button><button id="line" aria-pressed="false">Line: off</button><button id="daytime" hidden>Time: day</button><button id="units">Units: km/h</button><button id="fullscreen" aria-pressed="false">Full screen</button><a id="github" class="btn" href="https://github.com/AgentiLoop/F1" target="_blank" rel="noopener" title="AgentiLoop/F1 on GitHub"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub F1</a><select id="track-select" aria-label="Circuit"><option value="">Stadium test track · race</option></select></nav></header>
+<header><div><h1><span>AgentiLoop</span> RACING</h1><div class="subtitle">F1 DYNAMICS SIMULATOR · 240 Hz PHYSICS</div></div><nav aria-label="Simulation controls"><button id="autopilot" aria-pressed="false">Autopilot: off</button><button id="assist" aria-pressed="true" title="Traction control and ABS (I)">Assist: on</button><button id="pause" aria-pressed="false">Pause</button><button id="cockpit" aria-pressed="false">Camera: Chase</button><button id="view" aria-pressed="false">Overview</button><button id="sound" aria-pressed="true">Sound: on</button><button id="field" aria-pressed="true">Opponents: on</button><button id="reset">Reset car</button><button id="hud" aria-pressed="true">HUD: on</button><button id="line" aria-pressed="false">Line: off</button><button id="daytime" hidden>Time: day</button><button id="units">Units: km/h</button><button id="fullscreen" aria-pressed="false">Full screen</button><a id="github" class="btn" href="https://github.com/AgentiLoop/F1" target="_blank" rel="noopener" title="AgentiLoop/F1 on GitHub"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub F1</a><select id="track-select" aria-label="Circuit"><option value="">Stadium test track · race</option></select></nav></header>
 <script>/* Until the module fills the picker, show the circuit being loaded (name saved by its onchange), not the stadium. */
 (k => { if (k) { const o = document.querySelector('#track-select option'); o.value = k; o.textContent = sessionStorage.getItem('track-name:' + k) || 'Loading ' + k + '…'; } })(new URLSearchParams(location.search).get('track'));</script>
 <main><section class="scene" aria-label="Driving viewport"><canvas id="track" role="img" aria-label="3D view of an open-wheel race car on a stadium-shaped test circuit"></canvas><div class="tag"><strong>LIVE</strong> &nbsp; THREE.JS 3D · 240 Hz PHYSICS / SI UNITS</div><div id="timing" aria-label="Lap timing"><div id="race-pos" aria-label="Race position"></div><div class="label" id="lap-label">Out lap</div><div id="lap-time">–:––.–––</div><div id="lap-delta"></div><div id="hud-speed" aria-label="Speed"><span id="speed-hud">0</span> <span class="unit">km/h</span></div><div id="pit-info" aria-label="Tyres and pit stop"></div></div><div id="lights" role="img" aria-label="Start lights" hidden><span></span><span></span><span></span><span></span><span></span></div><div id="hud-left"><canvas id="minimap" role="img" aria-label="Track map with car positions"></canvas><div id="status" role="status">Ready · W or ↑ to accelerate</div></div></section><aside aria-label="Vehicle telemetry">
@@ -188,6 +188,13 @@ function toggleHud() {
   $('hud').textContent = `HUD: ${on ? 'on' : 'off'}`; $('hud').setAttribute('aria-pressed', String(on));
 }
 $('hud').onclick = toggleHud;
+// Traction control and ABS for the player (real F1 cars have neither).
+let assistOn = true;
+function toggleAssist() {
+  assistOn = !assistOn;
+  $('assist').textContent = `Assist: ${assistOn ? 'on' : 'off'}`; $('assist').setAttribute('aria-pressed', String(assistOn));
+}
+$('assist').onclick = toggleAssist;
 let mph = false;
 $('units').onclick = () => {
   mph = !mph;
@@ -216,7 +223,7 @@ const title = c => c[0].toUpperCase() + c.slice(1);
 const drivingKeys = ['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyQ','KeyE','KeyF'];
 window.addEventListener('keydown', e => {
   if (e.target.closest('button,input,select,textarea')) return;
-  if ([...drivingKeys,'Space','KeyR','KeyV','KeyP','KeyC','KeyM','KeyO','KeyB','KeyH','KeyL','KeyT','KeyZ','KeyX','KeyG'].includes(e.code)) e.preventDefault();
+  if ([...drivingKeys,'Space','KeyR','KeyV','KeyP','KeyC','KeyM','KeyO','KeyB','KeyH','KeyL','KeyT','KeyZ','KeyX','KeyG','KeyI'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (e.code !== 'KeyM') startAudio();
   if (e.code === 'Space') pause(!paused);
@@ -233,6 +240,7 @@ window.addEventListener('keydown', e => {
   else if (/^(Digit|Numpad)[1-5]$/.test(e.code)) takeGridSlot(Number(e.code.at(-1)));
   else if (e.code === 'KeyZ' || e.code === 'KeyX') { if (sim.start.phase !== 'lights') manualShift(e.code === 'KeyX' ? 1 : -1); }
   else if (e.code === 'KeyG') autoGearbox();
+  else if (e.code === 'KeyI') toggleAssist();
   else if (!paused) keys.add(e.code);
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
@@ -571,7 +579,7 @@ function frame(now) {
   if (gamepadPressed(9)) toggleHud();
   if (gamepadPressed(1)) changeCamera();
   if (gamepadPressed(2) && !$('fullscreen').hidden) $('fullscreen').click();
-  if (gamepadPressed(0)) $('units').click();
+  if (gamepadPressed(0)) toggleAssist();
   if (gamepadPressed(8)) reset();
   // LB / RB on the start lights: the car one grid position ahead / behind.
   // After lights out they shift down / up (manual gearbox); left stick click: automatic again.
@@ -606,7 +614,8 @@ function frame(now) {
       command.brake = Math.max(command.brake, hardBrake);
     }
     // DRS: hold F; the race opens the flap only where it is allowed.
-    if (command) command.drs = has('KeyF');
+    // Traction control and ABS (I / gamepad A / Assist button) keep the rear from stepping out.
+    if (command) { command.drs = has('KeyF'); command.assist = assistOn; }
     // Taking over from manual reverse: stop before selecting forward. Never
     // send a forward-path autopilot's throttle through a reverse gearbox.
     const forwardRecovery = autopilot && sim.car.gear < 0;

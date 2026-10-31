@@ -113,6 +113,7 @@ README) are not uploaded.
 | B | Pit request: Soft → Medium → Hard → cancel |
 | 1–5 | On the start lights: drive the car on that grid position |
 | P | Autopilot on / off |
+| I | Driver assist (traction control + ABS) on / off; on by default. Real F1 cars have neither |
 | Space | Pause / resume |
 | R | Reset (restarts the race from the grid) |
 | C | Camera: chase → close chase → cockpit → driver → halo → T-cam |
@@ -149,7 +150,7 @@ P still switches the autopilot afterwards).
 | RB / LB (R1 / L1) | Shift up / down (manual gearbox); on the start lights: the grid slot behind / ahead |
 | Left-stick click (L3) | Automatic gearbox |
 | Right-stick click (R3) | On autopilot: autopilot off (take the wheel); driving, hold: DRS |
-| A (Cross) | Units: km/h ↔ mph |
+| A (Cross) | Driver assist (traction control + ABS) on / off |
 | B (Circle) | Cockpit / chase camera |
 | X (Square) | Full screen on / off (where the browser supports it) |
 | Y (Triangle) | Pause / resume |
@@ -162,7 +163,7 @@ P still switches the autopilot afterwards).
 * Keyboard and gamepad can be used together: the larger pedal value wins, and
   a held steering key or D-pad direction overrides the stick.
 * Buttons act once per press. R3 only turns the autopilot off; to hand the
-  car back to it use P. Pit request, overview camera, sound and opponents have
+  car back to it use P. Pit request, overview camera, sound, opponents and units have
   no gamepad button; use B, V, M and O on the keyboard.
 * Rumble mixes separate effects, each with its own motor and rhythm: engine
   throb, limiter chop, gear-shift thumps, tyre scrub, wheelspin, lockup
