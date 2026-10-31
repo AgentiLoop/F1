@@ -199,6 +199,8 @@ export function buildWorld({ halfStraight, radius, roadWidth, boxColors = [] }) 
   };
   const logoMat = new THREE.MeshStandardMaterial({ map: logo(1024, 128), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.08 });
   logoMat.emissiveMap = logoMat.map;
+  // The signs sit a few cm proud of their backings; pull them forward in depth so they don't z-fight at range.
+  Object.assign(logoMat, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
   const boardBack = new THREE.MeshStandardMaterial({ color: 0x1a2430, roughness: 0.8 });
   const boardMats = [boardBack, boardBack, boardBack, boardBack, logoMat, boardBack];
   const boardSpots = [];
@@ -480,6 +482,8 @@ export function buildCircuitWorld(track, { boxColors = [], scenery = DEFAULT_SCE
   const logo = (w, h) => { const t = texture(1, () => {}); const cv = t.image; cv.width = w; cv.height = h; drawLogo(cv.getContext('2d'), w, h, true); t.needsUpdate = true; return t; };
   const logoMat = new THREE.MeshStandardMaterial({ map: logo(1024, 128), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.08 });
   logoMat.emissiveMap = logoMat.map;
+  // The signs sit a few cm proud of their backings; pull them forward in depth so they don't z-fight at range.
+  Object.assign(logoMat, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
   // With terrain: the RISE sim's membrane-roofed grandstands across from the
   // pits and its pit building (with our branding) instead of the garages.
   if (track.hasElevation) buildRiseStands(world, track, { ground: terrainHeight, standSide, pitBoxes: pit && standSide !== -pit.side ? Math.max(boxColors.length, 5) : 0, logoMat });
