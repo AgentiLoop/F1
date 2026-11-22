@@ -1,5 +1,7 @@
 # AgentiLoop Racing • F1 Dynamics Lab • ProtoType III
 
+🤖 **Made with [AgentiLoop Agent!](https://github.com/AgentiLoop/Agent)**, the autonomous AI agent for your Mac · 🌐 [agentiloop.ai](https://agentiloop.ai) · ▶️ **Play:** [f1.gokart.games](https://f1.gokart.games)
+
 **Play it in your browser: [f1.gokart.games](https://f1.gokart.games)**
 
 <img width="1945" height="1149" alt="Screenshot 2026-10-19 at 6 55 02 PM" src="https://github.com/user-attachments/assets/3438bf84-d85a-4ff9-beeb-89b3ecfdd493" />
